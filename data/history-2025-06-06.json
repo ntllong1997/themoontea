@@ -1,0 +1,37 @@
+[
+  [
+    {
+      "type": "Boba",
+      "drink": "Milk Tea",
+      "boba": "Popping",
+      "price": 5
+    }
+  ],
+  [
+    {
+      "type": "Boba",
+      "drink": "Tropical",
+      "boba": "Mango Popping",
+      "price": 7
+    },
+    {
+      "type": "Boba",
+      "drink": "Tropical",
+      "boba": "Mango Popping",
+      "price": 7
+    }
+  ],
+  [
+    {
+      "type": "Corndog",
+      "name": "Half-Half Potato",
+      "price": 8
+    },
+    {
+      "type": "Boba",
+      "drink": "Golden Taro",
+      "boba": "Mango Popping",
+      "price": 7
+    }
+  ]
+]
