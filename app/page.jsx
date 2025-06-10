@@ -16,10 +16,17 @@ export default function OrderSystem() {
 
     useEffect(() => {
         const fetchHistory = async () => {
-            const storedHistory = await getOrderHistory();
-            setHistory(storedHistory);
+            try {
+                const groupedOrders = await getOrderHistory(); // API returns array of arrays
+                // Optional: sort groups by timestamp of first item in each group (most recent first)
+
+                setHistory(groupedOrders);
+            } catch (error) {
+                console.error('Failed to fetch order history:', error);
+            }
         };
         fetchHistory();
+        console.log('Order history fetched:', history);
     }, []);
 
     const prices = {
@@ -28,21 +35,23 @@ export default function OrderSystem() {
     };
 
     const handleAddItem = () => {
+        let name = '';
         if (category === 'Boba' && selectedDrink && selectedBoba) {
+            name = `${selectedDrink} with ${selectedBoba}`;
             const item = {
-                type: 'Boba',
-                drink: selectedDrink,
-                boba: selectedBoba,
+                name,
                 price: prices.Boba,
+                type: 'Boba',
             };
             setOrders([...orders, item]);
             setSelectedDrink('');
             setSelectedBoba('');
         } else if (category === 'Corndog' && selectedCorndog) {
+            name = selectedCorndog;
             const item = {
-                type: 'Corndog',
-                name: selectedCorndog,
+                name,
                 price: prices.Corndog,
+                type: 'Corndog',
             };
             setOrders([...orders, item]);
             setSelectedCorndog('');
@@ -51,9 +60,28 @@ export default function OrderSystem() {
 
     const handleSendOrder = async () => {
         if (orders.length === 0) return;
-        const newHistory = [...history, orders];
+
+        // Generate next order number
+        const nextOrderNumber =
+            history
+                .flat()
+                .reduce(
+                    (max, item) => Math.max(max, item.orderNumber || 0),
+                    0
+                ) + 1;
+
+        const timestamp = new Date().toISOString();
+        const enrichedOrders = orders.map((item) => ({
+            orderNumber: nextOrderNumber,
+            name: item.name,
+            price: item.price,
+            type: item.type, // 👈 Add this
+            timestamp,
+        }));
+
+        const newHistory = [...history, enrichedOrders];
         setHistory(newHistory);
-        await saveOrderHistory(newHistory);
+        await saveOrderHistory(enrichedOrders);
         setOrders([]);
     };
 
@@ -83,12 +111,12 @@ export default function OrderSystem() {
 
             <TabsContent value='order'>
                 <div className='grid grid-cols-2 gap-4 mt-4'>
-                    {/* Order Panel + Summary Combined */}
                     <Card className='col-span-2'>
                         <CardContent>
                             <h2 className='text-xl font-bold mb-4'>
                                 Order Panel
                             </h2>
+                            {/* Category Buttons */}
                             <div className='mb-2'>
                                 <Button
                                     variant={
@@ -113,6 +141,7 @@ export default function OrderSystem() {
                                 </Button>
                             </div>
 
+                            {/* Options */}
                             {category === 'Boba' && (
                                 <div className='grid grid-cols-2 gap-2 mb-4'>
                                     <div>
@@ -208,10 +237,7 @@ export default function OrderSystem() {
                                     className='flex justify-between items-center mb-2'
                                 >
                                     <span>
-                                        {item.type === 'Boba'
-                                            ? `${item.drink} with ${item.boba}`
-                                            : item.name}{' '}
-                                        - ${item.price.toFixed(2)}
+                                        {item.name} - ${item.price.toFixed(2)}
                                     </span>
                                     <Button
                                         variant='destructive'
@@ -244,22 +270,37 @@ export default function OrderSystem() {
                         <h2 className='text-xl font-bold mb-4'>
                             Order History
                         </h2>
-                        {history.map((orderList, index) => (
-                            <div key={index} className='mb-4 border-b pb-2'>
-                                <p className='font-semibold'>
-                                    Order #{index + 1} - Total: $
-                                    {calculateOrderTotal(orderList)}
-                                </p>
-                                {orderList.map((item, itemIndex) => (
-                                    <div key={itemIndex} className='text-sm'>
-                                        {item.type === 'Boba'
-                                            ? `${item.drink} with ${item.boba}`
-                                            : item.name}{' '}
-                                        - ${item.price.toFixed(2)}
-                                    </div>
-                                ))}
-                            </div>
-                        ))}
+                        {history.map((orderList, index) => {
+                            const sortedOrder = [...orderList].sort((a, b) => {
+                                const typeA = a.type || '';
+                                const typeB = b.type || '';
+                                return typeA.localeCompare(typeB);
+                            });
+
+                            const orderNumber =
+                                orderList[0]?.orderNumber ?? index + 1;
+                            return (
+                                <div key={index} className='mb-4 border-b pb-2'>
+                                    <p className='font-semibold'>
+                                        Order #{orderNumber} - Total: $
+                                        {calculateOrderTotal(orderList)}
+                                    </p>
+                                    {sortedOrder.map((item, itemIndex) => (
+                                        <div
+                                            key={itemIndex}
+                                            className={`text-sm p-1 rounded ${
+                                                item.type !== 'Boba'
+                                                    ? 'bg-blue-100'
+                                                    : 'bg-yellow-50'
+                                            }`}
+                                        >
+                                            {item.name} - $
+                                            {item.price.toFixed(2)}
+                                        </div>
+                                    ))}
+                                </div>
+                            );
+                        })}
                     </CardContent>
                 </Card>
             </TabsContent>
