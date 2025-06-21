@@ -32,6 +32,7 @@ export default function OrderSystem() {
     const prices = {
         Boba: 7.0,
         Corndog: 8.0,
+        Dubai: 12.0,
     };
 
     const handleAddItem = () => {
@@ -47,10 +48,10 @@ export default function OrderSystem() {
             setSelectedDrink('');
             setSelectedBoba('');
         } else if (category === 'Corndog' && selectedCorndog) {
-            name = selectedCorndog;
+            const isDubai = selectedCorndog === 'Dubai Chocolate';
             const item = {
-                name,
-                price: prices.Corndog,
+                name: selectedCorndog,
+                price: isDubai ? prices.Dubai : prices.Corndog,
                 type: 'Corndog',
             };
             setOrders([...orders, item]);
@@ -103,13 +104,13 @@ export default function OrderSystem() {
     };
 
     return (
-        <Tabs defaultValue='order' className='p-4'>
-            <TabsList>
+        <Tabs defaultValue='history' className='p-4'>
+            <TabsList className='fixed top-0 left-0 right-0 z-50 bg-white p-2 shadow'>
                 <TabsTrigger value='order'>Order</TabsTrigger>
                 <TabsTrigger value='history'>History</TabsTrigger>
             </TabsList>
 
-            <TabsContent value='order'>
+            <TabsContent value='order' className='mt-20'>
                 <div className='grid grid-cols-2 gap-4 mt-4'>
                     <Card className='col-span-2'>
                         <CardContent>
@@ -204,6 +205,7 @@ export default function OrderSystem() {
                                         'Cheese Hot Cheeto',
                                         'Half-Half Potato',
                                         'Half-Half Hot Cheeto',
+                                        'Dubai Chocolate',
                                     ].map((corndog) => (
                                         <Button
                                             key={corndog}
@@ -264,7 +266,7 @@ export default function OrderSystem() {
                 </div>
             </TabsContent>
 
-            <TabsContent value='history'>
+            <TabsContent value='history' className='mt-20'>
                 <Card className='mt-4'>
                     <CardContent>
                         <h2 className='text-xl font-bold mb-4'>
