@@ -5,6 +5,7 @@ import { getOrderHistory, saveOrderHistory } from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
+import { getLatestOrderNumber } from '@/lib/db';
 
 export default function OrderSystem() {
     const [orders, setOrders] = useState([]);
@@ -30,7 +31,7 @@ export default function OrderSystem() {
     }, []);
 
     const prices = {
-        Boba: 7.0,
+        Boba: 8.0,
         Corndog: 8.0,
         Dubai: 12.0,
     };
@@ -62,28 +63,25 @@ export default function OrderSystem() {
     const handleSendOrder = async () => {
         if (orders.length === 0) return;
 
-        // Generate next order number
-        const nextOrderNumber =
-            history
-                .flat()
-                .reduce(
-                    (max, item) => Math.max(max, item.orderNumber || 0),
-                    0
-                ) + 1;
+        try {
+            const latestOrderNumber = await getLatestOrderNumber();
+            const nextOrderNumber = latestOrderNumber + 1;
+            const timestamp = new Date().toISOString();
 
-        const timestamp = new Date().toISOString();
-        const enrichedOrders = orders.map((item) => ({
-            orderNumber: nextOrderNumber,
-            name: item.name,
-            price: item.price,
-            type: item.type, // 👈 Add this
-            timestamp,
-        }));
+            const enrichedOrders = orders.map((item) => ({
+                orderNumber: nextOrderNumber,
+                name: item.name,
+                price: item.price,
+                type: item.type,
+                timestamp,
+            }));
 
-        const newHistory = [...history, enrichedOrders];
-        setHistory(newHistory);
-        await saveOrderHistory(enrichedOrders);
-        setOrders([]);
+            await saveOrderHistory(enrichedOrders);
+            setHistory([...history, enrichedOrders]);
+            setOrders([]);
+        } catch (err) {
+            console.error('Send order failed:', err);
+        }
     };
 
     const handleRemoveItem = (index) => {
@@ -93,7 +91,7 @@ export default function OrderSystem() {
     };
 
     const subtotal = orders.reduce((acc, item) => acc + item.price, 0);
-    const taxRate = 0.0825;
+    const taxRate = 0.0;
     const tax = subtotal * taxRate;
     const total = (subtotal + tax).toFixed(2);
 
