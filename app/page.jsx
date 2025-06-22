@@ -147,8 +147,9 @@ export default function OrderSystem() {
                                         <p className='font-semibold'>Drinks</p>
                                         {[
                                             'Brown Sugar',
-                                            'Golden Taro',
-                                            'Thai Tea',
+                                            'Korean Strawberry',
+                                            'Double Cheese',
+                                            'Tiramisu',
                                             'Tropical',
                                             'Strawberry',
                                             'Cafe',
