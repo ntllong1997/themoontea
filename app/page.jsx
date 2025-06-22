@@ -101,6 +101,19 @@ export default function OrderSystem() {
         return (subtotal + tax).toFixed(2);
     };
 
+    const calculateTotalRevenue = (history) => {
+        return history
+            .reduce((total, orderList) => {
+                const subtotal = orderList.reduce(
+                    (sum, item) => sum + item.price,
+                    0
+                );
+                const tax = subtotal * taxRate;
+                return total + subtotal + tax;
+            }, 0)
+            .toFixed(2);
+    };
+
     return (
         <Tabs defaultValue='history' className='p-4'>
             <TabsList className='fixed top-0 left-0 right-0 z-50 bg-white p-2 shadow'>
@@ -271,12 +284,9 @@ export default function OrderSystem() {
                             Order History
                         </h2>
                         {history.map((orderList, index) => {
-                            const sortedOrder = [...orderList].sort((a, b) => {
-                                const typeA = a.type || '';
-                                const typeB = b.type || '';
-                                return typeA.localeCompare(typeB);
-                            });
-
+                            const sortedOrder = [...orderList].sort((a, b) =>
+                                (a.type || '').localeCompare(b.type || '')
+                            );
                             const orderNumber =
                                 orderList[0]?.orderNumber ?? index + 1;
                             return (
@@ -301,6 +311,10 @@ export default function OrderSystem() {
                                 </div>
                             );
                         })}
+
+                        <div className='mt-6 text-right font-bold text-lg'>
+                            Total Revenue: ${calculateTotalRevenue(history)}
+                        </div>
                     </CardContent>
                 </Card>
             </TabsContent>
