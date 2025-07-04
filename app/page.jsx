@@ -1,11 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getOrderHistory, saveOrderHistory } from '@/lib/db';
+import {
+    getOrderHistory,
+    saveOrderHistory,
+    getLatestOrderNumber,
+    listenToOrderInserts,
+    unsubscribe,
+} from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
-import { getLatestOrderNumber } from '@/lib/db';
 
 export default function OrderSystem() {
     const [orders, setOrders] = useState([]);
@@ -15,19 +20,29 @@ export default function OrderSystem() {
     const [selectedDrink, setSelectedDrink] = useState('');
     const [selectedCorndog, setSelectedCorndog] = useState('');
 
+    // Fetch history + setup realtime
     useEffect(() => {
         const fetchHistory = async () => {
-            try {
-                const groupedOrders = await getOrderHistory(); // API returns array of arrays
-                // Optional: sort groups by timestamp of first item in each group (most recent first)
-
-                setHistory(groupedOrders);
-            } catch (error) {
-                console.error('Failed to fetch order history:', error);
-            }
+            const groupedOrders = await getOrderHistory();
+            setHistory(
+                groupedOrders.sort((a, b) => {
+                    const numA = a[0]?.orderNumber || 0;
+                    const numB = b[0]?.orderNumber || 0;
+                    return numB - numA; // Latest first
+                })
+            );
         };
+
         fetchHistory();
-        console.log('Order history fetched:', history);
+
+        const channel = listenToOrderInserts(() => {
+            console.log('🔄 Refreshing history after new order...');
+            fetchHistory();
+        });
+
+        return () => {
+            unsubscribe(channel);
+        };
     }, []);
 
     const prices = {
@@ -77,7 +92,6 @@ export default function OrderSystem() {
             }));
 
             await saveOrderHistory(enrichedOrders);
-            setHistory([...history, enrichedOrders]);
             setOrders([]);
         } catch (err) {
             console.error('Send order failed:', err);
@@ -91,7 +105,7 @@ export default function OrderSystem() {
     };
 
     const subtotal = orders.reduce((acc, item) => acc + item.price, 0);
-    const taxRate = 0.0;
+    const taxRate = 0.0825;
     const tax = subtotal * taxRate;
     const total = (subtotal + tax).toFixed(2);
 
@@ -190,6 +204,7 @@ export default function OrderSystem() {
                                             'Tapioca',
                                             'Mango Popping',
                                             'Strawberry Popping',
+                                            'No Boba',
                                         ].map((boba) => (
                                             <Button
                                                 key={boba}
