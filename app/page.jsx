@@ -105,7 +105,7 @@ export default function OrderSystem() {
     };
 
     const subtotal = orders.reduce((acc, item) => acc + item.price, 0);
-    const taxRate = 0.0825;
+    const taxRate = 0.0;
     const tax = subtotal * taxRate;
     const total = (subtotal + tax).toFixed(2);
 
