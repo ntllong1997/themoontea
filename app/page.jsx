@@ -5,8 +5,6 @@ import {
     getOrderHistory,
     saveOrderHistory,
     getLatestOrderNumber,
-    listenToOrderInserts,
-    unsubscribe,
 } from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -20,59 +18,74 @@ export default function OrderSystem() {
     const [selectedDrink, setSelectedDrink] = useState('');
     const [selectedCorndog, setSelectedCorndog] = useState('');
 
-    // Fetch history + setup realtime
     useEffect(() => {
         const fetchHistory = async () => {
-            const groupedOrders = await getOrderHistory();
-            setHistory(
-                groupedOrders.sort((a, b) => {
-                    const numA = a[0]?.orderNumber || 0;
-                    const numB = b[0]?.orderNumber || 0;
-                    return numB - numA; // Latest first
-                })
+            console.log(
+                `📡 Fetching order history at: ${new Date().toISOString()}`
             );
+            try {
+                const groupedOrders = await getOrderHistory();
+                setHistory(groupedOrders);
+            } catch (error) {
+                console.error('Failed to fetch order history:', error);
+            }
         };
 
         fetchHistory();
-
-        const channel = listenToOrderInserts(() => {
-            console.log('🔄 Refreshing history after new order...');
-            fetchHistory();
-        });
-
-        return () => {
-            unsubscribe(channel);
-        };
+        const intervalId = setInterval(fetchHistory, 3000); // Poll every 3s
+        return () => clearInterval(intervalId);
     }, []);
 
     const prices = {
         Boba: 8.0,
-        Corndog: 8.0,
+        Corndog: 9.0,
         Dubai: 12.0,
     };
 
     const handleAddItem = () => {
         let name = '';
+        let price = 0;
         if (category === 'Boba' && selectedDrink && selectedBoba) {
             name = `${selectedDrink} with ${selectedBoba}`;
-            const item = {
-                name,
-                price: prices.Boba,
-                type: 'Boba',
-            };
-            setOrders([...orders, item]);
-            setSelectedDrink('');
-            setSelectedBoba('');
+            price = prices.Boba;
         } else if (category === 'Corndog' && selectedCorndog) {
-            const isDubai = selectedCorndog === 'Dubai Chocolate';
-            const item = {
-                name: selectedCorndog,
-                price: isDubai ? prices.Dubai : prices.Corndog,
-                type: 'Corndog',
-            };
-            setOrders([...orders, item]);
-            setSelectedCorndog('');
+            name = selectedCorndog;
+            price =
+                selectedCorndog === 'Dubai Chocolate'
+                    ? prices.Dubai
+                    : prices.Corndog;
+        } else {
+            return; // Nothing selected
         }
+
+        // Check if item already exists
+        const existingIndex = orders.findIndex((item) => item.name === name);
+        if (existingIndex >= 0) {
+            const updatedOrders = [...orders];
+            updatedOrders[existingIndex].quantity += 1;
+            setOrders(updatedOrders);
+        } else {
+            const newItem = {
+                name,
+                price,
+                type: category,
+                quantity: 1,
+            };
+            setOrders([...orders, newItem]);
+        }
+
+        setSelectedDrink('');
+        setSelectedBoba('');
+        setSelectedCorndog('');
+    };
+
+    const handleQuantityChange = (index, delta) => {
+        const updatedOrders = [...orders];
+        updatedOrders[index].quantity += delta;
+        if (updatedOrders[index].quantity <= 0) {
+            updatedOrders.splice(index, 1); // Remove if quantity drops to 0
+        }
+        setOrders(updatedOrders);
     };
 
     const handleSendOrder = async () => {
@@ -83,28 +96,28 @@ export default function OrderSystem() {
             const nextOrderNumber = latestOrderNumber + 1;
             const timestamp = new Date().toISOString();
 
-            const enrichedOrders = orders.map((item) => ({
-                orderNumber: nextOrderNumber,
-                name: item.name,
-                price: item.price,
-                type: item.type,
-                timestamp,
-            }));
+            const enrichedOrders = orders.flatMap((item) =>
+                Array.from({ length: item.quantity }).map(() => ({
+                    orderNumber: nextOrderNumber,
+                    name: item.name,
+                    price: item.price,
+                    type: item.type,
+                    timestamp,
+                }))
+            );
 
             await saveOrderHistory(enrichedOrders);
+            setHistory([...history, enrichedOrders]);
             setOrders([]);
         } catch (err) {
             console.error('Send order failed:', err);
         }
     };
 
-    const handleRemoveItem = (index) => {
-        const newOrders = [...orders];
-        newOrders.splice(index, 1);
-        setOrders(newOrders);
-    };
-
-    const subtotal = orders.reduce((acc, item) => acc + item.price, 0);
+    const subtotal = orders.reduce(
+        (acc, item) => acc + item.price * item.quantity,
+        0
+    );
     const taxRate = 0.0;
     const tax = subtotal * taxRate;
     const total = (subtotal + tax).toFixed(2);
@@ -204,7 +217,6 @@ export default function OrderSystem() {
                                             'Tapioca',
                                             'Mango Popping',
                                             'Strawberry Popping',
-                                            'No Boba',
                                         ].map((boba) => (
                                             <Button
                                                 key={boba}
@@ -266,15 +278,39 @@ export default function OrderSystem() {
                                     className='flex justify-between items-center mb-2'
                                 >
                                     <span>
-                                        {item.name} - ${item.price.toFixed(2)}
+                                        {item.name} - ${item.price.toFixed(2)} x{' '}
+                                        {item.quantity}
                                     </span>
-                                    <Button
-                                        variant='destructive'
-                                        size='sm'
-                                        onClick={() => handleRemoveItem(index)}
-                                    >
-                                        Remove
-                                    </Button>
+                                    <div className='flex items-center gap-2'>
+                                        <Button
+                                            size='sm'
+                                            onClick={() =>
+                                                handleQuantityChange(index, -1)
+                                            }
+                                        >
+                                            -
+                                        </Button>
+                                        <Button
+                                            size='sm'
+                                            onClick={() =>
+                                                handleQuantityChange(index, 1)
+                                            }
+                                        >
+                                            +
+                                        </Button>
+                                        <Button
+                                            variant='destructive'
+                                            size='sm'
+                                            onClick={() =>
+                                                handleQuantityChange(
+                                                    index,
+                                                    -item.quantity
+                                                )
+                                            }
+                                        >
+                                            Remove
+                                        </Button>
+                                    </div>
                                 </div>
                             ))}
                             <div className='mt-4'>
@@ -300,9 +336,6 @@ export default function OrderSystem() {
                             Order History
                         </h2>
                         {history.map((orderList, index) => {
-                            const sortedOrder = [...orderList].sort((a, b) =>
-                                (a.type || '').localeCompare(b.type || '')
-                            );
                             const orderNumber =
                                 orderList[0]?.orderNumber ?? index + 1;
                             return (
@@ -311,7 +344,7 @@ export default function OrderSystem() {
                                         Order #{orderNumber} - Total: $
                                         {calculateOrderTotal(orderList)}
                                     </p>
-                                    {sortedOrder.map((item, itemIndex) => (
+                                    {orderList.map((item, itemIndex) => (
                                         <div
                                             key={itemIndex}
                                             className={`text-sm p-1 rounded ${
@@ -327,7 +360,6 @@ export default function OrderSystem() {
                                 </div>
                             );
                         })}
-
                         <div className='mt-6 text-right font-bold text-lg'>
                             Total Revenue: ${calculateTotalRevenue(history)}
                         </div>
