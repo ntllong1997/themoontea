@@ -38,8 +38,8 @@ export default function OrderSystem() {
 
     const prices = {
         Boba: 8.0,
-        Corndog: 9.0,
-        Dubai: 12.0,
+        Corndog: 8.0,
+        Soda: 3.0,
     };
 
     const handleAddItem = () => {
@@ -50,10 +50,7 @@ export default function OrderSystem() {
             price = prices.Boba;
         } else if (category === 'Corndog' && selectedCorndog) {
             name = selectedCorndog;
-            price =
-                selectedCorndog === 'Dubai Chocolate'
-                    ? prices.Dubai
-                    : prices.Corndog;
+            price = selectedCorndog === 'Soda' ? prices.Soda : prices.Corndog;
         } else {
             return; // Nothing selected
         }
@@ -118,7 +115,7 @@ export default function OrderSystem() {
         (acc, item) => acc + item.price * item.quantity,
         0
     );
-    const taxRate = 0.0;
+    const taxRate = 0.0825;
     const tax = subtotal * taxRate;
     const total = (subtotal + tax).toFixed(2);
 
@@ -244,7 +241,7 @@ export default function OrderSystem() {
                                         'Cheese Hot Cheeto',
                                         'Half-Half Potato',
                                         'Half-Half Hot Cheeto',
-                                        'Dubai Chocolate',
+                                        'Soda',
                                     ].map((corndog) => (
                                         <Button
                                             key={corndog}
