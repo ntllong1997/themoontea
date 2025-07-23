@@ -9,14 +9,11 @@ import {
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
+import Menu from './menu/page';
 
 export default function OrderSystem() {
     const [orders, setOrders] = useState([]);
     const [history, setHistory] = useState([]);
-    const [category, setCategory] = useState('Boba');
-    const [selectedBoba, setSelectedBoba] = useState('');
-    const [selectedDrink, setSelectedDrink] = useState('');
-    const [selectedCorndog, setSelectedCorndog] = useState('');
 
     useEffect(() => {
         const fetchHistory = async () => {
@@ -36,44 +33,17 @@ export default function OrderSystem() {
         return () => clearInterval(intervalId);
     }, []);
 
-    const prices = {
-        Boba: 8.0,
-        Corndog: 8.0,
-        Soda: 3.0,
-    };
-
-    const handleAddItem = () => {
-        let name = '';
-        let price = 0;
-        if (category === 'Boba' && selectedDrink && selectedBoba) {
-            name = `${selectedDrink} with ${selectedBoba}`;
-            price = prices.Boba;
-        } else if (category === 'Corndog' && selectedCorndog) {
-            name = selectedCorndog;
-            price = selectedCorndog === 'Soda' ? prices.Soda : prices.Corndog;
-        } else {
-            return; // Nothing selected
-        }
-
-        // Check if item already exists
-        const existingIndex = orders.findIndex((item) => item.name === name);
+    const handleAddItem = (newItem) => {
+        const existingIndex = orders.findIndex(
+            (item) => item.name === newItem.name
+        );
         if (existingIndex >= 0) {
             const updatedOrders = [...orders];
             updatedOrders[existingIndex].quantity += 1;
             setOrders(updatedOrders);
         } else {
-            const newItem = {
-                name,
-                price,
-                type: category,
-                quantity: 1,
-            };
             setOrders([...orders, newItem]);
         }
-
-        setSelectedDrink('');
-        setSelectedBoba('');
-        setSelectedCorndog('');
     };
 
     const handleQuantityChange = (index, delta) => {
@@ -152,121 +122,7 @@ export default function OrderSystem() {
                             <h2 className='text-xl font-bold mb-4'>
                                 Order Panel
                             </h2>
-                            {/* Category Buttons */}
-                            <div className='mb-2'>
-                                <Button
-                                    variant={
-                                        category === 'Boba'
-                                            ? 'default'
-                                            : 'outline'
-                                    }
-                                    onClick={() => setCategory('Boba')}
-                                >
-                                    Boba
-                                </Button>
-                                <Button
-                                    variant={
-                                        category === 'Corndog'
-                                            ? 'default'
-                                            : 'outline'
-                                    }
-                                    onClick={() => setCategory('Corndog')}
-                                    className='ml-2'
-                                >
-                                    Corndog
-                                </Button>
-                            </div>
-
-                            {/* Options */}
-                            {category === 'Boba' && (
-                                <div className='grid grid-cols-2 gap-2 mb-4'>
-                                    <div>
-                                        <p className='font-semibold'>Drinks</p>
-                                        {[
-                                            'Brown Sugar',
-                                            'Korean Strawberry',
-                                            'Double Cheese',
-                                            'Tiramisu',
-                                            'Tropical',
-                                            'Strawberry',
-                                            'Cafe',
-                                            'Matcha Strawberry',
-                                        ].map((drink) => (
-                                            <Button
-                                                key={drink}
-                                                variant={
-                                                    selectedDrink === drink
-                                                        ? 'default'
-                                                        : 'outline'
-                                                }
-                                                className='w-full mb-1'
-                                                onClick={() =>
-                                                    setSelectedDrink(drink)
-                                                }
-                                            >
-                                                {drink}
-                                            </Button>
-                                        ))}
-                                    </div>
-                                    <div>
-                                        <p className='font-semibold'>Boba</p>
-                                        {[
-                                            'Tapioca',
-                                            'Mango Popping',
-                                            'Strawberry Popping',
-                                        ].map((boba) => (
-                                            <Button
-                                                key={boba}
-                                                variant={
-                                                    selectedBoba === boba
-                                                        ? 'default'
-                                                        : 'outline'
-                                                }
-                                                className='w-full mb-1'
-                                                onClick={() =>
-                                                    setSelectedBoba(boba)
-                                                }
-                                            >
-                                                {boba}
-                                            </Button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {category === 'Corndog' && (
-                                <div className='grid grid-cols-1 gap-2 mb-4'>
-                                    {[
-                                        'Cheese Potato',
-                                        'Cheese Hot Cheeto',
-                                        'Half-Half Potato',
-                                        'Half-Half Hot Cheeto',
-                                        'Soda',
-                                    ].map((corndog) => (
-                                        <Button
-                                            key={corndog}
-                                            variant={
-                                                selectedCorndog === corndog
-                                                    ? 'default'
-                                                    : 'outline'
-                                            }
-                                            className='w-full'
-                                            onClick={() =>
-                                                setSelectedCorndog(corndog)
-                                            }
-                                        >
-                                            {corndog}
-                                        </Button>
-                                    ))}
-                                </div>
-                            )}
-
-                            <Button
-                                onClick={handleAddItem}
-                                className='w-full mb-6'
-                            >
-                                Add to Order
-                            </Button>
+                            <Menu onAddItem={handleAddItem} />
 
                             <h2 className='text-xl font-bold mb-4'>Summary</h2>
                             {orders.map((item, index) => (
