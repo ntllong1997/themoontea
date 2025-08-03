@@ -38,7 +38,7 @@ export default function OrderSystem() {
 
     const prices = {
         Boba: 8.0,
-        Corndog: 8.0,
+        Corndog: 9.0,
         Soda: 3.0,
     };
 
