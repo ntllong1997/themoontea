@@ -2,113 +2,81 @@
 
 import { useState, useEffect } from 'react';
 import {
+    getMenu,
     getOrderHistory,
     saveOrderHistory,
     getLatestOrderNumber,
 } from '@/lib/db';
-import { Card, CardContent } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
+import MenuPanel from '@/components/MenuPanel';
+import OrderSummary from '@/components/OrderSummary';
+import HistoryPanel from '@/components/HistoryPanel';
+import { Card, CardContent } from '@/components/ui/Card';
 
 export default function OrderSystem() {
+    const [menu, setMenu] = useState([]);
     const [orders, setOrders] = useState([]);
     const [history, setHistory] = useState([]);
-    const [category, setCategory] = useState('Boba');
-    const [selectedBoba, setSelectedBoba] = useState('');
-    const [selectedDrink, setSelectedDrink] = useState('');
-    const [selectedCorndog, setSelectedCorndog] = useState('');
+    const [category, setCategory] = useState('');
 
     useEffect(() => {
-        const fetchHistory = async () => {
-            console.log(
-                `📡 Fetching order history at: ${new Date().toISOString()}`
-            );
-            try {
-                const groupedOrders = await getOrderHistory();
-                setHistory(groupedOrders);
-            } catch (error) {
-                console.error('Failed to fetch order history:', error);
-            }
-        };
+        const fetchData = async () => {
+            const menuData = await getMenu();
+            setMenu(menuData);
+            if (menuData.length > 0) setCategory(menuData[0].category);
 
-        fetchHistory();
-        const intervalId = setInterval(fetchHistory, 3000); // Poll every 3s
-        return () => clearInterval(intervalId);
+            const historyData = await getOrderHistory();
+            setHistory(historyData);
+        };
+        fetchData();
+
+        const interval = setInterval(async () => {
+            const historyData = await getOrderHistory();
+            setHistory(historyData);
+            console.log(`📡 Fetched history at ${new Date().toISOString()}`);
+        }, 3000);
+
+        return () => clearInterval(interval);
     }, []);
 
-    const prices = {
-        Boba: 8.0,
-        Corndog: 9.0,
-        Soda: 3.0,
-    };
-
-    const handleAddItem = () => {
-        let name = '';
-        let price = 0;
-        if (category === 'Boba' && selectedDrink && selectedBoba) {
-            name = `${selectedDrink} with ${selectedBoba}`;
-            price = prices.Boba;
-        } else if (category === 'Corndog' && selectedCorndog) {
-            name = selectedCorndog;
-            price = selectedCorndog === 'Soda' ? prices.Soda : prices.Corndog;
-        } else {
-            return; // Nothing selected
-        }
-
-        // Check if item already exists
-        const existingIndex = orders.findIndex((item) => item.name === name);
+    const handleAddItem = (item) => {
+        const existingIndex = orders.findIndex((o) => o.name === item.name);
         if (existingIndex >= 0) {
             const updatedOrders = [...orders];
             updatedOrders[existingIndex].quantity += 1;
             setOrders(updatedOrders);
         } else {
-            const newItem = {
-                name,
-                price,
-                type: category,
-                quantity: 1,
-            };
-            setOrders([...orders, newItem]);
+            setOrders([...orders, { ...item, quantity: 1 }]);
         }
-
-        setSelectedDrink('');
-        setSelectedBoba('');
-        setSelectedCorndog('');
     };
 
     const handleQuantityChange = (index, delta) => {
         const updatedOrders = [...orders];
         updatedOrders[index].quantity += delta;
         if (updatedOrders[index].quantity <= 0) {
-            updatedOrders.splice(index, 1); // Remove if quantity drops to 0
+            updatedOrders.splice(index, 1);
         }
         setOrders(updatedOrders);
     };
 
     const handleSendOrder = async () => {
         if (orders.length === 0) return;
+        const latestOrderNumber = await getLatestOrderNumber();
+        const nextOrderNumber = latestOrderNumber + 1;
+        const timestamp = new Date().toISOString();
 
-        try {
-            const latestOrderNumber = await getLatestOrderNumber();
-            const nextOrderNumber = latestOrderNumber + 1;
-            const timestamp = new Date().toISOString();
+        const enrichedOrders = orders.flatMap((item) =>
+            Array.from({ length: item.quantity }).map(() => ({
+                orderNumber: nextOrderNumber,
+                name: item.name,
+                price: item.price,
+                type: item.category,
+                timestamp,
+            }))
+        );
 
-            const enrichedOrders = orders.flatMap((item) =>
-                Array.from({ length: item.quantity }).map(() => ({
-                    orderNumber: nextOrderNumber,
-                    name: item.name,
-                    price: item.price,
-                    type: item.type,
-                    timestamp,
-                }))
-            );
-
-            await saveOrderHistory(enrichedOrders);
-            setHistory([...history, enrichedOrders]);
-            setOrders([]);
-        } catch (err) {
-            console.error('Send order failed:', err);
-        }
+        await saveOrderHistory(enrichedOrders);
+        setOrders([]);
     };
 
     const subtotal = orders.reduce(
@@ -147,221 +115,33 @@ export default function OrderSystem() {
 
             <TabsContent value='order' className='mt-20'>
                 <div className='grid grid-cols-2 gap-4 mt-4'>
+                    <MenuPanel
+                        menu={menu}
+                        category={category}
+                        setCategory={setCategory}
+                        handleAddItem={handleAddItem}
+                    />
                     <Card className='col-span-2'>
                         <CardContent>
-                            <h2 className='text-xl font-bold mb-4'>
-                                Order Panel
-                            </h2>
-                            {/* Category Buttons */}
-                            <div className='mb-2'>
-                                <Button
-                                    variant={
-                                        category === 'Boba'
-                                            ? 'default'
-                                            : 'outline'
-                                    }
-                                    onClick={() => setCategory('Boba')}
-                                >
-                                    Boba
-                                </Button>
-                                <Button
-                                    variant={
-                                        category === 'Corndog'
-                                            ? 'default'
-                                            : 'outline'
-                                    }
-                                    onClick={() => setCategory('Corndog')}
-                                    className='ml-2'
-                                >
-                                    Corndog
-                                </Button>
-                            </div>
-
-                            {/* Options */}
-                            {category === 'Boba' && (
-                                <div className='grid grid-cols-2 gap-2 mb-4'>
-                                    <div>
-                                        <p className='font-semibold'>Drinks</p>
-                                        {[
-                                            'Brown Sugar',
-                                            'Korean Strawberry',
-                                            'Double Cheese',
-                                            'Tiramisu',
-                                            'Tropical',
-                                            'Strawberry',
-                                            'Cafe',
-                                            'Matcha Strawberry',
-                                        ].map((drink) => (
-                                            <Button
-                                                key={drink}
-                                                variant={
-                                                    selectedDrink === drink
-                                                        ? 'default'
-                                                        : 'outline'
-                                                }
-                                                className='w-full mb-1'
-                                                onClick={() =>
-                                                    setSelectedDrink(drink)
-                                                }
-                                            >
-                                                {drink}
-                                            </Button>
-                                        ))}
-                                    </div>
-                                    <div>
-                                        <p className='font-semibold'>Boba</p>
-                                        {[
-                                            'Tapioca',
-                                            'Mango Popping',
-                                            'Strawberry Popping',
-                                        ].map((boba) => (
-                                            <Button
-                                                key={boba}
-                                                variant={
-                                                    selectedBoba === boba
-                                                        ? 'default'
-                                                        : 'outline'
-                                                }
-                                                className='w-full mb-1'
-                                                onClick={() =>
-                                                    setSelectedBoba(boba)
-                                                }
-                                            >
-                                                {boba}
-                                            </Button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {category === 'Corndog' && (
-                                <div className='grid grid-cols-1 gap-2 mb-4'>
-                                    {[
-                                        'Cheese Potato',
-                                        'Cheese Hot Cheeto',
-                                        'Half-Half Potato',
-                                        'Half-Half Hot Cheeto',
-                                        'Soda',
-                                    ].map((corndog) => (
-                                        <Button
-                                            key={corndog}
-                                            variant={
-                                                selectedCorndog === corndog
-                                                    ? 'default'
-                                                    : 'outline'
-                                            }
-                                            className='w-full'
-                                            onClick={() =>
-                                                setSelectedCorndog(corndog)
-                                            }
-                                        >
-                                            {corndog}
-                                        </Button>
-                                    ))}
-                                </div>
-                            )}
-
-                            <Button
-                                onClick={handleAddItem}
-                                className='w-full mb-6'
-                            >
-                                Add to Order
-                            </Button>
-
-                            <h2 className='text-xl font-bold mb-4'>Summary</h2>
-                            {orders.map((item, index) => (
-                                <div
-                                    key={index}
-                                    className='flex justify-between items-center mb-2'
-                                >
-                                    <span>
-                                        {item.name} - ${item.price.toFixed(2)} x{' '}
-                                        {item.quantity}
-                                    </span>
-                                    <div className='flex items-center gap-2'>
-                                        <Button
-                                            size='sm'
-                                            onClick={() =>
-                                                handleQuantityChange(index, -1)
-                                            }
-                                        >
-                                            -
-                                        </Button>
-                                        <Button
-                                            size='sm'
-                                            onClick={() =>
-                                                handleQuantityChange(index, 1)
-                                            }
-                                        >
-                                            +
-                                        </Button>
-                                        <Button
-                                            variant='destructive'
-                                            size='sm'
-                                            onClick={() =>
-                                                handleQuantityChange(
-                                                    index,
-                                                    -item.quantity
-                                                )
-                                            }
-                                        >
-                                            Remove
-                                        </Button>
-                                    </div>
-                                </div>
-                            ))}
-                            <div className='mt-4'>
-                                <p>Subtotal: ${subtotal.toFixed(2)}</p>
-                                <p>Tax (8.25%): ${tax.toFixed(2)}</p>
-                                <p className='font-bold'>Total: ${total}</p>
-                            </div>
-                            <Button
-                                onClick={handleSendOrder}
-                                className='mt-4 w-full'
-                            >
-                                Send Order
-                            </Button>
+                            <OrderSummary
+                                orders={orders}
+                                handleQuantityChange={handleQuantityChange}
+                                subtotal={subtotal}
+                                tax={tax}
+                                total={total}
+                                handleSendOrder={handleSendOrder}
+                            />
                         </CardContent>
                     </Card>
                 </div>
             </TabsContent>
 
             <TabsContent value='history' className='mt-20'>
-                <Card className='mt-4'>
-                    <CardContent>
-                        <h2 className='text-xl font-bold mb-4'>
-                            Order History
-                        </h2>
-                        {history.map((orderList, index) => {
-                            const orderNumber =
-                                orderList[0]?.orderNumber ?? index + 1;
-                            return (
-                                <div key={index} className='mb-4 border-b pb-2'>
-                                    <p className='font-semibold'>
-                                        Order #{orderNumber} - Total: $
-                                        {calculateOrderTotal(orderList)}
-                                    </p>
-                                    {orderList.map((item, itemIndex) => (
-                                        <div
-                                            key={itemIndex}
-                                            className={`text-sm p-1 rounded ${
-                                                item.type !== 'Boba'
-                                                    ? 'bg-blue-100'
-                                                    : 'bg-yellow-50'
-                                            }`}
-                                        >
-                                            {item.name} - $
-                                            {item.price.toFixed(2)}
-                                        </div>
-                                    ))}
-                                </div>
-                            );
-                        })}
-                        <div className='mt-6 text-right font-bold text-lg'>
-                            Total Revenue: ${calculateTotalRevenue(history)}
-                        </div>
-                    </CardContent>
-                </Card>
+                <HistoryPanel
+                    history={history}
+                    calculateOrderTotal={calculateOrderTotal}
+                    calculateTotalRevenue={calculateTotalRevenue}
+                />
             </TabsContent>
         </Tabs>
     );
