@@ -7,15 +7,9 @@ import {
     saveOrderHistory,
 } from '@/lib/db';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
-import OrderPanel from '@/components/OrderPanel';
+import { Card, CardContent } from '@/components/ui/Card';
+import OrderPanel, { PRICES, TAX_RATE } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
-
-const TAX_RATE = 0.0825;
-const PRICES = {
-    Boba: 8.0,
-    Corndog: 9.0,
-    
-};
 
 const getHistoryBaseClass = (item) =>
     item.type !== 'Boba' ? 'bg-blue-100' : 'bg-yellow-50';
@@ -58,6 +52,22 @@ const calculateTotalRevenue = (history) =>
             return total + subtotal + tax;
         }, 0)
         .toFixed(2);
+
+const calculateHistorySummary = (history) => {
+    const totals = history.flat().reduce(
+        (acc, item) => {
+            if (item.type === 'Boba') acc.bobaCount += 1;
+            else acc.corndogCount += 1;
+            acc.subtotal += item.price;
+            return acc;
+        },
+        { bobaCount: 0, corndogCount: 0, subtotal: 0 }
+    );
+
+    totals.tax = totals.subtotal * TAX_RATE;
+    totals.total = totals.subtotal + totals.tax;
+    return totals;
+};
 
 export default function OrderSystem() {
     const [orders, setOrders] = useState([]);
@@ -176,6 +186,7 @@ export default function OrderSystem() {
     const tax = subtotal * TAX_RATE;
     const total = (subtotal + tax).toFixed(2);
     const totalRevenue = calculateTotalRevenue(history);
+    const historySummary = calculateHistorySummary(history);
     const selection = {
         drink: selectedDrink,
         boba: selectedBoba,
@@ -191,6 +202,7 @@ export default function OrderSystem() {
                 <TabsTrigger value='corndogHistory'>
                     Corndog History
                 </TabsTrigger>
+                <TabsTrigger value='summary'>Summary</TabsTrigger>
             </TabsList>
 
             <TabsContent value='order' className='mt-20'>
@@ -228,7 +240,7 @@ export default function OrderSystem() {
 
             <TabsContent value='corndogHistory' className='mt-20'>
                 <HistorySection
-                    title='Corndog / Soda History'
+                    title='Corndog History'
                     sectionKey='corndog'
                     orders={corndogOrders}
                     readyItems={readyItems}
@@ -237,6 +249,27 @@ export default function OrderSystem() {
                     taxRate={TAX_RATE}
                     totalRevenue={totalRevenue}
                 />
+            </TabsContent>
+
+            <TabsContent value='summary' className='mt-20'>
+                <Card className='mt-4'>
+                    <CardContent>
+                        <h2 className='text-xl font-bold mb-4'>
+                            Summary Snapshot
+                        </h2>
+                        <div className='space-y-2 text-sm'>
+                            <p>Drinks (Boba): {historySummary.bobaCount}</p>
+                            <p>Corndog: {historySummary.corndogCount}</p>
+                            <p className='pt-2'>
+                                Subtotal: ${historySummary.subtotal.toFixed(2)}
+                            </p>
+                            <p>Tax (8.25%): ${historySummary.tax.toFixed(2)}</p>
+                            <p className='font-bold'>
+                                Total: ${historySummary.total.toFixed(2)}
+                            </p>
+                        </div>
+                    </CardContent>
+                </Card>
             </TabsContent>
         </Tabs>
     );

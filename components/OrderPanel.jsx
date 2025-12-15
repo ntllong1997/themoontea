@@ -1,6 +1,12 @@
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 
+export const TAX_RATE = 0.0825;
+export const PRICES = {
+    Boba: 8.0,
+    Corndog: 9.0,
+};
+
 const DRINK_OPTIONS = [
     'Brown Sugar',
     'Korean Strawberry',
@@ -12,14 +18,20 @@ const DRINK_OPTIONS = [
     'Matcha Strawberry',
 ];
 
-const BOBA_OPTIONS = ['Tapioca', 'Mango Popping', 'Strawberry Popping', 'Nothing'];
+const BOBA_OPTIONS = [
+    'Tapioca',
+    'Mango Popping',
+    'Strawberry Popping',
+    'Nothing',
+];
 
 const CORNDOG_OPTIONS = [
     'Cheese Potato',
     'Cheese Hot Cheeto',
     'Half-Half Potato',
     'Half-Half Hot Cheeto',
-    
+    'Cheese Original',
+    'Half-Half Original',
 ];
 
 export default function OrderPanel({
