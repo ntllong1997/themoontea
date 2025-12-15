@@ -9,6 +9,8 @@ import {
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
+import OrderPanel from '@/components/OrderPanel';
+import HistorySection from '@/components/HistorySection';
 
 export default function OrderSystem() {
     const [orders, setOrders] = useState([]);
@@ -17,6 +19,7 @@ export default function OrderSystem() {
     const [selectedBoba, setSelectedBoba] = useState('');
     const [selectedDrink, setSelectedDrink] = useState('');
     const [selectedCorndog, setSelectedCorndog] = useState('');
+    const [readyItems, setReadyItems] = useState({});
 
     useEffect(() => {
         const fetchHistory = async () => {
@@ -119,6 +122,21 @@ export default function OrderSystem() {
     const tax = subtotal * taxRate;
     const total = (subtotal + tax).toFixed(2);
 
+    const getHistoryBaseClass = (item) =>
+        item.type !== 'Boba' ? 'bg-blue-100' : 'bg-yellow-50';
+
+    const toggleHistoryItemReady = (orderNumber, itemIndex) => {
+        const key = `${orderNumber}-${itemIndex}`;
+        setReadyItems((prev) => {
+            const isReady = !prev[key];
+            if (isReady) return { ...prev, [key]: true };
+
+            const next = { ...prev };
+            delete next[key]; // revert to base color
+            return next;
+        });
+    };
+
     const calculateOrderTotal = (orderList) => {
         const subtotal = orderList.reduce((sum, item) => sum + item.price, 0);
         const tax = subtotal * taxRate;
@@ -138,11 +156,42 @@ export default function OrderSystem() {
             .toFixed(2);
     };
 
+    const splitHistoryByType = (historyList) => {
+        const bobaOrders = [];
+        const corndogOrders = [];
+
+        historyList.forEach((orderList, orderIdx) => {
+            const orderNumber = orderList[0]?.orderNumber ?? orderIdx + 1;
+            const withIndex = orderList.map((item, idx) => ({
+                item,
+                itemIndex: idx,
+            }));
+
+            const bobaItems = withIndex.filter(({ item }) => item.type === 'Boba');
+            const corndogItems = withIndex.filter(({ item }) => item.type !== 'Boba');
+
+            if (bobaItems.length) {
+                bobaOrders.push({ orderNumber, items: bobaItems });
+            }
+            if (corndogItems.length) {
+                corndogOrders.push({ orderNumber, items: corndogItems });
+            }
+        });
+
+        return { bobaOrders, corndogOrders };
+    };
+
+    const { bobaOrders, corndogOrders } = splitHistoryByType(history);
+    const totalRevenue = calculateTotalRevenue(history);
+
     return (
-        <Tabs defaultValue='history' className='p-4'>
+        <Tabs defaultValue='order' className='p-4'>
             <TabsList className='fixed top-0 left-0 right-0 z-50 bg-white p-2 shadow'>
                 <TabsTrigger value='order'>Order</TabsTrigger>
-                <TabsTrigger value='history'>History</TabsTrigger>
+                <TabsTrigger value='bobaHistory'>Boba History</TabsTrigger>
+                <TabsTrigger value='corndogHistory'>
+                    Corndog History
+                </TabsTrigger>
             </TabsList>
 
             <TabsContent value='order' className='mt-20'>
@@ -326,37 +375,89 @@ export default function OrderSystem() {
                 </div>
             </TabsContent>
 
-            <TabsContent value='history' className='mt-20'>
+            <TabsContent value='bobaHistory' className='mt-20'>
+                <Card className='mt-4'>
+                    <CardContent>
+                        <h2 className='text-xl font-bold mb-4'>Boba History</h2>
+                        {bobaOrders.map(({ orderNumber, items }) => (
+                            <div
+                                key={`boba-${orderNumber}`}
+                                className='mb-4 border-b pb-2'
+                            >
+                                <p className='font-semibold'>
+                                    Order #{orderNumber} - Total: $
+                                    {calculateOrderTotal(
+                                        items.map(({ item }) => item)
+                                    )}
+                                </p>
+                                {items.map(({ item, itemIndex }) => (
+                                    <div
+                                        key={`boba-${orderNumber}-${itemIndex}`}
+                                        onClick={() =>
+                                            toggleHistoryItemReady(
+                                                orderNumber,
+                                                itemIndex
+                                            )
+                                        }
+                                        className={`text-sm p-1 rounded cursor-pointer transition-colors ${
+                                            readyItems[
+                                                `${orderNumber}-${itemIndex}`
+                                            ]
+                                                ? 'bg-green-200'
+                                                : getHistoryBaseClass(item)
+                                        }`}
+                                    >
+                                        {item.name} - ${item.price.toFixed(2)}
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
+                        <div className='mt-6 text-right font-bold text-lg'>
+                            Total Revenue: ${calculateTotalRevenue(history)}
+                        </div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
+            <TabsContent value='corndogHistory' className='mt-20'>
                 <Card className='mt-4'>
                     <CardContent>
                         <h2 className='text-xl font-bold mb-4'>
-                            Order History
+                            Corndog / Soda History
                         </h2>
-                        {history.map((orderList, index) => {
-                            const orderNumber =
-                                orderList[0]?.orderNumber ?? index + 1;
-                            return (
-                                <div key={index} className='mb-4 border-b pb-2'>
-                                    <p className='font-semibold'>
-                                        Order #{orderNumber} - Total: $
-                                        {calculateOrderTotal(orderList)}
-                                    </p>
-                                    {orderList.map((item, itemIndex) => (
-                                        <div
-                                            key={itemIndex}
-                                            className={`text-sm p-1 rounded ${
-                                                item.type !== 'Boba'
-                                                    ? 'bg-blue-100'
-                                                    : 'bg-yellow-50'
-                                            }`}
-                                        >
-                                            {item.name} - $
-                                            {item.price.toFixed(2)}
-                                        </div>
-                                    ))}
-                                </div>
-                            );
-                        })}
+                        {corndogOrders.map(({ orderNumber, items }) => (
+                            <div
+                                key={`corndog-${orderNumber}`}
+                                className='mb-4 border-b pb-2'
+                            >
+                                <p className='font-semibold'>
+                                    Order #{orderNumber} - Total: $
+                                    {calculateOrderTotal(
+                                        items.map(({ item }) => item)
+                                    )}
+                                </p>
+                                {items.map(({ item, itemIndex }) => (
+                                    <div
+                                        key={`corndog-${orderNumber}-${itemIndex}`}
+                                        onClick={() =>
+                                            toggleHistoryItemReady(
+                                                orderNumber,
+                                                itemIndex
+                                            )
+                                        }
+                                        className={`text-sm p-1 rounded cursor-pointer transition-colors ${
+                                            readyItems[
+                                                `${orderNumber}-${itemIndex}`
+                                            ]
+                                                ? 'bg-green-200'
+                                                : getHistoryBaseClass(item)
+                                        }`}
+                                    >
+                                        {item.name} - ${item.price.toFixed(2)}
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
                         <div className='mt-6 text-right font-bold text-lg'>
                             Total Revenue: ${calculateTotalRevenue(history)}
                         </div>
