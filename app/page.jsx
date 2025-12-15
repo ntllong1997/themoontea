@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 export default function OrderSystem() {
     const [orders, setOrders] = useState([]);
     const [history, setHistory] = useState([]);
+    const [madeHistoryItems, setMadeHistoryItems] = useState(new Set());
     const [category, setCategory] = useState('Boba');
     const [selectedBoba, setSelectedBoba] = useState('');
     const [selectedDrink, setSelectedDrink] = useState('');
@@ -341,19 +342,50 @@ export default function OrderSystem() {
                                         Order #{orderNumber} - Total: $
                                         {calculateOrderTotal(orderList)}
                                     </p>
-                                    {orderList.map((item, itemIndex) => (
-                                        <div
-                                            key={itemIndex}
-                                            className={`text-sm p-1 rounded ${
-                                                item.type !== 'Boba'
-                                                    ? 'bg-blue-100'
-                                                    : 'bg-yellow-50'
-                                            }`}
-                                        >
-                                            {item.name} - $
-                                            {item.price.toFixed(2)}
-                                        </div>
-                                    ))}
+                                    {orderList.map((item, itemIndex) => {
+                                        const historyKey = `${orderNumber}-${itemIndex}`;
+                                        const isMade =
+                                            madeHistoryItems.has(historyKey);
+                                        return (
+                                            <div
+                                                key={itemIndex}
+                                                className={`text-sm p-1 rounded ${
+                                                    isMade
+                                                        ? 'bg-green-200'
+                                                        : item.type !== 'Boba'
+                                                          ? 'bg-blue-100'
+                                                          : 'bg-yellow-50'
+                                                }`}
+                                                onClick={() =>
+                                                    setMadeHistoryItems(
+                                                        (prevMade) => {
+                                                            const newMade =
+                                                                new Set(
+                                                                    prevMade
+                                                                );
+                                                            if (
+                                                                newMade.has(
+                                                                    historyKey
+                                                                )
+                                                            ) {
+                                                                newMade.delete(
+                                                                    historyKey
+                                                                );
+                                                            } else {
+                                                                newMade.add(
+                                                                    historyKey
+                                                                );
+                                                            }
+                                                            return newMade;
+                                                        }
+                                                    )
+                                                }
+                                            >
+                                                {item.name} - $
+                                                {item.price.toFixed(2)}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             );
                         })}
