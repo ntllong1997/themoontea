@@ -9,9 +9,9 @@ export const PRICES = {
 
 const DRINK_OPTIONS = [
     'Brown Sugar',
+    'Matcha Brown Sugar',
+    'Golden Taro',
     'Korean Strawberry',
-    'Double Cheese',
-    'Tiramisu',
     'Tropical',
     'Strawberry',
     'Cafe',
