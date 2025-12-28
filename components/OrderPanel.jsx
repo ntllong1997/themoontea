@@ -35,13 +35,12 @@ const CORNDOG_OPTIONS = [
 ];
 
 export default function OrderPanel({
-    category,
-    onCategoryChange,
     selection,
     onSelectDrink,
     onSelectBoba,
     onSelectCorndog,
-    onAddItem,
+    onAddBoba,
+    onAddCorndog,
     orders,
     subtotal,
     tax,
@@ -54,88 +53,85 @@ export default function OrderPanel({
             <CardContent>
                 <h2 className='text-xl font-bold mb-4'>Order Panel</h2>
 
-                <div className='mb-2'>
-                    <Button
-                        variant={category === 'Boba' ? 'default' : 'outline'}
-                        onClick={() => onCategoryChange('Boba')}
-                    >
-                        Boba
-                    </Button>
-                    <Button
-                        variant={category === 'Corndog' ? 'default' : 'outline'}
-                        onClick={() => onCategoryChange('Corndog')}
-                        className='ml-2'
-                    >
-                        Corndog
-                    </Button>
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-4 mb-6'>
+                    <div>
+                        <p className='font-semibold mb-2'>Corndog</p>
+                        <div className='grid grid-cols-1 gap-2'>
+                            {CORNDOG_OPTIONS.map((corndog) => (
+                                <Button
+                                    key={corndog}
+                                    variant={
+                                        selection.corndog === corndog
+                                            ? 'default'
+                                            : 'outline'
+                                    }
+                                    className='w-full'
+                                    onClick={() => onSelectCorndog(corndog)}
+                                >
+                                    {corndog}
+                                </Button>
+                            ))}
+                        </div>
+                        <Button
+                            onClick={onAddCorndog}
+                            className='w-full mt-3'
+                        >
+                            Add Corndog
+                        </Button>
+                    </div>
+
+                    <div>
+                        <p className='font-semibold mb-2'>Boba</p>
+                        <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
+                            <div>
+                                <p className='text-sm font-medium mb-1'>
+                                    Drinks
+                                </p>
+                                {DRINK_OPTIONS.map((drink) => (
+                                    <Button
+                                        key={drink}
+                                        variant={
+                                            selection.drink === drink
+                                                ? 'default'
+                                                : 'outline'
+                                        }
+                                        className='w-full mb-1'
+                                        onClick={() => onSelectDrink(drink)}
+                                    >
+                                        {drink}
+                                    </Button>
+                                ))}
+                            </div>
+                            <div>
+                                <p className='text-sm font-medium mb-1'>
+                                    Boba
+                                </p>
+                                {BOBA_OPTIONS.map((boba) => (
+                                    <Button
+                                        key={boba}
+                                        variant={
+                                            selection.boba === boba
+                                                ? 'default'
+                                                : 'outline'
+                                        }
+                                        className='w-full mb-1'
+                                        onClick={() => onSelectBoba(boba)}
+                                    >
+                                        {boba}
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+                        <Button onClick={onAddBoba} className='w-full mt-3'>
+                            Add Boba
+                        </Button>
+                    </div>
                 </div>
-
-                {category === 'Boba' && (
-                    <div className='grid grid-cols-2 gap-2 mb-4'>
-                        <div>
-                            <p className='font-semibold'>Drinks</p>
-                            {DRINK_OPTIONS.map((drink) => (
-                                <Button
-                                    key={drink}
-                                    variant={
-                                        selection.drink === drink
-                                            ? 'default'
-                                            : 'outline'
-                                    }
-                                    className='w-full mb-1'
-                                    onClick={() => onSelectDrink(drink)}
-                                >
-                                    {drink}
-                                </Button>
-                            ))}
-                        </div>
-                        <div>
-                            <p className='font-semibold'>Boba</p>
-                            {BOBA_OPTIONS.map((boba) => (
-                                <Button
-                                    key={boba}
-                                    variant={
-                                        selection.boba === boba
-                                            ? 'default'
-                                            : 'outline'
-                                    }
-                                    className='w-full mb-1'
-                                    onClick={() => onSelectBoba(boba)}
-                                >
-                                    {boba}
-                                </Button>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {category === 'Corndog' && (
-                    <div className='grid grid-cols-1 gap-2 mb-4'>
-                        {CORNDOG_OPTIONS.map((corndog) => (
-                            <Button
-                                key={corndog}
-                                variant={
-                                    selection.corndog === corndog
-                                        ? 'default'
-                                        : 'outline'
-                                }
-                                className='w-full'
-                                onClick={() => onSelectCorndog(corndog)}
-                            >
-                                {corndog}
-                            </Button>
-                        ))}
-                    </div>
-                )}
-
-                <Button onClick={onAddItem} className='w-full mb-6'>
-                    Add to Order
-                </Button>
 
                 <h2 className='text-xl font-bold mb-4'>Summary</h2>
                 {orders.map((item, index) => (
                     <div
-                        key={index}
+                        key={`${item.type}-${item.name}`}
                         className='flex justify-between items-center mb-2'
                     >
                         <span>

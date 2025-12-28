@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
     getLatestOrderNumber,
     getOrderHistory,
@@ -72,76 +72,101 @@ const calculateHistorySummary = (history) => {
 export default function OrderSystem() {
     const [orders, setOrders] = useState([]);
     const [history, setHistory] = useState([]);
-    const [category, setCategory] = useState('Boba');
     const [selectedBoba, setSelectedBoba] = useState('');
     const [selectedDrink, setSelectedDrink] = useState('');
     const [selectedCorndog, setSelectedCorndog] = useState('');
     const [readyItems, setReadyItems] = useState({});
+    const [activeTab, setActiveTab] = useState('order');
+
+    const fetchHistory = useCallback(async () => {
+        console.log(`Fetching order history at: ${new Date().toISOString()}`);
+        try {
+            const groupedOrders = await getOrderHistory();
+            setHistory(groupedOrders);
+        } catch (error) {
+            console.error('Failed to fetch order history:', error);
+        }
+    }, [getOrderHistory, setHistory]);
+
+    const isHistoryTab =
+        activeTab === 'bobaHistory' || activeTab === 'corndogHistory';
 
     useEffect(() => {
-        const fetchHistory = async () => {
-            console.log(
-                `Fetching order history at: ${new Date().toISOString()}`
-            );
-            try {
-                const groupedOrders = await getOrderHistory();
-                setHistory(groupedOrders);
-            } catch (error) {
-                console.error('Failed to fetch order history:', error);
-            }
-        };
+        fetchHistory();
+    }, [fetchHistory]);
+
+    useEffect(() => {
+        if (!isHistoryTab) return;
 
         fetchHistory();
         const intervalId = setInterval(fetchHistory, 3000);
         return () => clearInterval(intervalId);
-    }, []);
+    }, [isHistoryTab, fetchHistory]);
 
-    const handleAddItem = () => {
-        let name = '';
-        let price = 0;
+    const handleAddBoba = useCallback(() => {
+        if (!selectedDrink || !selectedBoba) return;
 
-        if (category === 'Boba' && selectedDrink && selectedBoba) {
-            name = `${selectedDrink} with ${selectedBoba}`;
-            price = PRICES.Boba;
-        } else if (category === 'Corndog' && selectedCorndog) {
-            name = selectedCorndog;
-            price = PRICES.Corndog;
-        } else {
-            return;
-        }
+        const name = `${selectedDrink} with ${selectedBoba}`;
+        const price = PRICES.Boba;
 
-        const existingIndex = orders.findIndex((item) => item.name === name);
-        if (existingIndex >= 0) {
-            const updatedOrders = [...orders];
-            updatedOrders[existingIndex].quantity += 1;
-            setOrders(updatedOrders);
-        } else {
-            const newItem = {
-                name,
-                price,
-                type: category,
-                quantity: 1,
-            };
-            setOrders([...orders, newItem]);
-        }
+        setOrders((prevOrders) => {
+            const existingIndex = prevOrders.findIndex(
+                (item) => item.name === name
+            );
+
+            if (existingIndex >= 0) {
+                const updatedOrders = [...prevOrders];
+                updatedOrders[existingIndex].quantity += 1;
+                return updatedOrders;
+            }
+
+            return [...prevOrders, { name, price, type: 'Boba', quantity: 1 }];
+        });
 
         setSelectedDrink('');
         setSelectedBoba('');
+    }, [selectedDrink, selectedBoba]);
+
+    const handleAddCorndog = useCallback(() => {
+        if (!selectedCorndog) return;
+
+        const name = selectedCorndog;
+        const price = PRICES.Corndog;
+
+        setOrders((prevOrders) => {
+            const existingIndex = prevOrders.findIndex(
+                (item) => item.name === name
+            );
+
+            if (existingIndex >= 0) {
+                const updatedOrders = [...prevOrders];
+                updatedOrders[existingIndex].quantity += 1;
+                return updatedOrders;
+            }
+
+            return [
+                ...prevOrders,
+                { name, price, type: 'Corndog', quantity: 1 },
+            ];
+        });
+
         setSelectedCorndog('');
-    };
+    }, [selectedCorndog]);
 
-    const handleQuantityChange = (index, delta) => {
-        const updatedOrders = [...orders];
-        updatedOrders[index].quantity += delta;
+    const handleQuantityChange = useCallback((index, delta) => {
+        setOrders((prevOrders) => {
+            const updatedOrders = [...prevOrders];
+            updatedOrders[index].quantity += delta;
 
-        if (updatedOrders[index].quantity <= 0) {
-            updatedOrders.splice(index, 1);
-        }
+            if (updatedOrders[index].quantity <= 0) {
+                updatedOrders.splice(index, 1);
+            }
 
-        setOrders(updatedOrders);
-    };
+            return updatedOrders;
+        });
+    }, []);
 
-    const handleSendOrder = async () => {
+    const handleSendOrder = useCallback(async () => {
         if (orders.length === 0) return;
 
         try {
@@ -160,14 +185,14 @@ export default function OrderSystem() {
             );
 
             await saveOrderHistory(enrichedOrders);
-            setHistory([...history, enrichedOrders]);
+            setHistory((prev) => [...prev, enrichedOrders]);
             setOrders([]);
         } catch (err) {
             console.error('Send order failed:', err);
         }
-    };
+    }, [orders]);
 
-    const toggleHistoryItemReady = (orderNumber, itemIndex) => {
+    const toggleHistoryItemReady = useCallback((orderNumber, itemIndex) => {
         const key = `${orderNumber}-${itemIndex}`;
         setReadyItems((prev) => {
             const isReady = !prev[key];
@@ -177,7 +202,7 @@ export default function OrderSystem() {
             delete next[key];
             return next;
         });
-    };
+    }, []);
 
     const subtotal = orders.reduce(
         (acc, item) => acc + item.price * item.quantity,
@@ -195,7 +220,11 @@ export default function OrderSystem() {
     const { bobaOrders, corndogOrders } = splitHistoryByType(history);
 
     return (
-        <Tabs defaultValue='order' className='p-4'>
+        <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className='p-4'
+        >
             <TabsList className='fixed top-0 left-0 right-0 z-50 bg-white p-2 shadow'>
                 <TabsTrigger value='order'>Order</TabsTrigger>
                 <TabsTrigger value='bobaHistory'>Boba History</TabsTrigger>
@@ -206,15 +235,14 @@ export default function OrderSystem() {
             </TabsList>
 
             <TabsContent value='order' className='mt-20'>
-                <div className='grid grid-cols-2 gap-4 mt-4'>
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-4 mt-4'>
                     <OrderPanel
-                        category={category}
-                        onCategoryChange={setCategory}
                         selection={selection}
                         onSelectDrink={setSelectedDrink}
                         onSelectBoba={setSelectedBoba}
                         onSelectCorndog={setSelectedCorndog}
-                        onAddItem={handleAddItem}
+                        onAddBoba={handleAddBoba}
+                        onAddCorndog={handleAddCorndog}
                         orders={orders}
                         subtotal={subtotal}
                         tax={tax}
