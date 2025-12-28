@@ -1,7 +1,15 @@
 import React, { useState } from 'react';
 
-export function Tabs({ defaultValue, children, className = '' }) {
-    const [activeTab, setActiveTab] = useState(defaultValue);
+export function Tabs({
+    defaultValue,
+    value,
+    onValueChange,
+    children,
+    className = '',
+}) {
+    const isControlled = value !== undefined;
+    const [internalValue, setInternalValue] = useState(defaultValue);
+    const activeTab = isControlled ? value : internalValue;
 
     // Expect TabsList and TabsContent as children
     const tabsList = React.Children.toArray(children).find(
@@ -11,8 +19,11 @@ export function Tabs({ defaultValue, children, className = '' }) {
         (child) => child.type.displayName === 'TabsContent'
     );
 
-    const handleTabChange = (value) => {
-        setActiveTab(value);
+    const handleTabChange = (nextValue) => {
+        if (!isControlled) {
+            setInternalValue(nextValue);
+        }
+        onValueChange?.(nextValue);
     };
 
     // Clone TabsList to add props
