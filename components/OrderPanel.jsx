@@ -55,32 +55,6 @@ export default function OrderPanel({
 
                 <div className='grid grid-cols-1 md:grid-cols-2 gap-4 mb-6'>
                     <div>
-                        <p className='font-semibold mb-2'>Corndog</p>
-                        <div className='grid grid-cols-1 gap-2'>
-                            {CORNDOG_OPTIONS.map((corndog) => (
-                                <Button
-                                    key={corndog}
-                                    variant={
-                                        selection.corndog === corndog
-                                            ? 'default'
-                                            : 'outline'
-                                    }
-                                    className='w-full'
-                                    onClick={() => onSelectCorndog(corndog)}
-                                >
-                                    {corndog}
-                                </Button>
-                            ))}
-                        </div>
-                        <Button
-                            onClick={onAddCorndog}
-                            className='w-full mt-3'
-                        >
-                            Add Corndog
-                        </Button>
-                    </div>
-
-                    <div>
                         <p className='font-semibold mb-2'>Boba</p>
                         <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
                             <div>
@@ -124,6 +98,32 @@ export default function OrderPanel({
                         </div>
                         <Button onClick={onAddBoba} className='w-full mt-3'>
                             Add Boba
+                        </Button>
+                    </div>
+
+                    <div>
+                        <p className='font-semibold mb-2'>Corndog</p>
+                        <div className='grid grid-cols-1 gap-2'>
+                            {CORNDOG_OPTIONS.map((corndog) => (
+                                <Button
+                                    key={corndog}
+                                    variant={
+                                        selection.corndog === corndog
+                                            ? 'default'
+                                            : 'outline'
+                                    }
+                                    className='w-full'
+                                    onClick={() => onSelectCorndog(corndog)}
+                                >
+                                    {corndog}
+                                </Button>
+                            ))}
+                        </div>
+                        <Button
+                            onClick={onAddCorndog}
+                            className='w-full mt-3'
+                        >
+                            Add Corndog
                         </Button>
                     </div>
                 </div>
