@@ -8,6 +8,7 @@ import {
 } from '@/lib/db';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Card, CardContent } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import OrderPanel, { PRICES, TAX_RATE } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
 
@@ -79,14 +80,13 @@ export default function OrderSystem() {
     const [activeTab, setActiveTab] = useState('order');
 
     const fetchHistory = useCallback(async () => {
-        console.log(`Fetching order history at: ${new Date().toISOString()}`);
         try {
             const groupedOrders = await getOrderHistory();
             setHistory(groupedOrders);
         } catch (error) {
             console.error('Failed to fetch order history:', error);
         }
-    }, [getOrderHistory, setHistory]);
+    }, []);
 
     const isHistoryTab =
         activeTab === 'bobaHistory' || activeTab === 'corndogHistory';
@@ -220,12 +220,8 @@ export default function OrderSystem() {
     const { bobaOrders, corndogOrders } = splitHistoryByType(history);
 
     return (
-        <Tabs
-            value={activeTab}
-            onValueChange={setActiveTab}
-            className='p-4'
-        >
-            <TabsList className='fixed top-0 left-0 right-0 z-50 bg-white p-2 shadow'>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className='sticky top-0 z-50 bg-white px-4 shadow-sm'>
                 <TabsTrigger value='order'>Order</TabsTrigger>
                 <TabsTrigger value='bobaHistory'>Boba History</TabsTrigger>
                 <TabsTrigger value='corndogHistory'>
@@ -234,26 +230,121 @@ export default function OrderSystem() {
                 <TabsTrigger value='summary'>Summary</TabsTrigger>
             </TabsList>
 
-            <TabsContent value='order' className='mt-20'>
-                <div className='grid grid-cols-1 md:grid-cols-2 gap-4 mt-4'>
-                    <OrderPanel
-                        selection={selection}
-                        onSelectDrink={setSelectedDrink}
-                        onSelectBoba={setSelectedBoba}
-                        onSelectCorndog={setSelectedCorndog}
-                        onAddBoba={handleAddBoba}
-                        onAddCorndog={handleAddCorndog}
-                        orders={orders}
-                        subtotal={subtotal}
-                        tax={tax}
-                        total={total}
-                        onQuantityChange={handleQuantityChange}
-                        onSendOrder={handleSendOrder}
-                    />
+            <TabsContent value='order'>
+                <div className='grid grid-cols-1 lg:grid-cols-3 gap-4'>
+                    <div className='lg:col-span-2'>
+                        <OrderPanel
+                            selection={selection}
+                            onSelectDrink={setSelectedDrink}
+                            onSelectBoba={setSelectedBoba}
+                            onSelectCorndog={setSelectedCorndog}
+                            onAddBoba={handleAddBoba}
+                            onAddCorndog={handleAddCorndog}
+                        />
+                    </div>
+
+                    <div>
+                        <Card className='lg:sticky lg:top-14'>
+                            <CardContent>
+                                <h2 className='text-xl font-bold mb-4'>
+                                    Cart
+                                </h2>
+                                {orders.length === 0 ? (
+                                    <p className='text-gray-400 text-sm py-6 text-center'>
+                                        No items added yet.
+                                    </p>
+                                ) : (
+                                    <div className='space-y-3'>
+                                        {orders.map((item, index) => (
+                                            <div
+                                                key={`${item.type}-${item.name}`}
+                                                className='flex justify-between items-start gap-2 pb-2 border-b last:border-0'
+                                            >
+                                                <div className='flex-1 min-w-0'>
+                                                    <p className='text-sm font-medium leading-snug'>
+                                                        {item.name}
+                                                    </p>
+                                                    <p className='text-xs text-gray-500'>
+                                                        ${item.price.toFixed(2)}{' '}
+                                                        × {item.quantity} = $
+                                                        {(
+                                                            item.price *
+                                                            item.quantity
+                                                        ).toFixed(2)}
+                                                    </p>
+                                                </div>
+                                                <div className='flex items-center gap-1 shrink-0'>
+                                                    <Button
+                                                        size='sm'
+                                                        variant='outline'
+                                                        onClick={() =>
+                                                            handleQuantityChange(
+                                                                index,
+                                                                -1
+                                                            )
+                                                        }
+                                                    >
+                                                        −
+                                                    </Button>
+                                                    <Button
+                                                        size='sm'
+                                                        variant='outline'
+                                                        onClick={() =>
+                                                            handleQuantityChange(
+                                                                index,
+                                                                1
+                                                            )
+                                                        }
+                                                    >
+                                                        +
+                                                    </Button>
+                                                    <Button
+                                                        variant='destructive'
+                                                        size='sm'
+                                                        onClick={() =>
+                                                            handleQuantityChange(
+                                                                index,
+                                                                -item.quantity
+                                                            )
+                                                        }
+                                                    >
+                                                        ✕
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div className='mt-4 border-t pt-3 space-y-1 text-sm'>
+                                    <div className='flex justify-between'>
+                                        <span>Subtotal</span>
+                                        <span>${subtotal.toFixed(2)}</span>
+                                    </div>
+                                    <div className='flex justify-between text-gray-500'>
+                                        <span>Tax (8.25%)</span>
+                                        <span>${tax.toFixed(2)}</span>
+                                    </div>
+                                    <div className='flex justify-between font-bold text-base pt-1'>
+                                        <span>Total</span>
+                                        <span>${total}</span>
+                                    </div>
+                                </div>
+
+                                <Button
+                                    onClick={handleSendOrder}
+                                    className='mt-4 w-full'
+                                    disabled={orders.length === 0}
+                                >
+                                    Send Order
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    </div>
                 </div>
             </TabsContent>
 
-            <TabsContent value='bobaHistory' className='mt-20'>
+            <TabsContent value='bobaHistory'>
                 <HistorySection
                     title='Boba History'
                     sectionKey='boba'
@@ -266,7 +357,7 @@ export default function OrderSystem() {
                 />
             </TabsContent>
 
-            <TabsContent value='corndogHistory' className='mt-20'>
+            <TabsContent value='corndogHistory'>
                 <HistorySection
                     title='Corndog History'
                     sectionKey='corndog'
@@ -279,7 +370,7 @@ export default function OrderSystem() {
                 />
             </TabsContent>
 
-            <TabsContent value='summary' className='mt-20'>
+            <TabsContent value='summary'>
                 <Card className='mt-4'>
                     <CardContent>
                         <h2 className='text-xl font-bold mb-4'>
@@ -288,13 +379,27 @@ export default function OrderSystem() {
                         <div className='space-y-2 text-sm'>
                             <p>Drinks (Boba): {historySummary.bobaCount}</p>
                             <p>Corndog: {historySummary.corndogCount}</p>
-                            <p className='pt-2'>
-                                Subtotal: ${historySummary.subtotal.toFixed(2)}
-                            </p>
-                            <p>Tax (8.25%): ${historySummary.tax.toFixed(2)}</p>
-                            <p className='font-bold'>
-                                Total: ${historySummary.total.toFixed(2)}
-                            </p>
+                            <div className='pt-2 border-t space-y-1'>
+                                <div className='flex justify-between'>
+                                    <span>Subtotal</span>
+                                    <span>
+                                        $
+                                        {historySummary.subtotal.toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className='flex justify-between text-gray-500'>
+                                    <span>Tax (8.25%)</span>
+                                    <span>
+                                        ${historySummary.tax.toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className='flex justify-between font-bold text-base pt-1'>
+                                    <span>Total</span>
+                                    <span>
+                                        ${historySummary.total.toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
