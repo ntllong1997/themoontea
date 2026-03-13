@@ -41,25 +41,21 @@ export default function OrderPanel({
     onSelectCorndog,
     onAddBoba,
     onAddCorndog,
-    orders,
-    subtotal,
-    tax,
-    total,
-    onQuantityChange,
-    onSendOrder,
 }) {
     return (
-        <Card className='col-span-2'>
-            <CardContent className='flex flex-col min-h-screen'>
+        <Card>
+            <CardContent>
                 <h2 className='text-xl font-bold mb-4'>Order Panel</h2>
 
-                <div className='grid grid-cols-1 md:grid-cols-2 gap-4 mb-6'>
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                     <div>
-                        <p className='font-semibold mb-2'>Boba</p>
-                        <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
+                        <p className='font-semibold mb-3 text-blue-700 border-b pb-1'>
+                            Boba — $8.00
+                        </p>
+                        <div className='grid grid-cols-2 gap-2 mb-3'>
                             <div>
-                                <p className='text-sm font-medium mb-1'>
-                                    Drinks
+                                <p className='text-xs font-medium uppercase tracking-wide text-gray-500 mb-2'>
+                                    Drink
                                 </p>
                                 {DRINK_OPTIONS.map((drink) => (
                                     <Button
@@ -69,7 +65,7 @@ export default function OrderPanel({
                                                 ? 'default'
                                                 : 'outline'
                                         }
-                                        className='w-full mb-1'
+                                        className='w-full mb-1 text-sm'
                                         onClick={() => onSelectDrink(drink)}
                                     >
                                         {drink}
@@ -77,7 +73,7 @@ export default function OrderPanel({
                                 ))}
                             </div>
                             <div>
-                                <p className='text-sm font-medium mb-1'>
+                                <p className='text-xs font-medium uppercase tracking-wide text-gray-500 mb-2'>
                                     Boba
                                 </p>
                                 {BOBA_OPTIONS.map((boba) => (
@@ -88,7 +84,7 @@ export default function OrderPanel({
                                                 ? 'default'
                                                 : 'outline'
                                         }
-                                        className='w-full mb-1'
+                                        className='w-full mb-1 text-sm'
                                         onClick={() => onSelectBoba(boba)}
                                     >
                                         {boba}
@@ -96,14 +92,20 @@ export default function OrderPanel({
                                 ))}
                             </div>
                         </div>
-                        <Button onClick={onAddBoba} className='w-full mt-3'>
-                            Add Boba
+                        <Button
+                            onClick={onAddBoba}
+                            className='w-full'
+                            disabled={!selection.drink || !selection.boba}
+                        >
+                            + Add Boba
                         </Button>
                     </div>
 
                     <div>
-                        <p className='font-semibold mb-2'>Corndog</p>
-                        <div className='grid grid-cols-1 gap-2'>
+                        <p className='font-semibold mb-3 text-blue-700 border-b pb-1'>
+                            Corndog — $9.00
+                        </p>
+                        <div className='grid grid-cols-2 gap-2 mb-3'>
                             {CORNDOG_OPTIONS.map((corndog) => (
                                 <Button
                                     key={corndog}
@@ -112,7 +114,7 @@ export default function OrderPanel({
                                             ? 'default'
                                             : 'outline'
                                     }
-                                    className='w-full'
+                                    className='w-full text-sm'
                                     onClick={() => onSelectCorndog(corndog)}
                                 >
                                     {corndog}
@@ -121,57 +123,12 @@ export default function OrderPanel({
                         </div>
                         <Button
                             onClick={onAddCorndog}
-                            className='w-full mt-3'
+                            className='w-full'
+                            disabled={!selection.corndog}
                         >
-                            Add Corndog
+                            + Add Corndog
                         </Button>
                     </div>
-                </div>
-
-                <div className='sticky bottom-0 bg-white pt-4 border-t border rounded-t-md mt-auto'>
-                    <h2 className='text-xl font-bold mb-4'>Summary</h2>
-                    {orders.map((item, index) => (
-                        <div
-                            key={`${item.type}-${item.name}`}
-                            className='flex justify-between items-center mb-2'
-                        >
-                            <span>
-                                {item.name} - ${item.price.toFixed(2)} x{' '}
-                                {item.quantity}
-                            </span>
-                            <div className='flex items-center gap-2'>
-                                <Button
-                                    size='sm'
-                                    onClick={() => onQuantityChange(index, -1)}
-                                >
-                                    -
-                                </Button>
-                                <Button
-                                    size='sm'
-                                    onClick={() => onQuantityChange(index, 1)}
-                                >
-                                    +
-                                </Button>
-                                <Button
-                                    variant='destructive'
-                                    size='sm'
-                                    onClick={() =>
-                                        onQuantityChange(index, -item.quantity)
-                                    }
-                                >
-                                    Remove
-                                </Button>
-                            </div>
-                        </div>
-                    ))}
-                    <div className='mt-4'>
-                        <p>Subtotal: ${subtotal.toFixed(2)}</p>
-                        <p>Tax (8.25%): ${tax.toFixed(2)}</p>
-                        <p className='font-bold'>Total: ${total}</p>
-                    </div>
-                    <Button onClick={onSendOrder} className='mt-4 w-full'>
-                        Send Order
-                    </Button>
                 </div>
             </CardContent>
         </Card>
