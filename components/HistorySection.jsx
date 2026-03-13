@@ -16,6 +16,7 @@ export default function HistorySection({
     getItemClassName,
     getItemBadge,
     getItemTooltip,
+    getOrderActions,
 }) {
     return (
         <Card className='mt-4'>
@@ -37,17 +38,20 @@ export default function HistorySection({
                             key={`${sectionKey}-${orderNumber}`}
                             className='mb-4 border rounded-lg overflow-hidden'
                         >
-                            <div className='flex justify-between items-center px-3 py-2 bg-gray-50 border-b'>
-                                <p className='font-semibold text-sm'>
+                            <div className='flex justify-between items-center px-3 py-2 bg-gray-50 border-b gap-2'>
+                                <p className='font-semibold text-sm shrink-0'>
                                     Order #{orderNumber}
                                 </p>
-                                <p className='text-sm text-gray-600'>
-                                    $
-                                    {calculateOrderTotal(
-                                        items.map(({ item }) => item),
-                                        taxRate
-                                    )}
-                                </p>
+                                <div className='flex items-center gap-2 ml-auto'>
+                                    {getOrderActions?.({ orderNumber, items })}
+                                    <p className='text-sm text-gray-600 shrink-0'>
+                                        $
+                                        {calculateOrderTotal(
+                                            items.map(({ item }) => item),
+                                            taxRate
+                                        )}
+                                    </p>
+                                </div>
                             </div>
                             <div className='p-2 space-y-1'>
                                 {items.map(({ item, itemIndex }) => {
