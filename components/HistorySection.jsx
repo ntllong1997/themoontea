@@ -10,47 +10,88 @@ export default function HistorySection({
     title,
     sectionKey,
     orders,
-    readyItems,
-    onToggleReady,
-    getHistoryBaseClass,
     taxRate,
     totalRevenue,
+    onItemClick,
+    getItemClassName,
+    getItemBadge,
+    getItemTooltip,
+    getOrderActions,
 }) {
     return (
         <Card className='mt-4'>
             <CardContent>
-                <h2 className='text-xl font-bold mb-4'>{title}</h2>
-                {orders.map(({ orderNumber, items }) => (
-                    <div
-                        key={`${sectionKey}-${orderNumber}`}
-                        className='mb-4 border-b pb-2'
-                    >
-                        <p className='font-semibold'>
-                            Order #{orderNumber} - Total: $
-                            {calculateOrderTotal(
-                                items.map(({ item }) => item),
-                                taxRate
-                            )}
-                        </p>
-                        {items.map(({ item, itemIndex }) => (
-                            <div
-                                key={`${sectionKey}-${orderNumber}-${itemIndex}`}
-                                onClick={() =>
-                                    onToggleReady(orderNumber, itemIndex)
-                                }
-                                className={`text-sm p-1 rounded cursor-pointer transition-colors ${
-                                    readyItems[`${orderNumber}-${itemIndex}`]
-                                        ? 'bg-green-200'
-                                        : getHistoryBaseClass(item)
-                                }`}
-                            >
-                                {item.name} - ${item.price.toFixed(2)}
+                <div className='flex justify-between items-center mb-4'>
+                    <h2 className='text-xl font-bold'>{title}</h2>
+                    <span className='text-sm text-gray-500'>
+                        {orders.length} order{orders.length !== 1 ? 's' : ''}
+                    </span>
+                </div>
+
+                {orders.length === 0 ? (
+                    <p className='text-gray-400 text-sm py-8 text-center'>
+                        No orders yet.
+                    </p>
+                ) : (
+                    orders.map(({ orderNumber, items }) => (
+                        <div
+                            key={`${sectionKey}-${orderNumber}`}
+                            className='mb-4 border rounded-lg overflow-hidden'
+                        >
+                            <div className='flex justify-between items-center px-3 py-2 bg-gray-50 border-b gap-2'>
+                                <p className='font-semibold text-sm shrink-0'>
+                                    Order #{orderNumber}
+                                </p>
+                                <div className='flex items-center gap-2 ml-auto'>
+                                    {getOrderActions?.({ orderNumber, items })}
+                                    <p className='text-sm text-gray-600 shrink-0'>
+                                        $
+                                        {calculateOrderTotal(
+                                            items.map(({ item }) => item),
+                                            taxRate
+                                        )}
+                                    </p>
+                                </div>
                             </div>
-                        ))}
-                    </div>
-                ))}
-                <div className='mt-6 text-right font-bold text-lg'>
-                    Total Revenue: ${totalRevenue}
+                            <div className='p-2 space-y-1'>
+                                {items.map(({ item, itemIndex }) => {
+                                    const key = `${orderNumber}-${itemIndex}`;
+                                    const badge = getItemBadge?.(key);
+                                    const tooltip = getItemTooltip?.(key);
+                                    return (
+                                        <div
+                                            key={`${sectionKey}-${orderNumber}-${itemIndex}`}
+                                            onClick={() =>
+                                                onItemClick(
+                                                    orderNumber,
+                                                    itemIndex
+                                                )
+                                            }
+                                            title={tooltip}
+                                            className={`flex justify-between items-center text-sm px-3 py-2 rounded cursor-pointer transition-colors hover:opacity-80 select-none ${getItemClassName(item, key)}`}
+                                        >
+                                            <span>{item.name}</span>
+                                            <span className='flex items-center gap-2'>
+                                                <span className='text-gray-600'>
+                                                    ${item.price.toFixed(2)}
+                                                </span>
+                                                {badge && (
+                                                    <span className='text-xs font-semibold'>
+                                                        {badge}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))
+                )}
+
+                <div className='mt-4 pt-3 border-t flex justify-between items-center font-bold text-base'>
+                    <span>Total Revenue</span>
+                    <span>${totalRevenue}</span>
                 </div>
             </CardContent>
         </Card>
