@@ -18,7 +18,6 @@ const inventoryItems = [
             'Hand Soap',
         ],
     },
-
     {
         category: 'Dairy & Creamers',
         items: [
@@ -32,7 +31,6 @@ const inventoryItems = [
             'Oat Milk',
         ],
     },
-
     {
         category: 'Drinks',
         items: [
@@ -43,7 +41,6 @@ const inventoryItems = [
             'Sugar Free Dr Pepper',
         ],
     },
-
     {
         category: 'Dry Ingredients',
         items: [
@@ -58,7 +55,6 @@ const inventoryItems = [
             'Organic Brown Sugar',
         ],
     },
-
     {
         category: 'Fruits & Produce',
         items: [
@@ -85,7 +81,6 @@ const inventoryItems = [
             'Lotus Biscoff Cookies 8.8 oz. - 10/Case',
         ],
     },
-
     {
         category: 'Meat & Cheese',
         items: [
@@ -99,7 +94,6 @@ const inventoryItems = [
             'Kraft Grated Parmesan Cheese',
         ],
     },
-
     {
         category: 'Packaging',
         items: [
@@ -121,7 +115,6 @@ const inventoryItems = [
             '[1,000 ct] Plastic Dome Cup Lids | PET | 90 mm',
         ],
     },
-
     {
         category: 'Sauces & Condiments',
         items: [
@@ -131,14 +124,13 @@ const inventoryItems = [
             'Honey Hot Sauce',
             'Sriracha',
             'Heinz Ketchup (3/44oz)',
-            'Hellmann’s Mayo (1 gal)',
+            "Hellmann's Mayo (1 gal)",
             'Nutella Tub 6.6#',
             'Hershey Syrup (Jug)',
             'Chamoy',
             'Pink Salt',
         ],
     },
-
     {
         category: 'Snacks & Desserts',
         items: [
@@ -151,7 +143,6 @@ const inventoryItems = [
             'Shin Ramyun Noodles',
         ],
     },
-
     {
         category: 'Syrups',
         items: [
@@ -178,7 +169,6 @@ const inventoryItems = [
             'Tropical Syrup, 64oz',
         ],
     },
-
     {
         category: 'Tea & Powders',
         items: [
@@ -195,7 +185,6 @@ const inventoryItems = [
             'Egg Pudding',
         ],
     },
-
     {
         category: 'Toppings (Boba / Jelly)',
         items: [
@@ -216,42 +205,51 @@ const inventoryItems = [
     },
 ];
 
-const WEBHOOK_URL =
-    'https://themoontea.app.n8n.cloud/webhook-test/17361f36-bbda-4dfa-92c0-2ce56f972c99';
+const WEBHOOK_URL = process.env.NEXT_PUBLIC_INVENTORY_WEBHOOK_URL || '';
+
+const flatItems = inventoryItems.flatMap((group) =>
+    group.items.map((item) => ({ category: group.category, name: item }))
+);
+
+const initialCounts = Object.fromEntries(flatItems.map((item) => [item.name, 0]));
 
 export default function InventoryPage() {
-    const flatItems = useMemo(
-        () =>
-            inventoryItems.flatMap((group) =>
-                group.items.map((item) => ({
-                    category: group.category,
-                    name: item,
-                })),
-            ),
-        [],
-    );
-
-    const initialCounts = useMemo(() => {
-        const obj = {};
-        flatItems.forEach((item) => {
-            obj[item.name] = '0';
-        });
-        return obj;
-    }, [flatItems]);
-
     const [counts, setCounts] = useState(initialCounts);
     const [employeeName, setEmployeeName] = useState('');
     const [notes, setNotes] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [message, setMessage] = useState('');
+    const [search, setSearch] = useState('');
+    const [collapsed, setCollapsed] = useState({});
 
     const handleChange = (itemName, value) => {
         const num = Math.max(0, Math.floor(Number(value) || 0));
+        setCounts((prev) => ({ ...prev, [itemName]: num }));
+    };
 
-        setCounts((prev) => ({
-            ...prev,
-            [itemName]: num,
-        }));
+    const toggleCategory = (category) => {
+        setCollapsed((prev) => ({ ...prev, [category]: !prev[category] }));
+    };
+
+    const filledCount = useMemo(
+        () => flatItems.filter((item) => counts[item.name] > 0).length,
+        [counts]
+    );
+
+    const filteredItems = useMemo(() => {
+        if (!search.trim()) return inventoryItems;
+        const q = search.toLowerCase();
+        return inventoryItems
+            .map((group) => ({
+                ...group,
+                items: group.items.filter((item) => item.toLowerCase().includes(q)),
+            }))
+            .filter((group) => group.items.length > 0);
+    }, [search]);
+
+    const handleReset = () => {
+        setCounts(initialCounts);
+        setSearch('');
     };
 
     const handleSubmit = async (e) => {
@@ -266,23 +264,18 @@ export default function InventoryPage() {
             items: flatItems.map((item) => ({
                 category: item.category,
                 name: item.name,
-                amount:
-                    counts[item.name] === '' ? null : Number(counts[item.name]),
+                amount: counts[item.name] === 0 ? null : counts[item.name],
             })),
         };
 
         try {
             const res = await fetch(WEBHOOK_URL, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
             });
 
-            if (!res.ok) {
-                throw new Error('Failed to submit inventory.');
-            }
+            if (!res.ok) throw new Error('Failed to submit inventory.');
 
             setMessage('Inventory submitted successfully.');
             setCounts(initialCounts);
@@ -298,34 +291,37 @@ export default function InventoryPage() {
     return (
         <main className='min-h-screen bg-gray-50 p-6'>
             <div className='mx-auto max-w-4xl rounded-xl bg-white p-6 shadow'>
-                <h1 className='mb-2 text-3xl font-bold'>Inventory Checklist</h1>
-                <p className='mb-6 text-sm text-gray-600'>
-                    Enter the current amount for each item, then submit to send
-                    it to n8n.
-                </p>
+                <div className='mb-6 flex items-start justify-between'>
+                    <div>
+                        <h1 className='text-3xl font-bold'>Inventory Checklist</h1>
+                        <p className='mt-1 text-sm text-gray-500'>
+                            {filledCount} / {flatItems.length} items filled
+                        </p>
+                    </div>
+                    <button
+                        type='button'
+                        onClick={handleReset}
+                        className='rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50'
+                    >
+                        Reset All
+                    </button>
+                </div>
 
                 <form onSubmit={handleSubmit} className='space-y-6'>
                     <div className='grid gap-4 md:grid-cols-2'>
                         <div>
-                            <label className='mb-1 block text-sm font-medium'>
-                                Employee Name
-                            </label>
+                            <label className='mb-1 block text-sm font-medium'>Employee Name</label>
                             <input
                                 type='text'
                                 value={employeeName}
-                                onChange={(e) =>
-                                    setEmployeeName(e.target.value)
-                                }
+                                onChange={(e) => setEmployeeName(e.target.value)}
                                 className='w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-black'
                                 placeholder='Enter employee name'
                                 required
                             />
                         </div>
-
                         <div>
-                            <label className='mb-1 block text-sm font-medium'>
-                                Notes
-                            </label>
+                            <label className='mb-1 block text-sm font-medium'>Notes</label>
                             <input
                                 type='text'
                                 value={notes}
@@ -336,41 +332,68 @@ export default function InventoryPage() {
                         </div>
                     </div>
 
-                    {inventoryItems.map((group) => (
-                        <section
-                            key={group.category}
-                            className='rounded-lg border border-gray-200 p-4'
-                        >
-                            <h2 className='mb-4 text-lg font-semibold'>
-                                {group.category}
-                            </h2>
+                    {/* Search */}
+                    <input
+                        type='text'
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className='w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-black'
+                        placeholder='Search items...'
+                    />
 
-                            <div className='grid gap-4 sm:grid-cols-2 md:grid-cols-3'>
-                                {group.items.map((item) => (
-                                    <div key={item}>
-                                        <label className='mb-1 block text-sm font-medium'>
-                                            {item}
-                                        </label>
-                                        <input
-                                            type='number'
-                                            min='0'
-                                            step='1'
-                                            inputMode='numeric'
-                                            value={counts[item] ?? ''}
-                                            onChange={(e) =>
-                                                handleChange(
-                                                    item,
-                                                    e.target.value,
-                                                )
-                                            }
-                                            className='w-full rounded-lg border border-gray-300 px-3 py-2'
-                                            placeholder='0'
-                                        />
+                    {/* Categories */}
+                    {filteredItems.map((group) => {
+                        const isCollapsed = collapsed[group.category] && !search.trim();
+                        const groupFilled = group.items.filter((item) => counts[item] > 0).length;
+
+                        return (
+                            <section
+                                key={group.category}
+                                className='rounded-lg border border-gray-200'
+                            >
+                                <button
+                                    type='button'
+                                    onClick={() => toggleCategory(group.category)}
+                                    className='flex w-full items-center justify-between px-4 py-3 text-left'
+                                >
+                                    <span className='font-semibold'>{group.category}</span>
+                                    <span className='flex items-center gap-2 text-sm text-gray-500'>
+                                        {groupFilled > 0 && (
+                                            <span className='rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700'>
+                                                {groupFilled}/{group.items.length}
+                                            </span>
+                                        )}
+                                        <span>{isCollapsed ? '▸' : '▾'}</span>
+                                    </span>
+                                </button>
+
+                                {!isCollapsed && (
+                                    <div className='grid gap-4 border-t border-gray-100 p-4 sm:grid-cols-2 md:grid-cols-3'>
+                                        {group.items.map((item) => (
+                                            <div key={item}>
+                                                <label className='mb-1 block text-sm font-medium'>
+                                                    {item}
+                                                </label>
+                                                <input
+                                                    type='number'
+                                                    min='0'
+                                                    step='1'
+                                                    inputMode='numeric'
+                                                    value={counts[item] ?? 0}
+                                                    onChange={(e) => handleChange(item, e.target.value)}
+                                                    className={`w-full rounded-lg border px-3 py-2 outline-none focus:border-black ${
+                                                        counts[item] > 0
+                                                            ? 'border-green-400 bg-green-50'
+                                                            : 'border-gray-300'
+                                                    }`}
+                                                />
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
-                        </section>
-                    ))}
+                                )}
+                            </section>
+                        );
+                    })}
 
                     <div className='flex items-center gap-3'>
                         <button
@@ -380,9 +403,10 @@ export default function InventoryPage() {
                         >
                             {submitting ? 'Submitting...' : 'Submit Inventory'}
                         </button>
-
                         {message && (
-                            <p className='text-sm text-gray-700'>{message}</p>
+                            <p className={`text-sm ${message.includes('success') ? 'text-green-600' : 'text-red-600'}`}>
+                                {message}
+                            </p>
                         )}
                     </div>
                 </form>
