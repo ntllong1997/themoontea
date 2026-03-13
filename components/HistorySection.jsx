@@ -10,11 +10,12 @@ export default function HistorySection({
     title,
     sectionKey,
     orders,
-    readyItems,
-    onToggleReady,
-    getHistoryBaseClass,
     taxRate,
     totalRevenue,
+    onItemClick,
+    getItemClassName,
+    getItemBadge,
+    getItemTooltip,
 }) {
     return (
         <Card className='mt-4'>
@@ -50,39 +51,29 @@ export default function HistorySection({
                             </div>
                             <div className='p-2 space-y-1'>
                                 {items.map(({ item, itemIndex }) => {
-                                    const isReady =
-                                        readyItems[
-                                            `${orderNumber}-${itemIndex}`
-                                        ];
+                                    const key = `${orderNumber}-${itemIndex}`;
+                                    const badge = getItemBadge?.(key);
+                                    const tooltip = getItemTooltip?.(key);
                                     return (
                                         <div
                                             key={`${sectionKey}-${orderNumber}-${itemIndex}`}
                                             onClick={() =>
-                                                onToggleReady(
+                                                onItemClick(
                                                     orderNumber,
                                                     itemIndex
                                                 )
                                             }
-                                            title={
-                                                isReady
-                                                    ? 'Click to mark as not ready'
-                                                    : 'Click to mark as ready'
-                                            }
-                                            className={`flex justify-between items-center text-sm px-3 py-2 rounded cursor-pointer transition-colors hover:opacity-80 select-none ${
-                                                isReady
-                                                    ? 'bg-green-200'
-                                                    : getHistoryBaseClass(item)
-                                            }`}
+                                            title={tooltip}
+                                            className={`flex justify-between items-center text-sm px-3 py-2 rounded cursor-pointer transition-colors hover:opacity-80 select-none ${getItemClassName(item, key)}`}
                                         >
                                             <span>{item.name}</span>
                                             <span className='flex items-center gap-2'>
                                                 <span className='text-gray-600'>
-                                                    $
-                                                    {item.price.toFixed(2)}
+                                                    ${item.price.toFixed(2)}
                                                 </span>
-                                                {isReady && (
-                                                    <span className='text-green-700 font-semibold text-xs'>
-                                                        Ready
+                                                {badge && (
+                                                    <span className='text-xs font-semibold'>
+                                                        {badge}
                                                     </span>
                                                 )}
                                             </span>
