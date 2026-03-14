@@ -1346,22 +1346,22 @@ export default function InventoryPage() {
                         <h1 className='text-2xl font-bold'>Inventory</h1>
                         <p className='text-sm text-gray-500'>The Moon Tea · Palmhurst, TX</p>
                     </div>
-                    <div className='flex items-center gap-3'>
+                    <div className='flex items-center gap-4'>
+                        <div className='flex gap-1.5'>
+                            {tabs.map((t) => (
+                                <button
+                                    key={t.key}
+                                    onClick={() => setTab(t.key)}
+                                    className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${tab === t.key ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                                >
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
                         <div className='hidden text-right sm:block'>
                             <p className='text-sm font-medium'>{currentUser.name}</p>
                             <button type='button' onClick={handleSignOut} className='text-xs text-gray-400 hover:text-gray-600'>Sign out</button>
                         </div>
-                    </div>
-                    <div className='flex gap-1.5'>
-                        {tabs.map((t) => (
-                            <button
-                                key={t.key}
-                                onClick={() => setTab(t.key)}
-                                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${tab === t.key ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-                            >
-                                {t.label}
-                            </button>
-                        ))}
                     </div>
                 </div>
             </div>
