@@ -131,9 +131,10 @@ const DEFAULT_ITEMS = [
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const WEBHOOK_URL = process.env.NEXT_PUBLIC_INVENTORY_WEBHOOK_URL || '';
-const DRAFT_KEY       = 'inventory_draft';
-const UNITS_KEY       = 'inventory_units';
-const UNIT_TYPES_KEY  = 'inventory_unit_types';
+const DRAFT_KEY        = 'inventory_draft';
+const UNITS_KEY        = 'inventory_units';
+const UNIT_TYPES_KEY   = 'inventory_unit_types';
+const LAST_COUNTS_KEY  = 'inventory_last_counts';
 const DEFAULT_UNIT_TYPES = ['bottles', 'cans', 'bags', 'boxes', 'cases', 'kg', 'lbs', 'oz', 'liters', 'gallons', 'pcs', 'trays'];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -186,11 +187,11 @@ function parseCSV(text) {
     return Object.entries(grouped).map(([category, items]) => ({ category, items }));
 }
 
-function exportCSV(groups, counts, statuses, employeeName) {
-    const rows = [['Category', 'Item', 'Amount', 'Status']];
+function exportCSV(groups, counts, employeeName) {
+    const rows = [['Category', 'Item', 'Amount']];
     groups.forEach((group) => {
         group.items.forEach((item) => {
-            rows.push([group.category, item, counts[item] ?? 0, statuses[item] ?? 'ok']);
+            rows.push([group.category, item, counts[item] ?? 0]);
         });
     });
     const csv  = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -216,13 +217,13 @@ function exportTemplateCSV(groups) {
     URL.revokeObjectURL(url);
 }
 
-function exportShoppingList(shoppingItems, counts, pars, statuses) {
-    const rows = [['Category', 'Item', 'Have', 'Need (Par)', 'Short', 'Status']];
+function exportShoppingList(shoppingItems, lastCounts, pars) {
+    const rows = [['Category', 'Item', 'Have', 'Need (Par)', 'Short']];
     shoppingItems.forEach((i) => {
-        const have  = counts[i.name] ?? 0;
-        const need  = pars[i.name]  ?? '';
+        const have  = lastCounts[i.name] ?? 0;
+        const need  = pars[i.name] ?? '';
         const short = need !== '' ? Math.max(0, need - have) : '';
-        rows.push([i.category, i.name, have, need, short, statuses[i.name] ?? 'ok']);
+        rows.push([i.category, i.name, have, need, short]);
     });
     const csv  = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -234,8 +235,8 @@ function exportShoppingList(shoppingItems, counts, pars, statuses) {
     URL.revokeObjectURL(url);
 }
 
-function copyShoppingListText(shoppingItems, counts, pars, statuses) {
-    const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+function copyShoppingListText(shoppingItems, lastCounts, pars) {
+    const date  = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const lines = [`SHOPPING LIST — ${date}`, ''];
     const cats  = [...new Set(shoppingItems.map((i) => i.category))];
     cats.forEach((cat) => {
@@ -243,12 +244,10 @@ function copyShoppingListText(shoppingItems, counts, pars, statuses) {
         shoppingItems
             .filter((i) => i.category === cat)
             .forEach((i) => {
-                const have   = counts[i.name] ?? 0;
+                const have   = lastCounts[i.name] ?? 0;
                 const par    = pars[i.name];
-                const status = statuses[i.name] ?? 'ok';
                 const detail = par ? `  — have ${have}, need ${par}` : '';
-                const flag   = status !== 'ok' ? ` [${status.toUpperCase()}]` : '';
-                lines.push(`  • ${i.name}${flag}${detail}`);
+                lines.push(`  • ${i.name}${detail}`);
             });
         lines.push('');
     });
@@ -365,9 +364,9 @@ function HistoryEntry({ entry, onDelete }) {
 
 // ─── SummaryModal ────────────────────────────────────────────────────────────
 
-function SummaryModal({ flatItems, counts, statuses, employeeName, notes, onConfirm, onCancel, submitting }) {
-    const filled  = flatItems.filter((i) => counts[i.name] > 0);
-    const flagged = flatItems.filter((i) => statuses[i.name] !== 'ok');
+function SummaryModal({ flatItems, counts, pars, employeeName, notes, onConfirm, onCancel, submitting }) {
+    const filled    = flatItems.filter((i) => counts[i.name] > 0);
+    const belowPar  = flatItems.filter((i) => pars[i.name] > 0 && (counts[i.name] ?? 0) < pars[i.name]);
     return (
         <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>
             <div className='w-full max-w-lg rounded-xl bg-white shadow-xl'>
@@ -379,30 +378,26 @@ function SummaryModal({ flatItems, counts, statuses, employeeName, notes, onConf
                     {notes && <p className='text-sm text-gray-600'><span className='font-medium'>Notes:</span> {notes}</p>}
                     <div>
                         <p className='mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500'>Summary</p>
-                        <div className='grid grid-cols-3 gap-2 text-center text-sm'>
+                        <div className='grid grid-cols-2 gap-2 text-center text-sm'>
                             <div className='rounded-lg bg-gray-50 p-2'>
                                 <p className='text-xl font-bold'>{filled.length}</p>
                                 <p className='text-gray-500'>items filled</p>
                             </div>
-                            <div className='rounded-lg bg-yellow-50 p-2'>
-                                <p className='text-xl font-bold text-yellow-700'>{flagged.filter((i) => statuses[i.name] === 'low').length}</p>
-                                <p className='text-yellow-600'>low stock</p>
-                            </div>
-                            <div className='rounded-lg bg-red-50 p-2'>
-                                <p className='text-xl font-bold text-red-700'>{flagged.filter((i) => statuses[i.name] === 'out').length}</p>
-                                <p className='text-red-600'>out of stock</p>
+                            <div className='rounded-lg bg-orange-50 p-2'>
+                                <p className='text-xl font-bold text-orange-700'>{belowPar.length}</p>
+                                <p className='text-orange-600'>below par</p>
                             </div>
                         </div>
                     </div>
-                    {flagged.length > 0 && (
+                    {belowPar.length > 0 && (
                         <div>
-                            <p className='mb-1 text-xs font-semibold uppercase tracking-wide text-red-500'>Flagged Items</p>
+                            <p className='mb-1 text-xs font-semibold uppercase tracking-wide text-orange-500'>Below Par</p>
                             <div className='space-y-1'>
-                                {flagged.map((i) => (
+                                {belowPar.map((i) => (
                                     <div key={i.name} className='flex items-center justify-between text-sm'>
                                         <span className='text-gray-700'>{i.name}</span>
-                                        <span className={`rounded px-2 py-0.5 text-xs font-medium ${statuses[i.name] === 'low' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                                            {statuses[i.name]}
+                                        <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>
+                                            have {counts[i.name] ?? 0} · need {pars[i.name]}
                                         </span>
                                     </div>
                                 ))}
@@ -798,7 +793,7 @@ function ManageTab({ groups, onChange, pars, onParChange, counts, units, onUnitC
                                 </div>
                                 {/* Row 2 (mobile) / inline (desktop): stock + par + unit */}
                                 <div className='flex items-center gap-2 sm:contents'>
-                                    <span title='Current stock' className='w-8 shrink-0 text-center text-xs tabular-nums text-gray-400'>{counts[item] ?? 0}</span>
+                                    <span title='Last submitted count' className='w-8 shrink-0 text-center text-xs tabular-nums text-gray-400'>{lastCounts[item] ?? '—'}</span>
                                     <input
                                         type='number' min='0' step='1' inputMode='numeric'
                                         value={pars[item] || ''} onChange={(e) => onParChange(item, e.target.value)}
@@ -972,6 +967,7 @@ export default function InventoryPage() {
     const [groups,       setGroups]       = useState(DEFAULT_ITEMS);
     const [counts,       setCounts]       = useState({});
     const [statuses,     setStatuses]     = useState({});
+    const [lastCounts,   setLastCounts]   = useState({});
     const [employeeName, setEmployeeName] = useState('');
     const [notes,        setNotes]        = useState('');
     const [submitting,   setSubmitting]   = useState(false);
@@ -1047,6 +1043,9 @@ export default function InventoryPage() {
                     if (draft.statuses) setStatuses(draft.statuses);
                     if (draft.notes)    setNotes(draft.notes);
                 }
+
+                const savedLastCounts = JSON.parse(localStorage.getItem(LAST_COUNTS_KEY) || 'null');
+                if (savedLastCounts) setLastCounts(savedLastCounts);
 
                 const savedUnits = JSON.parse(localStorage.getItem(UNITS_KEY) || 'null');
                 if (savedUnits) setUnits(savedUnits);
@@ -1176,14 +1175,6 @@ export default function InventoryPage() {
         });
     };
 
-    const handleStatusChange = (itemName, status) => {
-        setStatuses((prev) => {
-            const next = { ...prev, [itemName]: status };
-            saveDraft(counts, next, employeeName, notes);
-            return next;
-        });
-    };
-
     const handleReset = () => {
         const empty = Object.fromEntries(flatItems.map((i) => [i.name, 0]));
         const emptyS = Object.fromEntries(flatItems.map((i) => [i.name, 'ok']));
@@ -1211,7 +1202,6 @@ export default function InventoryPage() {
                 category: item.category,
                 name:     item.name,
                 amount:   counts[item.name] || null,
-                status:   statuses[item.name] || 'ok',
             })),
         };
         try {
@@ -1225,6 +1215,9 @@ export default function InventoryPage() {
             }
             const newId = await saveInventorySubmission(payload);
             setHistory((prev) => [{ ...payload, _id: newId }, ...prev].slice(0, 50));
+            // Persist submitted counts so manage tab + shopping list reflect real stock
+            localStorage.setItem(LAST_COUNTS_KEY, JSON.stringify(counts));
+            setLastCounts(counts);
             setMessage('Submitted successfully.');
             setShowSummary(false);
             handleReset();
@@ -1238,7 +1231,6 @@ export default function InventoryPage() {
 
     // Derived stats
     const filledCount  = useMemo(() => flatItems.filter((i) => counts[i.name] > 0).length, [flatItems, counts]);
-    const flaggedCount = useMemo(() => flatItems.filter((i) => statuses[i.name] !== 'ok').length, [flatItems, statuses]);
     const progressPct  = flatItems.length ? Math.round((filledCount / flatItems.length) * 100) : 0;
 
     const filteredGroups = useMemo(() => {
@@ -1250,12 +1242,8 @@ export default function InventoryPage() {
     }, [search, groups]);
 
     const shoppingItems = useMemo(() =>
-        flatItems.filter((i) =>
-            statuses[i.name] === 'out' ||
-            statuses[i.name] === 'low' ||
-            (pars[i.name] > 0 && (counts[i.name] ?? 0) < pars[i.name])
-        ),
-        [flatItems, statuses, pars, counts]
+        flatItems.filter((i) => pars[i.name] > 0 && (lastCounts[i.name] ?? 0) < pars[i.name]),
+        [flatItems, pars, lastCounts]
     );
 
     const tabs = [
@@ -1395,13 +1383,10 @@ export default function InventoryPage() {
                             <div className='mb-2 flex items-center justify-between text-sm'>
                                 <div className='flex items-center gap-3'>
                                     <span className='font-medium'>{filledCount} / {flatItems.length} filled</span>
-                                    {flaggedCount > 0 && (
-                                        <span className='rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600'>{flaggedCount} flagged</span>
-                                    )}
                                     {draftSaved && <span className='text-xs text-gray-400'>Draft saved</span>}
                                 </div>
                                 <div className='flex gap-2'>
-                                    <button type='button' onClick={() => exportCSV(groups, counts, statuses, employeeName)} className='rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50'>
+                                    <button type='button' onClick={() => exportCSV(groups, counts, employeeName)} className='rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50'>
                                         Export CSV
                                     </button>
                                     <button type='button' onClick={handleReset} className='rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50'>
@@ -1423,9 +1408,8 @@ export default function InventoryPage() {
                         />
 
                         {filteredGroups.map((group) => {
-                            const isCollapsed  = collapsed[group.category] && !search.trim();
-                            const groupFilled  = group.items.filter((i) => counts[i] > 0).length;
-                            const groupFlagged = group.items.filter((i) => statuses[i] !== 'ok').length;
+                            const isCollapsed = collapsed[group.category] && !search.trim();
+                            const groupFilled = group.items.filter((i) => counts[i] > 0).length;
                             return (
                                 <section key={group.category} className='rounded-xl bg-white shadow-sm'>
                                     <button
@@ -1435,7 +1419,6 @@ export default function InventoryPage() {
                                     >
                                         <span className='font-semibold'>{group.category}</span>
                                         <span className='flex items-center gap-1.5 text-sm'>
-                                            {groupFlagged > 0 && <span className='rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600'>{groupFlagged} flagged</span>}
                                             {groupFilled > 0 && <span className='rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700'>{groupFilled}/{group.items.length}</span>}
                                             <span className='text-gray-400'>{isCollapsed ? '▸' : '▾'}</span>
                                         </span>
@@ -1465,7 +1448,6 @@ export default function InventoryPage() {
                                                     {pars[item] > 0 && (counts[item] ?? 0) < pars[item] && (
                                                         <p className='mt-0.5 text-xs text-orange-500'>Below par (need {pars[item]})</p>
                                                     )}
-                                                    <StatusPill value={statuses[item] || 'ok'} onChange={(s) => handleStatusChange(item, s)} />
                                                 </div>
                                             ))}
                                         </div>
@@ -1497,7 +1479,7 @@ export default function InventoryPage() {
                             <div className='rounded-xl bg-white p-10 text-center shadow-sm'>
                                 <p className='text-2xl'>✓</p>
                                 <p className='mt-2 font-medium text-gray-700'>All good! Nothing needs ordering.</p>
-                                <p className='mt-1 text-sm text-gray-400'>Items marked Low/Out or below their par level will appear here.</p>
+                                <p className='mt-1 text-sm text-gray-400'>Items below their par level after submission will appear here.</p>
                             </div>
                         ) : (
                             <>
@@ -1506,14 +1488,14 @@ export default function InventoryPage() {
                                     <div className='flex gap-2'>
                                         <button
                                             type='button'
-                                            onClick={() => { copyShoppingListText(shoppingItems, counts, pars, statuses); }}
+                                            onClick={() => { copyShoppingListText(shoppingItems, lastCounts, pars); }}
                                             className='rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50'
                                         >
                                             Copy Text
                                         </button>
                                         <button
                                             type='button'
-                                            onClick={() => exportShoppingList(shoppingItems, counts, pars, statuses)}
+                                            onClick={() => exportShoppingList(shoppingItems, lastCounts, pars)}
                                             className='rounded-lg bg-black px-3 py-1.5 text-xs font-medium text-white'
                                         >
                                             Export CSV
@@ -1530,28 +1512,15 @@ export default function InventoryPage() {
                                             </div>
                                             <div className='divide-y divide-gray-50'>
                                                 {catItems.map((i) => {
-                                                    const have   = counts[i.name] ?? 0;
-                                                    const par    = pars[i.name];
-                                                    const status = statuses[i.name] ?? 'ok';
-                                                    const belowPar = par > 0 && have < par;
+                                                    const have = lastCounts[i.name] ?? 0;
+                                                    const par  = pars[i.name];
                                                     return (
                                                         <div key={i.name} className='flex items-center justify-between px-4 py-3'>
                                                             <div>
                                                                 <p className='text-sm font-medium'>{i.name}</p>
-                                                                {belowPar && (
-                                                                    <p className='text-xs text-orange-500'>have {have} · need {par} · short {par - have}</p>
-                                                                )}
+                                                                <p className='text-xs text-orange-500'>have {have} · need {par} · short {par - have}</p>
                                                             </div>
-                                                            <div className='flex items-center gap-2'>
-                                                                {status !== 'ok' && (
-                                                                    <span className={`rounded px-2 py-0.5 text-xs font-medium ${status === 'low' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                                                                        {status.toUpperCase()}
-                                                                    </span>
-                                                                )}
-                                                                {belowPar && status === 'ok' && (
-                                                                    <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>Below par</span>
-                                                                )}
-                                                            </div>
+                                                            <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>Below par</span>
                                                         </div>
                                                     );
                                                 })}
@@ -1616,7 +1585,7 @@ export default function InventoryPage() {
                 <SummaryModal
                     flatItems={flatItems}
                     counts={counts}
-                    statuses={statuses}
+                    pars={pars}
                     employeeName={employeeName}
                     notes={notes}
                     onConfirm={handleSubmit}
