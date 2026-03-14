@@ -7,6 +7,10 @@ import {
     getInventorySubmissions, saveInventorySubmission,
     deleteInventorySubmission, clearInventorySubmissions,
 } from '@/lib/inventoryDb';
+import {
+    getEmployees, verifyPin,
+    createEmployee, updateEmployeePin, deleteEmployee,
+} from '@/lib/employeesDb';
 
 // ─── Default data ────────────────────────────────────────────────────────────
 
@@ -743,6 +747,120 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
     );
 }
 
+// ─── Employees tab (admin only) ──────────────────────────────────────────────
+
+function EmployeesTab({ employees, currentUser, onAdd, onDelete, onResetPin }) {
+    const [form,        setForm]        = useState({ name: '', role: 'employee', pin: '', confirmPin: '' });
+    const [formError,   setFormError]   = useState('');
+    const [adding,      setAdding]      = useState(false);
+    const [resetTarget, setResetTarget] = useState(null);
+    const [resetPin,    setResetPin]    = useState('');
+    const [resetError,  setResetError]  = useState('');
+    const [resetting,   setResetting]   = useState(false);
+
+    const handleAdd = async () => {
+        if (!form.name.trim())       { setFormError('Name is required.'); return; }
+        if (form.pin.length < 4)     { setFormError('PIN must be at least 4 digits.'); return; }
+        if (form.pin !== form.confirmPin) { setFormError('PINs do not match.'); return; }
+        setAdding(true); setFormError('');
+        try {
+            await onAdd(form.name.trim(), form.pin, form.role);
+            setForm({ name: '', role: 'employee', pin: '', confirmPin: '' });
+        } catch (e) { setFormError(e.message || 'Failed to add employee.'); }
+        finally { setAdding(false); }
+    };
+
+    const handleResetPin = async () => {
+        if (resetPin.length < 4) { setResetError('PIN must be at least 4 digits.'); return; }
+        setResetting(true); setResetError('');
+        try {
+            await onResetPin(resetTarget, resetPin);
+            setResetTarget(null); setResetPin('');
+        } catch (e) { setResetError(e.message || 'Failed to reset PIN.'); }
+        finally { setResetting(false); }
+    };
+
+    return (
+        <div className='space-y-5'>
+            {/* Employee list */}
+            <div className='rounded-xl bg-white p-4 shadow-sm'>
+                <h2 className='mb-3 font-semibold'>Employees ({employees.length})</h2>
+                {employees.length === 0 ? (
+                    <p className='text-sm text-gray-400'>No employees yet.</p>
+                ) : (
+                    <ul className='divide-y divide-gray-100'>
+                        {employees.map((emp) => (
+                            <li key={emp.id} className='flex items-center justify-between py-2.5'>
+                                <div className='flex items-center gap-2'>
+                                    <span className='font-medium'>{emp.name}</span>
+                                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${emp.role === 'admin' ? 'bg-black text-white' : 'bg-gray-100 text-gray-600'}`}>
+                                        {emp.role}
+                                    </span>
+                                    {emp.id === currentUser.id && <span className='text-xs text-gray-400'>(you)</span>}
+                                </div>
+                                <div className='flex gap-3'>
+                                    <button type='button' onClick={() => { setResetTarget(emp.id); setResetPin(''); setResetError(''); }} className='text-xs text-blue-500 hover:text-blue-700'>Reset PIN</button>
+                                    {emp.id !== currentUser.id && (
+                                        <button type='button' onClick={() => onDelete(emp.id)} className='text-xs text-red-400 hover:text-red-600'>Delete</button>
+                                    )}
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+
+            {/* Reset PIN inline panel */}
+            {resetTarget && (
+                <div className='rounded-xl bg-white p-4 shadow-sm'>
+                    <h3 className='mb-3 font-medium'>Reset PIN — {employees.find((e) => e.id === resetTarget)?.name}</h3>
+                    <div className='flex flex-wrap gap-2'>
+                        <input
+                            type='password' inputMode='numeric' maxLength={6}
+                            value={resetPin} onChange={(e) => setResetPin(e.target.value.replace(/\D/g, ''))}
+                            placeholder='New PIN'
+                            className='w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black'
+                        />
+                        <button type='button' onClick={handleResetPin} disabled={resetting} className='rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50'>{resetting ? 'Saving…' : 'Save'}</button>
+                        <button type='button' onClick={() => setResetTarget(null)} className='rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600'>Cancel</button>
+                    </div>
+                    {resetError && <p className='mt-1 text-xs text-red-500'>{resetError}</p>}
+                </div>
+            )}
+
+            {/* Add employee */}
+            <div className='rounded-xl bg-white p-4 shadow-sm'>
+                <h2 className='mb-3 font-semibold'>Add Employee</h2>
+                <div className='grid gap-3 sm:grid-cols-2'>
+                    <div>
+                        <label className='mb-1 block text-xs font-medium text-gray-600'>Name</label>
+                        <input type='text' value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder='Full name' className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black' />
+                    </div>
+                    <div>
+                        <label className='mb-1 block text-xs font-medium text-gray-600'>Role</label>
+                        <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black'>
+                            <option value='employee'>Employee</option>
+                            <option value='admin'>Admin</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className='mb-1 block text-xs font-medium text-gray-600'>PIN (4–6 digits)</label>
+                        <input type='password' inputMode='numeric' maxLength={6} value={form.pin} onChange={(e) => setForm((f) => ({ ...f, pin: e.target.value.replace(/\D/g, '') }))} placeholder='••••' className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black' />
+                    </div>
+                    <div>
+                        <label className='mb-1 block text-xs font-medium text-gray-600'>Confirm PIN</label>
+                        <input type='password' inputMode='numeric' maxLength={6} value={form.confirmPin} onChange={(e) => setForm((f) => ({ ...f, confirmPin: e.target.value.replace(/\D/g, '') }))} placeholder='••••' className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black' />
+                    </div>
+                </div>
+                {formError && <p className='mt-2 text-xs text-red-500'>{formError}</p>}
+                <button type='button' onClick={handleAdd} disabled={adding} className='mt-3 rounded-lg bg-black px-5 py-2 text-sm text-white disabled:opacity-50'>
+                    {adding ? 'Adding…' : 'Add Employee'}
+                </button>
+            </div>
+        </div>
+    );
+}
+
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 export default function InventoryPage() {
@@ -761,6 +879,12 @@ export default function InventoryPage() {
     const [history,      setHistory]      = useState([]);
     const [pars,         setPars]         = useState({});
     const [isLoading,    setIsLoading]    = useState(true);
+    const [currentUser,  setCurrentUser]  = useState(null);
+    const [employees,    setEmployees]    = useState([]);
+    const [pinEmployee,  setPinEmployee]  = useState('');
+    const [pinInput,     setPinInput]     = useState('');
+    const [pinError,     setPinError]     = useState('');
+    const [pinLoading,   setPinLoading]   = useState(false);
     const draftTimer    = useRef(null);
     const parSaveTimer  = useRef(null);
 
@@ -785,29 +909,37 @@ export default function InventoryPage() {
     useEffect(() => {
         const load = async () => {
             try {
-                const [fetchedGroups, fetchedPars, fetchedHistory] = await Promise.all([
+                const [fetchedGroups, fetchedPars, fetchedHistory, fetchedEmployees] = await Promise.all([
                     getInventoryGroups(),
                     getParLevels(),
                     getInventorySubmissions(),
+                    getEmployees(),
                 ]);
 
                 if (fetchedGroups) {
                     setGroups(fetchedGroups);
                 } else {
-                    // First time — seed DB with defaults
                     await saveInventoryGroups(DEFAULT_ITEMS);
                 }
-
                 setPars(fetchedPars);
                 setHistory(fetchedHistory);
+                setEmployees(fetchedEmployees);
+
+                // Restore session
+                try {
+                    const session = JSON.parse(sessionStorage.getItem('inventory_session') || 'null');
+                    if (session?.id) {
+                        setCurrentUser(session);
+                        setEmployeeName(session.name);
+                    }
+                } catch (_) {}
 
                 // Draft stays in localStorage (per-session)
                 const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
                 if (draft) {
-                    if (draft.counts)       setCounts(draft.counts);
-                    if (draft.statuses)     setStatuses(draft.statuses);
-                    if (draft.employeeName) setEmployeeName(draft.employeeName);
-                    if (draft.notes)        setNotes(draft.notes);
+                    if (draft.counts)   setCounts(draft.counts);
+                    if (draft.statuses) setStatuses(draft.statuses);
+                    if (draft.notes)    setNotes(draft.notes);
                 }
             } catch (err) {
                 console.error('Failed to load inventory from Supabase:', err);
@@ -821,6 +953,43 @@ export default function InventoryPage() {
     const handleGroupsChange = (next) => {
         setGroups(next);
         saveInventoryGroups(next).catch(console.error);
+    };
+
+    // ── Auth ─────────────────────────────────────────────────────────────────
+    const handlePinSubmit = async () => {
+        if (!pinEmployee) { setPinError('Select your name.'); return; }
+        if (!pinInput)    { setPinError('Enter your PIN.'); return; }
+        setPinLoading(true); setPinError('');
+        const user = await verifyPin(pinEmployee, pinInput);
+        if (!user) { setPinError('Incorrect PIN. Try again.'); setPinLoading(false); return; }
+        sessionStorage.setItem('inventory_session', JSON.stringify(user));
+        setCurrentUser(user);
+        setEmployeeName(user.name);
+        setPinLoading(false);
+    };
+
+    const handleSignOut = () => {
+        sessionStorage.removeItem('inventory_session');
+        setCurrentUser(null);
+        setEmployeeName('');
+        setPinEmployee('');
+        setPinInput('');
+    };
+
+    // ── Employee management (admin) ───────────────────────────────────────────
+    const handleCreateEmployee = async (name, pin, role) => {
+        const created = await createEmployee(name, pin, role);
+        setEmployees((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+    };
+
+    const handleDeleteEmployee = async (id) => {
+        if (!confirm('Delete this employee?')) return;
+        await deleteEmployee(id);
+        setEmployees((prev) => prev.filter((e) => e.id !== id));
+    };
+
+    const handleResetPin = async (id, newPin) => {
+        await updateEmployeePin(id, newPin);
     };
 
     // Auto-save draft (debounced 800ms)
@@ -938,10 +1107,11 @@ export default function InventoryPage() {
     );
 
     const tabs = [
-        { key: 'checklist', label: 'Checklist' },
-        { key: 'shopping',  label: `Shopping List${shoppingItems.length > 0 ? ` (${shoppingItems.length})` : ''}` },
-        { key: 'history',   label: `History${history.length > 0 ? ` (${history.length})` : ''}` },
-        { key: 'manage',    label: 'Manage Items' },
+        { key: 'checklist',  label: 'Checklist' },
+        { key: 'shopping',   label: `Shopping List${shoppingItems.length > 0 ? ` (${shoppingItems.length})` : ''}` },
+        { key: 'history',    label: `History${history.length > 0 ? ` (${history.length})` : ''}` },
+        { key: 'manage',     label: 'Manage Items' },
+        ...(currentUser?.role === 'admin' ? [{ key: 'employees', label: 'Employees' }] : []),
     ];
 
     if (isLoading) {
@@ -955,6 +1125,57 @@ export default function InventoryPage() {
         );
     }
 
+    if (!currentUser) {
+        return (
+            <main className='flex min-h-screen items-center justify-center bg-gray-50 p-4'>
+                <div className='w-full max-w-sm rounded-2xl bg-white p-8 shadow-sm'>
+                    <div className='mb-6 text-center'>
+                        <h1 className='text-2xl font-bold'>Inventory</h1>
+                        <p className='mt-1 text-sm text-gray-500'>The Moon Tea · Palmhurst, TX</p>
+                    </div>
+                    <div className='space-y-4'>
+                        <div>
+                            <label className='mb-1 block text-sm font-medium'>Your name</label>
+                            <select
+                                value={pinEmployee}
+                                onChange={(e) => setPinEmployee(e.target.value)}
+                                className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black'
+                            >
+                                <option value=''>Select employee…</option>
+                                {employees.map((e) => (
+                                    <option key={e.id} value={e.id}>{e.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className='mb-1 block text-sm font-medium'>PIN</label>
+                            <input
+                                type='password' inputMode='numeric' maxLength={6}
+                                value={pinInput}
+                                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+                                onKeyDown={(e) => e.key === 'Enter' && handlePinSubmit()}
+                                placeholder='••••'
+                                className='w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black'
+                            />
+                        </div>
+                        {pinError && <p className='text-xs text-red-500'>{pinError}</p>}
+                        <button
+                            type='button'
+                            onClick={handlePinSubmit}
+                            disabled={pinLoading}
+                            className='w-full rounded-lg bg-black py-2.5 text-sm font-medium text-white disabled:opacity-50'
+                        >
+                            {pinLoading ? 'Verifying…' : 'Sign In'}
+                        </button>
+                        {employees.length === 0 && (
+                            <p className='text-center text-xs text-gray-400'>No employees set up yet. Ask an admin to create employee profiles in Supabase.</p>
+                        )}
+                    </div>
+                </div>
+            </main>
+        );
+    }
+
     return (
         <main className='min-h-screen bg-gray-50'>
             {/* Header */}
@@ -963,6 +1184,12 @@ export default function InventoryPage() {
                     <div>
                         <h1 className='text-2xl font-bold'>Inventory</h1>
                         <p className='text-sm text-gray-500'>The Moon Tea · Palmhurst, TX</p>
+                    </div>
+                    <div className='flex items-center gap-3'>
+                        <div className='hidden text-right sm:block'>
+                            <p className='text-sm font-medium'>{currentUser.name}</p>
+                            <button type='button' onClick={handleSignOut} className='text-xs text-gray-400 hover:text-gray-600'>Sign out</button>
+                        </div>
                     </div>
                     <div className='flex gap-1.5'>
                         {tabs.map((t) => (
@@ -987,13 +1214,15 @@ export default function InventoryPage() {
                             <div className='grid gap-4 md:grid-cols-2'>
                                 <div>
                                     <label className='mb-1 block text-sm font-medium'>Employee Name</label>
-                                    <input
-                                        type='text'
+                                    <select
                                         value={employeeName}
                                         onChange={(e) => { setEmployeeName(e.target.value); saveDraft(counts, statuses, e.target.value, notes); }}
                                         className='w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-black'
-                                        placeholder='Enter your name'
-                                    />
+                                    >
+                                        {employees.map((e) => (
+                                            <option key={e.id} value={e.name}>{e.name}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div>
                                     <label className='mb-1 block text-sm font-medium'>Notes</label>
@@ -1207,6 +1436,17 @@ export default function InventoryPage() {
                 {/* ── Manage Tab ── */}
                 {tab === 'manage' && (
                     <ManageTab groups={groups} onChange={handleGroupsChange} pars={pars} onParChange={handleParChange} />
+                )}
+
+                {/* ── Employees Tab (admin) ── */}
+                {tab === 'employees' && currentUser?.role === 'admin' && (
+                    <EmployeesTab
+                        employees={employees}
+                        currentUser={currentUser}
+                        onAdd={handleCreateEmployee}
+                        onDelete={handleDeleteEmployee}
+                        onResetPin={handleResetPin}
+                    />
                 )}
             </div>
 
