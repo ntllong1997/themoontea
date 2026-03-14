@@ -123,6 +123,7 @@ const WEBHOOK_URL = process.env.NEXT_PUBLIC_INVENTORY_WEBHOOK_URL || '';
 const DRAFT_KEY   = 'inventory_draft';
 const HISTORY_KEY = 'inventory_history';
 const ITEMS_KEY   = 'inventory_items';
+const PARS_KEY    = 'inventory_par';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -202,6 +203,45 @@ function exportTemplateCSV(groups) {
     a.download = 'inventory_template.csv';
     a.click();
     URL.revokeObjectURL(url);
+}
+
+function exportShoppingList(shoppingItems, counts, pars, statuses) {
+    const rows = [['Category', 'Item', 'Have', 'Need (Par)', 'Short', 'Status']];
+    shoppingItems.forEach((i) => {
+        const have  = counts[i.name] ?? 0;
+        const need  = pars[i.name]  ?? '';
+        const short = need !== '' ? Math.max(0, need - have) : '';
+        rows.push([i.category, i.name, have, need, short, statuses[i.name] ?? 'ok']);
+    });
+    const csv  = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `shopping_list_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function copyShoppingListText(shoppingItems, counts, pars, statuses) {
+    const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const lines = [`SHOPPING LIST — ${date}`, ''];
+    const cats  = [...new Set(shoppingItems.map((i) => i.category))];
+    cats.forEach((cat) => {
+        lines.push(cat);
+        shoppingItems
+            .filter((i) => i.category === cat)
+            .forEach((i) => {
+                const have   = counts[i.name] ?? 0;
+                const par    = pars[i.name];
+                const status = statuses[i.name] ?? 'ok';
+                const detail = par ? `  — have ${have}, need ${par}` : '';
+                const flag   = status !== 'ok' ? ` [${status.toUpperCase()}]` : '';
+                lines.push(`  • ${i.name}${flag}${detail}`);
+            });
+        lines.push('');
+    });
+    navigator.clipboard.writeText(lines.join('\n'));
 }
 
 function formatDate(iso) {
@@ -420,7 +460,7 @@ function CSVImportModal({ parsed, onConfirm, onCancel }) {
 
 // ─── ManageTab ───────────────────────────────────────────────────────────────
 
-function ManageTab({ groups, onChange }) {
+function ManageTab({ groups, onChange, pars, onParChange }) {
     const [editCat,  setEditCat]  = useState(null); // { catIdx, value }
     const [editItem, setEditItem] = useState(null); // { catIdx, itemIdx, value }
     const [newItem,  setNewItem]  = useState({});   // { [catIdx]: string }
@@ -636,6 +676,17 @@ function ManageTab({ groups, onChange }) {
                                 ) : (
                                     <span className='flex-1 text-sm'>{item}</span>
                                 )}
+                                <input
+                                    type='number'
+                                    min='0'
+                                    step='1'
+                                    inputMode='numeric'
+                                    value={pars[item] || ''}
+                                    onChange={(e) => onParChange(item, e.target.value)}
+                                    placeholder='Par'
+                                    title='Par level (minimum quantity)'
+                                    className='w-16 shrink-0 rounded border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400'
+                                />
                                 <button
                                     type='button'
                                     onClick={() => setEditItem({ catIdx, itemIdx, value: item })}
@@ -705,6 +756,7 @@ export default function InventoryPage() {
     const [draftSaved,   setDraftSaved]   = useState(false);
     const [showSummary,  setShowSummary]  = useState(false);
     const [history,      setHistory]      = useState([]);
+    const [pars,         setPars]         = useState({});
     const draftTimer = useRef(null);
 
     // Derived
@@ -740,6 +792,9 @@ export default function InventoryPage() {
 
             const hist = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
             setHistory(hist);
+
+            const savedPars = JSON.parse(localStorage.getItem(PARS_KEY) || '{}');
+            setPars(savedPars);
         } catch (_) {}
     }, []);
 
@@ -763,6 +818,16 @@ export default function InventoryPage() {
         setCounts((prev) => {
             const next = { ...prev, [itemName]: num };
             saveDraft(next, statuses, employeeName, notes);
+            return next;
+        });
+    };
+
+    const handleParChange = (itemName, value) => {
+        const num = Math.max(0, Math.floor(Number(value) || 0));
+        setPars((prev) => {
+            const next = { ...prev };
+            if (num > 0) { next[itemName] = num; } else { delete next[itemName]; }
+            localStorage.setItem(PARS_KEY, JSON.stringify(next));
             return next;
         });
     };
@@ -846,8 +911,18 @@ export default function InventoryPage() {
             .filter((g) => g.items.length > 0);
     }, [search, groups]);
 
+    const shoppingItems = useMemo(() =>
+        flatItems.filter((i) =>
+            statuses[i.name] === 'out' ||
+            statuses[i.name] === 'low' ||
+            (pars[i.name] > 0 && (counts[i.name] ?? 0) < pars[i.name])
+        ),
+        [flatItems, statuses, pars, counts]
+    );
+
     const tabs = [
         { key: 'checklist', label: 'Checklist' },
+        { key: 'shopping',  label: `Shopping List${shoppingItems.length > 0 ? ` (${shoppingItems.length})` : ''}` },
         { key: 'history',   label: `History${history.length > 0 ? ` (${history.length})` : ''}` },
         { key: 'manage',    label: 'Manage Items' },
     ];
@@ -966,8 +1041,17 @@ export default function InventoryPage() {
                                                         inputMode='numeric'
                                                         value={counts[item] ?? 0}
                                                         onChange={(e) => handleCountChange(item, e.target.value)}
-                                                        className={`w-full rounded-lg border px-3 py-2 outline-none focus:border-black ${counts[item] > 0 ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}
+                                                        className={`w-full rounded-lg border px-3 py-2 outline-none focus:border-black ${
+                                                            pars[item] > 0 && (counts[item] ?? 0) < pars[item]
+                                                                ? 'border-orange-400 bg-orange-50'
+                                                                : counts[item] > 0
+                                                                ? 'border-green-400 bg-green-50'
+                                                                : 'border-gray-300'
+                                                        }`}
                                                     />
+                                                    {pars[item] > 0 && (counts[item] ?? 0) < pars[item] && (
+                                                        <p className='mt-0.5 text-xs text-orange-500'>Below par (need {pars[item]})</p>
+                                                    )}
                                                     <StatusPill value={statuses[item] || 'ok'} onChange={(s) => handleStatusChange(item, s)} />
                                                 </div>
                                             ))}
@@ -990,6 +1074,80 @@ export default function InventoryPage() {
                                 <p className={`text-sm ${message.includes('success') ? 'text-green-600' : 'text-red-600'}`}>{message}</p>
                             )}
                         </div>
+                    </div>
+                )}
+
+                {/* ── Shopping List Tab ── */}
+                {tab === 'shopping' && (
+                    <div className='space-y-4'>
+                        {shoppingItems.length === 0 ? (
+                            <div className='rounded-xl bg-white p-10 text-center shadow-sm'>
+                                <p className='text-2xl'>✓</p>
+                                <p className='mt-2 font-medium text-gray-700'>All good! Nothing needs ordering.</p>
+                                <p className='mt-1 text-sm text-gray-400'>Items marked Low/Out or below their par level will appear here.</p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className='flex flex-wrap items-center justify-between gap-2'>
+                                    <p className='text-sm text-gray-500'>{shoppingItems.length} item{shoppingItems.length !== 1 ? 's' : ''} to order</p>
+                                    <div className='flex gap-2'>
+                                        <button
+                                            type='button'
+                                            onClick={() => { copyShoppingListText(shoppingItems, counts, pars, statuses); }}
+                                            className='rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50'
+                                        >
+                                            Copy Text
+                                        </button>
+                                        <button
+                                            type='button'
+                                            onClick={() => exportShoppingList(shoppingItems, counts, pars, statuses)}
+                                            className='rounded-lg bg-black px-3 py-1.5 text-xs font-medium text-white'
+                                        >
+                                            Export CSV
+                                        </button>
+                                    </div>
+                                </div>
+                                {[...new Set(shoppingItems.map((i) => i.category))].map((cat) => {
+                                    const catItems = shoppingItems.filter((i) => i.category === cat);
+                                    return (
+                                        <section key={cat} className='rounded-xl bg-white shadow-sm'>
+                                            <div className='border-b border-gray-100 px-4 py-3'>
+                                                <span className='font-semibold'>{cat}</span>
+                                                <span className='ml-2 text-xs text-gray-400'>{catItems.length} item{catItems.length !== 1 ? 's' : ''}</span>
+                                            </div>
+                                            <div className='divide-y divide-gray-50'>
+                                                {catItems.map((i) => {
+                                                    const have   = counts[i.name] ?? 0;
+                                                    const par    = pars[i.name];
+                                                    const status = statuses[i.name] ?? 'ok';
+                                                    const belowPar = par > 0 && have < par;
+                                                    return (
+                                                        <div key={i.name} className='flex items-center justify-between px-4 py-3'>
+                                                            <div>
+                                                                <p className='text-sm font-medium'>{i.name}</p>
+                                                                {belowPar && (
+                                                                    <p className='text-xs text-orange-500'>have {have} · need {par} · short {par - have}</p>
+                                                                )}
+                                                            </div>
+                                                            <div className='flex items-center gap-2'>
+                                                                {status !== 'ok' && (
+                                                                    <span className={`rounded px-2 py-0.5 text-xs font-medium ${status === 'low' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                                                        {status.toUpperCase()}
+                                                                    </span>
+                                                                )}
+                                                                {belowPar && status === 'ok' && (
+                                                                    <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>Below par</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </section>
+                                    );
+                                })}
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -1020,7 +1178,7 @@ export default function InventoryPage() {
 
                 {/* ── Manage Tab ── */}
                 {tab === 'manage' && (
-                    <ManageTab groups={groups} onChange={setGroups} />
+                    <ManageTab groups={groups} onChange={setGroups} pars={pars} onParChange={handleParChange} />
                 )}
             </div>
 
