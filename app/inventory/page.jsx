@@ -473,24 +473,17 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
     const [newItem,  setNewItem]  = useState({});   // { [catIdx]: string }
     const [newCat,   setNewCat]   = useState('');
     const [csvModal, setCsvModal] = useState(null); // parsed groups | null
-    // drag state
-    const [dragCat,  setDragCat]  = useState(null); // catIdx being dragged
-    const [overCat,  setOverCat]  = useState(null); // catIdx dragged over
+    const [collapsed, setCollapsed] = useState({});  // { [catIdx]: bool }
+    // item drag state
     const [dragItem, setDragItem] = useState(null); // { catIdx, itemIdx }
     const [overItem, setOverItem] = useState(null); // { catIdx, itemIdx }
     const fileRef = useRef(null);
 
     const update = (next) => onChange(next);
 
-    // ── Reorder helpers ───────────────────────────────────────────────────
+    const toggleCollapse = (catIdx) => setCollapsed((p) => ({ ...p, [catIdx]: !p[catIdx] }));
 
-    const moveCategory = (fromIdx, toIdx) => {
-        if (fromIdx === toIdx) return;
-        const next = [...groups];
-        const [removed] = next.splice(fromIdx, 1);
-        next.splice(toIdx, 0, removed);
-        update(next);
-    };
+    // ── Reorder helpers ───────────────────────────────────────────────────
 
     const moveItem = (catIdx, fromIdx, toIdx) => {
         if (fromIdx === toIdx) return;
@@ -503,24 +496,6 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
         });
         update(next);
     };
-
-    // ── Category drag handlers ────────────────────────────────────────────
-
-    const onCatDragStart = (e, catIdx) => {
-        setDragCat(catIdx);
-        e.dataTransfer.effectAllowed = 'move';
-    };
-    const onCatDragOver = (e, catIdx) => {
-        if (dragCat === null) return;
-        e.preventDefault();
-        setOverCat(catIdx);
-    };
-    const onCatDrop = (e, catIdx) => {
-        e.preventDefault();
-        if (dragCat !== null && dragCat !== catIdx) moveCategory(dragCat, catIdx);
-        setDragCat(null); setOverCat(null);
-    };
-    const onCatDragEnd = () => { setDragCat(null); setOverCat(null); };
 
     // ── Item drag handlers ────────────────────────────────────────────────
 
@@ -700,24 +675,17 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
 
             {/* Categories */}
             {groups.map((group, catIdx) => (
-                <section
-                    key={catIdx}
-                    draggable
-                    onDragStart={(e) => onCatDragStart(e, catIdx)}
-                    onDragOver={(e) => onCatDragOver(e, catIdx)}
-                    onDrop={(e) => onCatDrop(e, catIdx)}
-                    onDragEnd={onCatDragEnd}
-                    className={`rounded-xl bg-white shadow-sm transition-opacity ${dragCat === catIdx ? 'opacity-40' : ''} ${overCat === catIdx && dragCat !== catIdx ? 'ring-2 ring-blue-400' : ''}`}
-                >
+                <section key={catIdx} className='rounded-xl bg-white shadow-sm'>
                     {/* Category header */}
-                    <div className='flex items-center gap-2 border-b border-gray-100 px-4 py-3'>
-                        <span
-                            className='cursor-grab select-none text-gray-300 hover:text-gray-500 active:cursor-grabbing'
-                            title='Drag to reorder'
-                            onMouseDown={(e) => e.stopPropagation()}
+                    <div className={`flex items-center gap-2 px-4 py-3 ${collapsed[catIdx] ? '' : 'border-b border-gray-100'}`}>
+                        <button
+                            type='button'
+                            onClick={() => toggleCollapse(catIdx)}
+                            className='text-gray-400 hover:text-black'
+                            title={collapsed[catIdx] ? 'Expand' : 'Collapse'}
                         >
-                            ⠿
-                        </span>
+                            {collapsed[catIdx] ? '▶' : '▼'}
+                        </button>
                         {editCat?.catIdx === catIdx ? (
                             <input
                                 autoFocus
@@ -750,7 +718,7 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
                     </div>
 
                     {/* Items */}
-                    <div className='divide-y divide-gray-50'>
+                    {!collapsed[catIdx] && <div className='divide-y divide-gray-50'>
                         {group.items.map((item, itemIdx) => (
                             <div
                                 key={itemIdx}
@@ -808,10 +776,10 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
                                 </button>
                             </div>
                         ))}
-                    </div>
+                    </div>}
 
                     {/* Add item row */}
-                    <div className='flex gap-2 px-4 py-3'>
+                    {!collapsed[catIdx] && <div className='flex gap-2 px-4 py-3'>
                         <input
                             type='text'
                             value={newItem[catIdx] || ''}
@@ -828,7 +796,7 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
                         >
                             + Add
                         </button>
-                    </div>
+                    </div>}
                 </section>
             ))}
 
