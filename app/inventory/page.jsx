@@ -473,9 +473,76 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
     const [newItem,  setNewItem]  = useState({});   // { [catIdx]: string }
     const [newCat,   setNewCat]   = useState('');
     const [csvModal, setCsvModal] = useState(null); // parsed groups | null
+    // drag state
+    const [dragCat,  setDragCat]  = useState(null); // catIdx being dragged
+    const [overCat,  setOverCat]  = useState(null); // catIdx dragged over
+    const [dragItem, setDragItem] = useState(null); // { catIdx, itemIdx }
+    const [overItem, setOverItem] = useState(null); // { catIdx, itemIdx }
     const fileRef = useRef(null);
 
     const update = (next) => onChange(next);
+
+    // ── Reorder helpers ───────────────────────────────────────────────────
+
+    const moveCategory = (fromIdx, toIdx) => {
+        if (fromIdx === toIdx) return;
+        const next = [...groups];
+        const [removed] = next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, removed);
+        update(next);
+    };
+
+    const moveItem = (catIdx, fromIdx, toIdx) => {
+        if (fromIdx === toIdx) return;
+        const next = groups.map((g, ci) => {
+            if (ci !== catIdx) return g;
+            const items = [...g.items];
+            const [removed] = items.splice(fromIdx, 1);
+            items.splice(toIdx, 0, removed);
+            return { ...g, items };
+        });
+        update(next);
+    };
+
+    // ── Category drag handlers ────────────────────────────────────────────
+
+    const onCatDragStart = (e, catIdx) => {
+        setDragCat(catIdx);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+    const onCatDragOver = (e, catIdx) => {
+        if (dragCat === null) return;
+        e.preventDefault();
+        setOverCat(catIdx);
+    };
+    const onCatDrop = (e, catIdx) => {
+        e.preventDefault();
+        if (dragCat !== null && dragCat !== catIdx) moveCategory(dragCat, catIdx);
+        setDragCat(null); setOverCat(null);
+    };
+    const onCatDragEnd = () => { setDragCat(null); setOverCat(null); };
+
+    // ── Item drag handlers ────────────────────────────────────────────────
+
+    const onItemDragStart = (e, catIdx, itemIdx) => {
+        setDragItem({ catIdx, itemIdx });
+        e.dataTransfer.effectAllowed = 'move';
+        e.stopPropagation();
+    };
+    const onItemDragOver = (e, catIdx, itemIdx) => {
+        if (!dragItem || dragItem.catIdx !== catIdx) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setOverItem({ catIdx, itemIdx });
+    };
+    const onItemDrop = (e, catIdx, itemIdx) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (dragItem && dragItem.catIdx === catIdx && dragItem.itemIdx !== itemIdx)
+            moveItem(catIdx, dragItem.itemIdx, itemIdx);
+        setDragItem(null); setOverItem(null);
+    };
+    const onItemDragEnd = () => { setDragItem(null); setOverItem(null); };
 
     // ── Category actions ──────────────────────────────────────────────────
 
@@ -633,9 +700,24 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
 
             {/* Categories */}
             {groups.map((group, catIdx) => (
-                <section key={catIdx} className='rounded-xl bg-white shadow-sm'>
+                <section
+                    key={catIdx}
+                    draggable
+                    onDragStart={(e) => onCatDragStart(e, catIdx)}
+                    onDragOver={(e) => onCatDragOver(e, catIdx)}
+                    onDrop={(e) => onCatDrop(e, catIdx)}
+                    onDragEnd={onCatDragEnd}
+                    className={`rounded-xl bg-white shadow-sm transition-opacity ${dragCat === catIdx ? 'opacity-40' : ''} ${overCat === catIdx && dragCat !== catIdx ? 'ring-2 ring-blue-400' : ''}`}
+                >
                     {/* Category header */}
                     <div className='flex items-center gap-2 border-b border-gray-100 px-4 py-3'>
+                        <span
+                            className='cursor-grab select-none text-gray-300 hover:text-gray-500 active:cursor-grabbing'
+                            title='Drag to reorder'
+                            onMouseDown={(e) => e.stopPropagation()}
+                        >
+                            ⠿
+                        </span>
                         {editCat?.catIdx === catIdx ? (
                             <input
                                 autoFocus
@@ -670,7 +752,21 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
                     {/* Items */}
                     <div className='divide-y divide-gray-50'>
                         {group.items.map((item, itemIdx) => (
-                            <div key={itemIdx} className='flex items-center gap-2 px-4 py-2'>
+                            <div
+                                key={itemIdx}
+                                draggable
+                                onDragStart={(e) => onItemDragStart(e, catIdx, itemIdx)}
+                                onDragOver={(e) => onItemDragOver(e, catIdx, itemIdx)}
+                                onDrop={(e) => onItemDrop(e, catIdx, itemIdx)}
+                                onDragEnd={onItemDragEnd}
+                                className={`flex items-center gap-2 px-4 py-2 transition-opacity ${dragItem?.catIdx === catIdx && dragItem?.itemIdx === itemIdx ? 'opacity-40' : ''} ${overItem?.catIdx === catIdx && overItem?.itemIdx === itemIdx && dragItem?.itemIdx !== itemIdx ? 'border-t-2 border-blue-400' : ''}`}
+                            >
+                                <span
+                                    className='cursor-grab select-none text-gray-300 hover:text-gray-500 active:cursor-grabbing'
+                                    title='Drag to reorder'
+                                >
+                                    ⠿
+                                </span>
                                 {editItem?.catIdx === catIdx && editItem?.itemIdx === itemIdx ? (
                                     <input
                                         autoFocus
