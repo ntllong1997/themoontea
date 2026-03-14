@@ -1246,12 +1246,15 @@ export default function InventoryPage() {
         [flatItems, pars, lastCounts]
     );
 
+    const isAdmin = currentUser?.role === 'admin';
     const tabs = [
-        { key: 'checklist',  label: 'Checklist' },
-        { key: 'shopping',   label: `Shopping List${shoppingItems.length > 0 ? ` (${shoppingItems.length})` : ''}` },
-        { key: 'history',    label: `History${history.length > 0 ? ` (${history.length})` : ''}` },
-        { key: 'manage',     label: 'Manage Items' },
-        ...(currentUser?.role === 'admin' ? [{ key: 'employees', label: 'Employees' }] : []),
+        { key: 'checklist', label: 'Checklist' },
+        ...(isAdmin ? [
+            { key: 'shopping', label: `Shopping List${shoppingItems.length > 0 ? ` (${shoppingItems.length})` : ''}` },
+            { key: 'history',  label: `History${history.length > 0 ? ` (${history.length})` : ''}` },
+        ] : []),
+        { key: 'manage',    label: 'Manage Items' },
+        ...(isAdmin ? [{ key: 'employees', label: 'Employees' }] : []),
     ];
 
     if (isLoading) {
@@ -1563,7 +1566,7 @@ export default function InventoryPage() {
                     <ManageTab
                         groups={groups} onChange={handleGroupsChange}
                         pars={pars} onParChange={handleParChange}
-                        counts={counts}
+                        counts={lastCounts}
                         units={units} onUnitChange={handleUnitChange}
                         unitTypes={unitTypes} onAddUnitType={handleAddUnitType} onDeleteUnitType={handleDeleteUnitType}
                     />
