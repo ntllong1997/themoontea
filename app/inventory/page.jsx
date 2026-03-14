@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     getInventoryGroups, saveInventoryGroups,
@@ -1121,6 +1122,20 @@ export default function InventoryPage() {
         });
     };
 
+    const handleCountKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const all = Array.from(document.querySelectorAll('[data-count-input]'));
+            const idx = all.indexOf(e.currentTarget);
+            if (idx !== -1 && idx < all.length - 1) {
+                all[idx + 1].focus();
+                all[idx + 1].select();
+            } else {
+                e.currentTarget.blur();
+            }
+        }
+    };
+
     const handleParChange = (itemName, value) => {
         const num = Math.max(0, Math.floor(Number(value) || 0));
         setPars((prev) => {
@@ -1320,7 +1335,7 @@ export default function InventoryPage() {
                 {/* Row 1: title + user */}
                 <div className='flex items-center justify-between px-4 py-3 sm:px-6'>
                     <div>
-                        <h1 className='text-xl font-bold sm:text-2xl'>Inventory</h1>
+                        <Link href='/' className='text-xl font-bold sm:text-2xl hover:opacity-70 transition-opacity'>Inventory</Link>
                         <p className='text-xs text-gray-500 sm:text-sm'>The Moon Tea · Palmhurst, TX</p>
                     </div>
                     <div className='text-right'>
@@ -1431,12 +1446,14 @@ export default function InventoryPage() {
                                                 <div key={item}>
                                                     <label className='mb-1 block text-sm font-medium leading-tight'>{item}</label>
                                                     <input
-                                                        type='number'
-                                                        min='0'
-                                                        step='1'
+                                                        type='text'
                                                         inputMode='numeric'
+                                                        pattern='[0-9]*'
+                                                        data-count-input={item}
                                                         value={counts[item] ?? 0}
                                                         onChange={(e) => handleCountChange(item, e.target.value)}
+                                                        onKeyDown={handleCountKeyDown}
+                                                        onFocus={(e) => e.target.select()}
                                                         className={`w-full rounded-lg border px-3 py-2 outline-none focus:border-black ${
                                                             pars[item] > 0 && (counts[item] ?? 0) < pars[item]
                                                                 ? 'border-orange-400 bg-orange-50'
