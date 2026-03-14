@@ -1,6 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    getInventoryGroups, saveInventoryGroups,
+    getParLevels, saveParLevel,
+    getInventorySubmissions, saveInventorySubmission,
+    deleteInventorySubmission, clearInventorySubmissions,
+} from '@/lib/inventoryDb';
 
 // ─── Default data ────────────────────────────────────────────────────────────
 
@@ -121,9 +127,6 @@ const DEFAULT_ITEMS = [
 
 const WEBHOOK_URL = process.env.NEXT_PUBLIC_INVENTORY_WEBHOOK_URL || '';
 const DRAFT_KEY   = 'inventory_draft';
-const HISTORY_KEY = 'inventory_history';
-const ITEMS_KEY   = 'inventory_items';
-const PARS_KEY    = 'inventory_par';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -343,7 +346,7 @@ function HistoryEntry({ entry, onDelete }) {
                             </div>
                         );
                     })}
-                    <button type='button' onClick={() => onDelete(entry.submittedAt)} className='mt-3 text-xs text-red-400 hover:text-red-600'>
+                    <button type='button' onClick={() => onDelete(entry._id, entry.submittedAt)} className='mt-3 text-xs text-red-400 hover:text-red-600'>
                         Delete this entry
                     </button>
                 </div>
@@ -757,7 +760,9 @@ export default function InventoryPage() {
     const [showSummary,  setShowSummary]  = useState(false);
     const [history,      setHistory]      = useState([]);
     const [pars,         setPars]         = useState({});
-    const draftTimer = useRef(null);
+    const [isLoading,    setIsLoading]    = useState(true);
+    const draftTimer    = useRef(null);
+    const parSaveTimer  = useRef(null);
 
     // Derived
     const flatItems = useMemo(() => buildFlat(groups), [groups]);
@@ -776,32 +781,47 @@ export default function InventoryPage() {
         });
     }, [flatItems]);
 
-    // Load everything from localStorage on mount
+    // Load from Supabase on mount
     useEffect(() => {
-        try {
-            const savedGroups = JSON.parse(localStorage.getItem(ITEMS_KEY) || 'null');
-            if (savedGroups) setGroups(savedGroups);
+        const load = async () => {
+            try {
+                const [fetchedGroups, fetchedPars, fetchedHistory] = await Promise.all([
+                    getInventoryGroups(),
+                    getParLevels(),
+                    getInventorySubmissions(),
+                ]);
 
-            const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
-            if (draft) {
-                if (draft.counts)       setCounts(draft.counts);
-                if (draft.statuses)     setStatuses(draft.statuses);
-                if (draft.employeeName) setEmployeeName(draft.employeeName);
-                if (draft.notes)        setNotes(draft.notes);
+                if (fetchedGroups) {
+                    setGroups(fetchedGroups);
+                } else {
+                    // First time — seed DB with defaults
+                    await saveInventoryGroups(DEFAULT_ITEMS);
+                }
+
+                setPars(fetchedPars);
+                setHistory(fetchedHistory);
+
+                // Draft stays in localStorage (per-session)
+                const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+                if (draft) {
+                    if (draft.counts)       setCounts(draft.counts);
+                    if (draft.statuses)     setStatuses(draft.statuses);
+                    if (draft.employeeName) setEmployeeName(draft.employeeName);
+                    if (draft.notes)        setNotes(draft.notes);
+                }
+            } catch (err) {
+                console.error('Failed to load inventory from Supabase:', err);
+            } finally {
+                setIsLoading(false);
             }
-
-            const hist = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-            setHistory(hist);
-
-            const savedPars = JSON.parse(localStorage.getItem(PARS_KEY) || '{}');
-            setPars(savedPars);
-        } catch (_) {}
+        };
+        load();
     }, []);
 
-    // Persist groups to localStorage whenever they change
-    useEffect(() => {
-        localStorage.setItem(ITEMS_KEY, JSON.stringify(groups));
-    }, [groups]);
+    const handleGroupsChange = (next) => {
+        setGroups(next);
+        saveInventoryGroups(next).catch(console.error);
+    };
 
     // Auto-save draft (debounced 800ms)
     const saveDraft = useCallback((c, s, name, n) => {
@@ -827,7 +847,10 @@ export default function InventoryPage() {
         setPars((prev) => {
             const next = { ...prev };
             if (num > 0) { next[itemName] = num; } else { delete next[itemName]; }
-            localStorage.setItem(PARS_KEY, JSON.stringify(next));
+            clearTimeout(parSaveTimer.current);
+            parSaveTimer.current = setTimeout(() => {
+                saveParLevel(itemName, num).catch(console.error);
+            }, 600);
             return next;
         });
     };
@@ -851,12 +874,9 @@ export default function InventoryPage() {
         localStorage.removeItem(DRAFT_KEY);
     };
 
-    const handleDeleteHistory = (submittedAt) => {
-        setHistory((prev) => {
-            const next = prev.filter((e) => e.submittedAt !== submittedAt);
-            localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-            return next;
-        });
+    const handleDeleteHistory = (id, submittedAt) => {
+        if (id) deleteInventorySubmission(id).catch(console.error);
+        setHistory((prev) => prev.filter((e) => (e._id ? e._id !== id : e.submittedAt !== submittedAt)));
     };
 
     const handleSubmit = async () => {
@@ -882,11 +902,8 @@ export default function InventoryPage() {
                 });
                 if (!res.ok) throw new Error('Failed to submit inventory.');
             }
-            setHistory((prev) => {
-                const next = [payload, ...prev].slice(0, 50);
-                localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-                return next;
-            });
+            const newId = await saveInventorySubmission(payload);
+            setHistory((prev) => [{ ...payload, _id: newId }, ...prev].slice(0, 50));
             setMessage('Submitted successfully.');
             setShowSummary(false);
             handleReset();
@@ -926,6 +943,17 @@ export default function InventoryPage() {
         { key: 'history',   label: `History${history.length > 0 ? ` (${history.length})` : ''}` },
         { key: 'manage',    label: 'Manage Items' },
     ];
+
+    if (isLoading) {
+        return (
+            <main className='flex min-h-screen items-center justify-center bg-gray-50'>
+                <div className='text-center'>
+                    <div className='mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-black' />
+                    <p className='text-sm text-gray-500'>Loading inventory…</p>
+                </div>
+            </main>
+        );
+    }
 
     return (
         <main className='min-h-screen bg-gray-50'>
@@ -1162,14 +1190,14 @@ export default function InventoryPage() {
                                     <p className='text-sm text-gray-500'>{history.length} submission{history.length !== 1 ? 's' : ''}</p>
                                     <button
                                         type='button'
-                                        onClick={() => { if (confirm('Clear all history?')) { setHistory([]); localStorage.removeItem(HISTORY_KEY); } }}
+                                        onClick={() => { if (confirm('Clear all history?')) { clearInventorySubmissions().catch(console.error); setHistory([]); } }}
                                         className='text-xs text-red-400 hover:text-red-600'
                                     >
                                         Clear all
                                     </button>
                                 </div>
                                 {history.map((entry) => (
-                                    <HistoryEntry key={entry.submittedAt} entry={entry} onDelete={handleDeleteHistory} />
+                                    <HistoryEntry key={entry._id || entry.submittedAt} entry={entry} onDelete={handleDeleteHistory} />
                                 ))}
                             </>
                         )}
@@ -1178,7 +1206,7 @@ export default function InventoryPage() {
 
                 {/* ── Manage Tab ── */}
                 {tab === 'manage' && (
-                    <ManageTab groups={groups} onChange={setGroups} pars={pars} onParChange={handleParChange} />
+                    <ManageTab groups={groups} onChange={handleGroupsChange} pars={pars} onParChange={handleParChange} />
                 )}
             </div>
 
