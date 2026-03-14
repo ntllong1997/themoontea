@@ -276,7 +276,7 @@ function StatusPill({ value, onChange }) {
                     key={o.key}
                     type='button'
                     onClick={() => onChange(o.key)}
-                    className={`rounded px-2 py-0.5 text-xs font-medium transition-opacity ${o.bg} ${value === o.key ? 'opacity-100 ring-1 ring-current' : 'opacity-40'}`}
+                    className={`rounded px-3 py-1 text-xs font-medium transition-opacity ${o.bg} ${value === o.key ? 'opacity-100 ring-1 ring-current' : 'opacity-40'}`}
                 >
                     {o.label}
                 </button>
@@ -775,68 +775,44 @@ function ManageTab({ groups, onChange, pars, onParChange, counts, units, onUnitC
                                 onDragOver={(e) => onItemDragOver(e, catIdx, itemIdx)}
                                 onDrop={(e) => onItemDrop(e, catIdx, itemIdx)}
                                 onDragEnd={onItemDragEnd}
-                                className={`flex items-center gap-2 px-4 py-2 transition-opacity ${dragItem?.catIdx === catIdx && dragItem?.itemIdx === itemIdx ? 'opacity-40' : ''} ${overItem?.catIdx === catIdx && overItem?.itemIdx === itemIdx && dragItem?.itemIdx !== itemIdx ? 'border-t-2 border-blue-400' : ''}`}
+                                className={`flex flex-col gap-1 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-2 transition-opacity ${dragItem?.catIdx === catIdx && dragItem?.itemIdx === itemIdx ? 'opacity-40' : ''} ${overItem?.catIdx === catIdx && overItem?.itemIdx === itemIdx && dragItem?.itemIdx !== itemIdx ? 'border-t-2 border-blue-400' : ''}`}
                             >
-                                <span
-                                    className='cursor-grab select-none text-gray-300 hover:text-gray-500 active:cursor-grabbing'
-                                    title='Drag to reorder'
-                                >
-                                    ⠿
-                                </span>
-                                {editItem?.catIdx === catIdx && editItem?.itemIdx === itemIdx ? (
+                                {/* Row 1: drag handle + name + actions */}
+                                <div className='flex min-w-0 flex-1 items-center gap-2'>
+                                    <span className='hidden cursor-grab select-none text-gray-300 hover:text-gray-500 active:cursor-grabbing sm:inline' title='Drag to reorder'>⠿</span>
+                                    {editItem?.catIdx === catIdx && editItem?.itemIdx === itemIdx ? (
+                                        <input
+                                            autoFocus
+                                            value={editItem.value}
+                                            onChange={(e) => setEditItem({ catIdx, itemIdx, value: e.target.value })}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') saveItemName(catIdx, itemIdx); if (e.key === 'Escape') setEditItem(null); }}
+                                            onBlur={() => saveItemName(catIdx, itemIdx)}
+                                            className='flex-1 rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-black'
+                                        />
+                                    ) : (
+                                        <span className='flex-1 truncate text-sm'>{item}</span>
+                                    )}
+                                    <button type='button' onClick={() => setEditItem({ catIdx, itemIdx, value: item })} className='shrink-0 p-1 text-gray-300 hover:text-black' title='Rename item'>✎</button>
+                                    <button type='button' onClick={() => deleteItem(catIdx, itemIdx)} className='shrink-0 p-1 text-gray-300 hover:text-red-500' title='Delete item'>✕</button>
+                                </div>
+                                {/* Row 2 (mobile) / inline (desktop): stock + par + unit */}
+                                <div className='flex items-center gap-2 sm:contents'>
+                                    <span title='Current stock' className='w-8 shrink-0 text-center text-xs tabular-nums text-gray-400'>{counts[item] ?? 0}</span>
                                     <input
-                                        autoFocus
-                                        value={editItem.value}
-                                        onChange={(e) => setEditItem({ catIdx, itemIdx, value: e.target.value })}
-                                        onKeyDown={(e) => { if (e.key === 'Enter') saveItemName(catIdx, itemIdx); if (e.key === 'Escape') setEditItem(null); }}
-                                        onBlur={() => saveItemName(catIdx, itemIdx)}
-                                        className='flex-1 rounded border border-gray-300 px-2 py-1 text-sm outline-none focus:border-black'
+                                        type='number' min='0' step='1' inputMode='numeric'
+                                        value={pars[item] || ''} onChange={(e) => onParChange(item, e.target.value)}
+                                        placeholder='Par' title='Par level'
+                                        className='w-14 shrink-0 rounded border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400'
                                     />
-                                ) : (
-                                    <span className='flex-1 text-sm'>{item}</span>
-                                )}
-                                <span
-                                    title='Current stock'
-                                    className='w-8 shrink-0 text-center text-xs tabular-nums text-gray-400'
-                                >
-                                    {counts[item] ?? 0}
-                                </span>
-                                <input
-                                    type='number'
-                                    min='0'
-                                    step='1'
-                                    inputMode='numeric'
-                                    value={pars[item] || ''}
-                                    onChange={(e) => onParChange(item, e.target.value)}
-                                    placeholder='Par'
-                                    title='Par level (minimum quantity)'
-                                    className='w-14 shrink-0 rounded border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400'
-                                />
-                                <select
-                                    value={units[item] || ''}
-                                    onChange={(e) => onUnitChange(item, e.target.value)}
-                                    title='Unit type'
-                                    className='w-20 shrink-0 rounded border border-gray-200 px-1 py-1 text-xs text-gray-500 outline-none focus:border-orange-400'
-                                >
-                                    <option value=''>unit</option>
-                                    {unitTypes.map((u) => <option key={u} value={u}>{u}</option>)}
-                                </select>
-                                <button
-                                    type='button'
-                                    onClick={() => setEditItem({ catIdx, itemIdx, value: item })}
-                                    className='shrink-0 text-gray-300 hover:text-black'
-                                    title='Rename item'
-                                >
-                                    ✎
-                                </button>
-                                <button
-                                    type='button'
-                                    onClick={() => deleteItem(catIdx, itemIdx)}
-                                    className='shrink-0 text-gray-300 hover:text-red-500'
-                                    title='Delete item'
-                                >
-                                    ✕
-                                </button>
+                                    <select
+                                        value={units[item] || ''} onChange={(e) => onUnitChange(item, e.target.value)}
+                                        title='Unit type'
+                                        className='w-20 shrink-0 rounded border border-gray-200 px-1 py-1 text-xs text-gray-500 outline-none focus:border-orange-400'
+                                    >
+                                        <option value=''>unit</option>
+                                        {unitTypes.map((u) => <option key={u} value={u}>{u}</option>)}
+                                    </select>
+                                </div>
                             </div>
                         ))}
                     </div>}
@@ -1340,33 +1316,35 @@ export default function InventoryPage() {
     return (
         <main className='min-h-screen bg-gray-50'>
             {/* Header */}
-            <div className='border-b border-gray-200 bg-white px-6 py-4'>
-                <div className='mx-auto flex max-w-4xl items-center justify-between'>
+            <div className='border-b border-gray-200 bg-white'>
+                {/* Row 1: title + user */}
+                <div className='flex items-center justify-between px-4 py-3 sm:px-6'>
                     <div>
-                        <h1 className='text-2xl font-bold'>Inventory</h1>
-                        <p className='text-sm text-gray-500'>The Moon Tea · Palmhurst, TX</p>
+                        <h1 className='text-xl font-bold sm:text-2xl'>Inventory</h1>
+                        <p className='text-xs text-gray-500 sm:text-sm'>The Moon Tea · Palmhurst, TX</p>
                     </div>
-                    <div className='flex items-center gap-4'>
-                        <div className='flex gap-1.5'>
-                            {tabs.map((t) => (
-                                <button
-                                    key={t.key}
-                                    onClick={() => setTab(t.key)}
-                                    className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${tab === t.key ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-                                >
-                                    {t.label}
-                                </button>
-                            ))}
-                        </div>
-                        <div className='hidden text-right sm:block'>
-                            <p className='text-sm font-medium'>{currentUser.name}</p>
-                            <button type='button' onClick={handleSignOut} className='text-xs text-gray-400 hover:text-gray-600'>Sign out</button>
-                        </div>
+                    <div className='text-right'>
+                        <p className='text-sm font-medium'>{currentUser.name}</p>
+                        <button type='button' onClick={handleSignOut} className='text-xs text-gray-400 hover:text-gray-600'>Sign out</button>
+                    </div>
+                </div>
+                {/* Row 2: tabs — horizontally scrollable on mobile */}
+                <div className='overflow-x-auto border-t border-gray-100 px-4 sm:px-6'>
+                    <div className='flex gap-1 py-1.5'>
+                        {tabs.map((t) => (
+                            <button
+                                key={t.key}
+                                onClick={() => setTab(t.key)}
+                                className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${tab === t.key ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                            >
+                                {t.label}
+                            </button>
+                        ))}
                     </div>
                 </div>
             </div>
 
-            <div className='mx-auto max-w-4xl p-6'>
+            <div className='mx-auto max-w-4xl p-3 sm:p-6'>
 
                 {/* ── Checklist Tab ── */}
                 {tab === 'checklist' && (
@@ -1448,7 +1426,7 @@ export default function InventoryPage() {
                                         </span>
                                     </button>
                                     {!isCollapsed && (
-                                        <div className='grid gap-4 border-t border-gray-100 p-4 sm:grid-cols-2 md:grid-cols-3'>
+                                        <div className='grid gap-3 border-t border-gray-100 p-3 sm:gap-4 sm:p-4 md:grid-cols-2 lg:grid-cols-3'>
                                             {group.items.map((item) => (
                                                 <div key={item}>
                                                     <label className='mb-1 block text-sm font-medium leading-tight'>{item}</label>
@@ -1484,7 +1462,7 @@ export default function InventoryPage() {
                                 type='button'
                                 disabled={!employeeName.trim()}
                                 onClick={() => { setMessage(''); setShowSummary(true); }}
-                                className='rounded-lg bg-black px-5 py-2.5 font-medium text-white disabled:opacity-50'
+                                className='w-full rounded-lg bg-black px-5 py-2.5 font-medium text-white disabled:opacity-50 sm:w-auto'
                             >
                                 Review & Submit
                             </button>
