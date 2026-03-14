@@ -130,7 +130,10 @@ const DEFAULT_ITEMS = [
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const WEBHOOK_URL = process.env.NEXT_PUBLIC_INVENTORY_WEBHOOK_URL || '';
-const DRAFT_KEY   = 'inventory_draft';
+const DRAFT_KEY       = 'inventory_draft';
+const UNITS_KEY       = 'inventory_units';
+const UNIT_TYPES_KEY  = 'inventory_unit_types';
+const DEFAULT_UNIT_TYPES = ['bottles', 'cans', 'bags', 'boxes', 'cases', 'kg', 'lbs', 'oz', 'liters', 'gallons', 'pcs', 'trays'];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -467,13 +470,15 @@ function CSVImportModal({ parsed, onConfirm, onCancel }) {
 
 // ─── ManageTab ───────────────────────────────────────────────────────────────
 
-function ManageTab({ groups, onChange, pars, onParChange }) {
-    const [editCat,  setEditCat]  = useState(null); // { catIdx, value }
-    const [editItem, setEditItem] = useState(null); // { catIdx, itemIdx, value }
-    const [newItem,  setNewItem]  = useState({});   // { [catIdx]: string }
-    const [newCat,   setNewCat]   = useState('');
-    const [csvModal, setCsvModal] = useState(null); // parsed groups | null
-    const [collapsed, setCollapsed] = useState({});  // { [catIdx]: bool }
+function ManageTab({ groups, onChange, pars, onParChange, counts, units, onUnitChange, unitTypes, onAddUnitType, onDeleteUnitType }) {
+    const [editCat,     setEditCat]     = useState(null); // { catIdx, value }
+    const [editItem,    setEditItem]    = useState(null); // { catIdx, itemIdx, value }
+    const [newItem,     setNewItem]     = useState({});   // { [catIdx]: string }
+    const [newCat,      setNewCat]      = useState('');
+    const [csvModal,    setCsvModal]    = useState(null); // parsed groups | null
+    const [collapsed,   setCollapsed]   = useState({});   // { [catIdx]: bool }
+    const [showUnitMgr, setShowUnitMgr] = useState(false);
+    const [newUnitType, setNewUnitType] = useState('');
     // item drag state
     const [dragItem, setDragItem] = useState(null); // { catIdx, itemIdx }
     const [overItem, setOverItem] = useState(null); // { catIdx, itemIdx }
@@ -642,6 +647,49 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
                 <span className='text-xs text-gray-400'>CSV format: Category, Item (with header row)</span>
             </div>
 
+            {/* Unit types manager */}
+            <div className='rounded-xl bg-white shadow-sm'>
+                <button
+                    type='button'
+                    onClick={() => setShowUnitMgr((v) => !v)}
+                    className='flex w-full items-center gap-2 px-4 py-3 text-sm font-medium'
+                >
+                    <span>{showUnitMgr ? '▼' : '▶'}</span>
+                    <span>Unit Types</span>
+                    <span className='ml-auto text-xs font-normal text-gray-400'>{unitTypes.length} types</span>
+                </button>
+                {showUnitMgr && (
+                    <div className='border-t border-gray-100 px-4 pb-4 pt-3'>
+                        <div className='mb-3 flex flex-wrap gap-1.5'>
+                            {unitTypes.map((t) => (
+                                <span key={t} className='flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-700'>
+                                    {t}
+                                    <button type='button' onClick={() => onDeleteUnitType(t)} className='text-gray-400 hover:text-red-500 leading-none'>×</button>
+                                </span>
+                            ))}
+                        </div>
+                        <div className='flex gap-2'>
+                            <input
+                                type='text'
+                                value={newUnitType}
+                                onChange={(e) => setNewUnitType(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { onAddUnitType(newUnitType); setNewUnitType(''); } }}
+                                placeholder='New unit type…'
+                                className='flex-1 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-1.5 text-sm outline-none focus:border-black focus:bg-white'
+                            />
+                            <button
+                                type='button'
+                                onClick={() => { onAddUnitType(newUnitType); setNewUnitType(''); }}
+                                disabled={!newUnitType.trim()}
+                                className='rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40'
+                            >
+                                + Add
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
             {/* Add category */}
             <div className='flex gap-2'>
                 <input
@@ -747,6 +795,12 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
                                 ) : (
                                     <span className='flex-1 text-sm'>{item}</span>
                                 )}
+                                <span
+                                    title='Current stock'
+                                    className='w-8 shrink-0 text-center text-xs tabular-nums text-gray-400'
+                                >
+                                    {counts[item] ?? 0}
+                                </span>
                                 <input
                                     type='number'
                                     min='0'
@@ -756,8 +810,17 @@ function ManageTab({ groups, onChange, pars, onParChange }) {
                                     onChange={(e) => onParChange(item, e.target.value)}
                                     placeholder='Par'
                                     title='Par level (minimum quantity)'
-                                    className='w-16 shrink-0 rounded border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400'
+                                    className='w-14 shrink-0 rounded border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400'
                                 />
+                                <select
+                                    value={units[item] || ''}
+                                    onChange={(e) => onUnitChange(item, e.target.value)}
+                                    title='Unit type'
+                                    className='w-20 shrink-0 rounded border border-gray-200 px-1 py-1 text-xs text-gray-500 outline-none focus:border-orange-400'
+                                >
+                                    <option value=''>unit</option>
+                                    {unitTypes.map((u) => <option key={u} value={u}>{u}</option>)}
+                                </select>
                                 <button
                                     type='button'
                                     onClick={() => setEditItem({ catIdx, itemIdx, value: item })}
@@ -942,6 +1005,8 @@ export default function InventoryPage() {
     const [showSummary,  setShowSummary]  = useState(false);
     const [history,      setHistory]      = useState([]);
     const [pars,         setPars]         = useState({});
+    const [units,        setUnits]        = useState({});
+    const [unitTypes,    setUnitTypes]    = useState(DEFAULT_UNIT_TYPES);
     const [isLoading,    setIsLoading]    = useState(true);
     const [currentUser,  setCurrentUser]  = useState(null);
     const [employees,    setEmployees]    = useState([]);
@@ -1005,6 +1070,11 @@ export default function InventoryPage() {
                     if (draft.statuses) setStatuses(draft.statuses);
                     if (draft.notes)    setNotes(draft.notes);
                 }
+
+                const savedUnits = JSON.parse(localStorage.getItem(UNITS_KEY) || 'null');
+                if (savedUnits) setUnits(savedUnits);
+                const savedUnitTypes = JSON.parse(localStorage.getItem(UNIT_TYPES_KEY) || 'null');
+                if (savedUnitTypes) setUnitTypes(savedUnitTypes);
             } catch (err) {
                 console.error('Failed to load inventory from Supabase:', err);
             } finally {
@@ -1084,6 +1154,33 @@ export default function InventoryPage() {
             parSaveTimer.current = setTimeout(() => {
                 saveParLevel(itemName, num).catch(console.error);
             }, 600);
+            return next;
+        });
+    };
+
+    const handleUnitChange = (itemName, unit) => {
+        setUnits((prev) => {
+            const next = { ...prev, [itemName]: unit };
+            localStorage.setItem(UNITS_KEY, JSON.stringify(next));
+            return next;
+        });
+    };
+
+    const handleAddUnitType = (type) => {
+        const t = type.trim().toLowerCase();
+        if (!t) return;
+        setUnitTypes((prev) => {
+            if (prev.includes(t)) return prev;
+            const next = [...prev, t];
+            localStorage.setItem(UNIT_TYPES_KEY, JSON.stringify(next));
+            return next;
+        });
+    };
+
+    const handleDeleteUnitType = (type) => {
+        setUnitTypes((prev) => {
+            const next = prev.filter((t) => t !== type);
+            localStorage.setItem(UNIT_TYPES_KEY, JSON.stringify(next));
             return next;
         });
     };
@@ -1499,7 +1596,13 @@ export default function InventoryPage() {
 
                 {/* ── Manage Tab ── */}
                 {tab === 'manage' && (
-                    <ManageTab groups={groups} onChange={handleGroupsChange} pars={pars} onParChange={handleParChange} />
+                    <ManageTab
+                        groups={groups} onChange={handleGroupsChange}
+                        pars={pars} onParChange={handleParChange}
+                        counts={counts}
+                        units={units} onUnitChange={handleUnitChange}
+                        unitTypes={unitTypes} onAddUnitType={handleAddUnitType} onDeleteUnitType={handleDeleteUnitType}
+                    />
                 )}
 
                 {/* ── Employees Tab (admin) ── */}
