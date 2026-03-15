@@ -793,7 +793,7 @@ function ManageTab({ groups, onChange, pars, onParChange, counts, units, onUnitC
                                 </div>
                                 {/* Row 2 (mobile) / inline (desktop): stock + par + unit */}
                                 <div className='flex items-center gap-2 sm:contents'>
-                                    <span title='Last submitted count' className='w-8 shrink-0 text-center text-xs tabular-nums text-gray-400'>{lastCounts[item] ?? '—'}</span>
+                                    <span title='Last submitted count' className='w-8 shrink-0 text-center text-xs tabular-nums text-gray-400'>{counts[item] ?? '—'}</span>
                                     <input
                                         type='number' min='0' step='1' inputMode='numeric'
                                         value={pars[item] || ''} onChange={(e) => onParChange(item, e.target.value)}
