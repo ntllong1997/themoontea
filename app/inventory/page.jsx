@@ -802,31 +802,27 @@ function ManageTab({ groups, onChange, pars, onParChange, units, onUnitChange, u
                                 {/* Row 2 (mobile) / inline (desktop): par + unit */}
                                 <div className='flex items-center gap-2 sm:contents'>
                                     {/* Slide-to-confirm par input */}
-                                    <div className='relative w-14 shrink-0 overflow-hidden'>
-                                        <div
-                                            className='flex items-center transition-transform duration-200'
-                                            style={{ transform: pendingPars[item] !== undefined ? 'translateX(-30px)' : 'translateX(0)' }}
-                                        >
-                                            <input
-                                                type='number' min='0' step='1' inputMode='numeric'
-                                                value={pendingPars[item] !== undefined ? pendingPars[item] : (pars[item] ?? 1)}
-                                                onChange={(e) => setPendingPars((p) => ({ ...p, [item]: e.target.value }))}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') confirmPar(item);
-                                                    if (e.key === 'Escape') setPendingPars((p) => { const n = { ...p }; delete n[item]; return n; });
-                                                }}
-                                                title='Par level'
-                                                className='w-14 shrink-0 rounded border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400'
-                                            />
-                                        </div>
-                                        {pendingPars[item] !== undefined && (
+                                    <div className='flex shrink-0 items-center'>
+                                        <input
+                                            type='number' min='0' step='1' inputMode='numeric'
+                                            value={pendingPars[item] !== undefined ? pendingPars[item] : (pars[item] ?? 1)}
+                                            onChange={(e) => setPendingPars((p) => ({ ...p, [item]: e.target.value }))}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') confirmPar(item);
+                                                if (e.key === 'Escape') setPendingPars((p) => { const n = { ...p }; delete n[item]; return n; });
+                                            }}
+                                            title='Par level'
+                                            className='w-14 shrink-0 rounded-l border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400'
+                                        />
+                                        {/* Expands into flow to push sibling elements right */}
+                                        <div className={`overflow-hidden transition-all duration-200 ${pendingPars[item] !== undefined ? 'w-7 opacity-100' : 'w-0 opacity-0'}`}>
                                             <button
                                                 type='button'
                                                 onClick={() => confirmPar(item)}
                                                 title='Confirm par'
-                                                className='absolute right-0 top-0 flex h-full w-7 items-center justify-center rounded-r bg-green-500 text-white text-xs font-bold'
+                                                className='flex h-[1.625rem] w-7 items-center justify-center rounded-r bg-green-500 text-white text-xs font-bold'
                                             >✓</button>
-                                        )}
+                                        </div>
                                     </div>
                                     <select
                                         value={units[item] || ''} onChange={(e) => onUnitChange(item, e.target.value)}
