@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     getInventoryGroups, saveInventoryGroups,
     getParLevels, saveParLevel,
+    getRestockLevels, saveRestockLevel,
     getInventorySubmissions, saveInventorySubmission,
     deleteInventorySubmission, clearInventorySubmissions,
 } from '@/lib/inventoryDb';
@@ -466,11 +467,13 @@ function CSVImportModal({ parsed, onConfirm, onCancel }) {
 
 // ─── ManageTab ───────────────────────────────────────────────────────────────
 
-function ManageTab({ groups, onChange, pars, onParChange, counts, units, onUnitChange, unitTypes, onAddUnitType, onDeleteUnitType }) {
-    const [editCat,     setEditCat]     = useState(null); // { catIdx, value }
-    const [editItem,    setEditItem]    = useState(null); // { catIdx, itemIdx, value }
-    const [newItem,     setNewItem]     = useState({});   // { [catIdx]: string }
-    const [newCat,      setNewCat]      = useState('');
+function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockChange, units, onUnitChange, unitTypes, onAddUnitType, onDeleteUnitType }) {
+    const [editCat,        setEditCat]        = useState(null); // { catIdx, value }
+    const [editItem,       setEditItem]       = useState(null); // { catIdx, itemIdx, value }
+    const [newItem,        setNewItem]        = useState({});   // { [catIdx]: string }
+    const [newCat,         setNewCat]         = useState('');
+    const [pendingPars,    setPendingPars]    = useState({});   // { [itemName]: string } — unsaved par edits
+    const [pendingRestocks, setPendingRestocks] = useState({}); // { [itemName]: string } — unsaved restock edits
     const [csvModal,    setCsvModal]    = useState(null); // parsed groups | null
     const [collapsed,   setCollapsed]   = useState({});   // { [catIdx]: bool }
     const [showUnitMgr, setShowUnitMgr] = useState(false);
@@ -575,6 +578,20 @@ function ManageTab({ groups, onChange, pars, onParChange, counts, units, onUnitC
         });
         update(next);
         setNewItem((p) => ({ ...p, [catIdx]: '' }));
+    };
+
+    const confirmPar = (itemName) => {
+        const val = pendingPars[itemName];
+        if (val === undefined) return;
+        onParChange(itemName, val);
+        setPendingPars((p) => { const n = { ...p }; delete n[itemName]; return n; });
+    };
+
+    const confirmRestock = (itemName) => {
+        const val = pendingRestocks[itemName];
+        if (val === undefined) return;
+        onRestockChange(itemName, val);
+        setPendingRestocks((p) => { const n = { ...p }; delete n[itemName]; return n; });
     };
 
     // ── CSV import ────────────────────────────────────────────────────────
@@ -791,15 +808,54 @@ function ManageTab({ groups, onChange, pars, onParChange, counts, units, onUnitC
                                     <button type='button' onClick={() => setEditItem({ catIdx, itemIdx, value: item })} className='shrink-0 p-1 text-gray-300 hover:text-black' title='Rename item'>✎</button>
                                     <button type='button' onClick={() => deleteItem(catIdx, itemIdx)} className='shrink-0 p-1 text-gray-300 hover:text-red-500' title='Delete item'>✕</button>
                                 </div>
-                                {/* Row 2 (mobile) / inline (desktop): stock + par + unit */}
+                                {/* Row 2 (mobile) / inline (desktop): par + unit */}
                                 <div className='flex items-center gap-2 sm:contents'>
-                                    <span title='Last submitted count' className='w-8 shrink-0 text-center text-xs tabular-nums text-gray-400'>{lastCounts[item] ?? '—'}</span>
-                                    <input
-                                        type='number' min='0' step='1' inputMode='numeric'
-                                        value={pars[item] || ''} onChange={(e) => onParChange(item, e.target.value)}
-                                        placeholder='Par' title='Par level'
-                                        className='w-14 shrink-0 rounded border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400'
-                                    />
+                                    {/* Slide-to-confirm par input */}
+                                    <div className='flex shrink-0 items-center'>
+                                        <input
+                                            type='number' min='0' step='1' inputMode='numeric'
+                                            value={pendingPars[item] !== undefined ? pendingPars[item] : (pars[item] ?? 1)}
+                                            onChange={(e) => setPendingPars((p) => ({ ...p, [item]: e.target.value }))}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') confirmPar(item);
+                                                if (e.key === 'Escape') setPendingPars((p) => { const n = { ...p }; delete n[item]; return n; });
+                                            }}
+                                            title='Par level'
+                                            className='w-14 shrink-0 rounded-l border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400'
+                                        />
+                                        {/* Expands into flow to push sibling elements right */}
+                                        <div className={`overflow-hidden transition-all duration-200 ${pendingPars[item] !== undefined ? 'w-7 opacity-100' : 'w-0 opacity-0'}`}>
+                                            <button
+                                                type='button'
+                                                onClick={() => confirmPar(item)}
+                                                title='Confirm par'
+                                                className='flex h-[1.625rem] w-7 items-center justify-center rounded-r bg-green-500 text-white text-xs font-bold'
+                                            >✓</button>
+                                        </div>
+                                    </div>
+                                    {/* Restock qty — same slide-to-confirm pattern */}
+                                    <div className='flex shrink-0 items-center'>
+                                        <input
+                                            type='number' min='0' step='1' inputMode='numeric'
+                                            value={pendingRestocks[item] !== undefined ? pendingRestocks[item] : (restocks[item] ?? '')}
+                                            onChange={(e) => setPendingRestocks((p) => ({ ...p, [item]: e.target.value }))}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') confirmRestock(item);
+                                                if (e.key === 'Escape') setPendingRestocks((p) => { const n = { ...p }; delete n[item]; return n; });
+                                            }}
+                                            placeholder='Restock'
+                                            title='Restock qty — how many to buy when low'
+                                            className='w-16 shrink-0 rounded-l border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-blue-400'
+                                        />
+                                        <div className={`overflow-hidden transition-all duration-200 ${pendingRestocks[item] !== undefined ? 'w-7 opacity-100' : 'w-0 opacity-0'}`}>
+                                            <button
+                                                type='button'
+                                                onClick={() => confirmRestock(item)}
+                                                title='Confirm restock qty'
+                                                className='flex h-[1.625rem] w-7 items-center justify-center rounded-r bg-blue-500 text-white text-xs font-bold'
+                                            >✓</button>
+                                        </div>
+                                    </div>
                                     <select
                                         value={units[item] || ''} onChange={(e) => onUnitChange(item, e.target.value)}
                                         title='Unit type'
@@ -978,6 +1034,7 @@ export default function InventoryPage() {
     const [showSummary,  setShowSummary]  = useState(false);
     const [history,      setHistory]      = useState([]);
     const [pars,         setPars]         = useState({});
+    const [restocks,     setRestocks]     = useState({});
     const [units,        setUnits]        = useState({});
     const [unitTypes,    setUnitTypes]    = useState(DEFAULT_UNIT_TYPES);
     const [isLoading,    setIsLoading]    = useState(true);
@@ -987,8 +1044,9 @@ export default function InventoryPage() {
     const [pinInput,     setPinInput]     = useState('');
     const [pinError,     setPinError]     = useState('');
     const [pinLoading,   setPinLoading]   = useState(false);
-    const draftTimer    = useRef(null);
-    const parSaveTimer  = useRef(null);
+    const draftTimer        = useRef(null);
+    const parSaveTimer      = useRef(null);
+    const restockSaveTimer  = useRef(null);
 
     // Derived
     const flatItems = useMemo(() => buildFlat(groups), [groups]);
@@ -1011,9 +1069,10 @@ export default function InventoryPage() {
     useEffect(() => {
         const load = async () => {
             try {
-                const [fetchedGroups, fetchedPars, fetchedHistory, fetchedEmployees] = await Promise.all([
+                const [fetchedGroups, fetchedPars, fetchedRestocks, fetchedHistory, fetchedEmployees] = await Promise.all([
                     getInventoryGroups(),
                     getParLevels(),
+                    getRestockLevels(),
                     getInventorySubmissions(),
                     getEmployees(),
                 ]);
@@ -1024,6 +1083,7 @@ export default function InventoryPage() {
                     await saveInventoryGroups(DEFAULT_ITEMS);
                 }
                 setPars(fetchedPars);
+                setRestocks(fetchedRestocks);
                 setHistory(fetchedHistory);
                 setEmployees(fetchedEmployees);
 
@@ -1148,6 +1208,19 @@ export default function InventoryPage() {
         });
     };
 
+    const handleRestockChange = (itemName, value) => {
+        const num = Math.max(0, Math.floor(Number(value) || 0));
+        setRestocks((prev) => {
+            const next = { ...prev };
+            if (num > 0) { next[itemName] = num; } else { delete next[itemName]; }
+            clearTimeout(restockSaveTimer.current);
+            restockSaveTimer.current = setTimeout(() => {
+                saveRestockLevel(itemName, num).catch(console.error);
+            }, 600);
+            return next;
+        });
+    };
+
     const handleUnitChange = (itemName, unit) => {
         setUnits((prev) => {
             const next = { ...prev, [itemName]: unit };
@@ -1249,6 +1322,7 @@ export default function InventoryPage() {
     const isAdmin = currentUser?.role === 'admin';
     const tabs = [
         { key: 'checklist', label: 'Checklist' },
+        { key: 'stock',     label: 'Current Stock' },
         ...(isAdmin ? [
             { key: 'shopping', label: `Shopping List${shoppingItems.length > 0 ? ` (${shoppingItems.length})` : ''}` },
             { key: 'history',  label: `History${history.length > 0 ? ` (${history.length})` : ''}` },
@@ -1475,6 +1549,55 @@ export default function InventoryPage() {
                     </div>
                 )}
 
+                {/* ── Current Stock Tab ── */}
+                {tab === 'stock' && (
+                    <div className='space-y-4'>
+                        {Object.keys(lastCounts).length === 0 ? (
+                            <div className='rounded-xl bg-white p-10 text-center shadow-sm'>
+                                <p className='text-2xl'>📦</p>
+                                <p className='mt-2 font-medium text-gray-700'>No stock data yet.</p>
+                                <p className='mt-1 text-sm text-gray-400'>Submit a checklist to see current stock levels here.</p>
+                            </div>
+                        ) : (
+                            groups.map((group) => {
+                                const itemsInGroup = group.items.filter((item) => lastCounts[item] !== undefined || true);
+                                return (
+                                    <section key={group.category} className='rounded-xl bg-white shadow-sm'>
+                                        <div className='border-b border-gray-100 px-4 py-3'>
+                                            <span className='font-semibold'>{group.category}</span>
+                                        </div>
+                                        <div className='divide-y divide-gray-50'>
+                                            {itemsInGroup.map((item) => {
+                                                const stock    = lastCounts[item];
+                                                const par      = pars[item] ?? 1;
+                                                const restock  = restocks[item];
+                                                const isOut    = stock === undefined || stock === 0;
+                                                const isLow    = !isOut && stock < par;
+                                                const needBuy  = (isOut || isLow) && restock;
+                                                return (
+                                                    <div key={item} className='flex items-center justify-between px-4 py-3'>
+                                                        <div>
+                                                            <p className='text-sm font-medium'>{item}</p>
+                                                            <p className='text-xs text-gray-400'>par {par}{restock ? ` · restock ${restock}` : ''}</p>
+                                                        </div>
+                                                        <div className='flex items-center gap-2'>
+                                                            <span className='text-sm font-semibold tabular-nums text-gray-700'>{stock ?? '—'}</span>
+                                                            {isOut  && <span className='rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700'>Out</span>}
+                                                            {isLow  && <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>Low</span>}
+                                                            {!isOut && !isLow && <span className='rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700'>OK</span>}
+                                                            {needBuy && <span className='rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700'>Buy {restock}</span>}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </section>
+                                );
+                            })
+                        )}
+                    </div>
+                )}
+
                 {/* ── Shopping List Tab ── */}
                 {tab === 'shopping' && (
                     <div className='space-y-4'>
@@ -1566,7 +1689,7 @@ export default function InventoryPage() {
                     <ManageTab
                         groups={groups} onChange={handleGroupsChange}
                         pars={pars} onParChange={handleParChange}
-                        counts={lastCounts}
+                        restocks={restocks} onRestockChange={handleRestockChange}
                         units={units} onUnitChange={handleUnitChange}
                         unitTypes={unitTypes} onAddUnitType={handleAddUnitType} onDeleteUnitType={handleDeleteUnitType}
                     />
