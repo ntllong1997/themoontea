@@ -197,10 +197,15 @@ export default function OrderSystem() {
     }, [corndogStates]);
 
     // Open pre-filled Messages app to notify the customer
+    // Uses <a> click so it works in both Safari and PWA/standalone mode on iOS
     const handleNotifyCustomer = useCallback((orderNumber, orderPhone) => {
         if (!orderPhone) return;
         const message = 'Your corndog order is ready for pickup!';
-        window.location.href = `sms:${orderPhone}&body=${encodeURIComponent(message)}`;
+        const a = document.createElement('a');
+        a.href = `sms:${orderPhone}&body=${encodeURIComponent(message)}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
         setNotifiedOrders((prev) => new Set([...prev, orderNumber]));
     }, []);
 
