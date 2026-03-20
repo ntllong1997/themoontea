@@ -232,11 +232,14 @@ export default function OrderSystem() {
                 );
             }
 
-            const smsHref = `sms:${orderPhone}&body=${encodeURIComponent('Your corndog order is ready for pickup!')}`;
+            const smsHref = `sms:${orderPhone}?body=${encodeURIComponent('Your corndog order is ready for pickup!')}`;
             return (
-                // Use <a> so iOS handles the sms: tap as a native trusted gesture
+                // Use <a> with target="_blank" so Next.js router doesn't intercept;
+                // sms: scheme hands off to iOS Messages natively
                 <a
                     href={smsHref}
+                    target="_blank"
+                    rel="noreferrer"
                     onClick={(e) => {
                         e.stopPropagation();
                         markNotified(orderNumber);
