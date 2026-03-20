@@ -12,8 +12,6 @@ import { Button } from '@/components/ui/Button';
 import OrderPanel, { PRICES, TAX_RATE } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
 
-const SMS_WEBHOOK_URL = process.env.NEXT_PUBLIC_SMS_WEBHOOK_URL || '';
-
 const CORNDOG_STATES = { received: 'received', making: 'making', ready: 'ready' };
 
 const CORNDOG_STATE_CLASS = {
@@ -198,23 +196,12 @@ export default function OrderSystem() {
         }
     }, [corndogStates]);
 
-    // Send SMS notification for a whole order
-    const handleNotifyCustomer = useCallback(async (orderNumber, orderPhone) => {
-        if (!SMS_WEBHOOK_URL || !orderPhone) return;
-        try {
-            await fetch(SMS_WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    phone: orderPhone,
-                    orderNumber,
-                    message: 'Your corndog order is ready for pickup!',
-                }),
-            });
-            setNotifiedOrders((prev) => new Set([...prev, orderNumber]));
-        } catch (err) {
-            console.error('Failed to send SMS notification:', err);
-        }
+    // Open pre-filled Messages app to notify the customer
+    const handleNotifyCustomer = useCallback((orderNumber, orderPhone) => {
+        if (!orderPhone) return;
+        const message = 'Your corndog order is ready for pickup!';
+        window.location.href = `sms:${orderPhone}&body=${encodeURIComponent(message)}`;
+        setNotifiedOrders((prev) => new Set([...prev, orderNumber]));
     }, []);
 
     // Returns a "Notify Customer" button for corndog order headers when all items are ready
