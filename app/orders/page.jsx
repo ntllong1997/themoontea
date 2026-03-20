@@ -196,16 +196,7 @@ export default function OrderSystem() {
         }
     }, [corndogStates]);
 
-    // Open pre-filled Messages app to notify the customer
-    // Uses <a> click so it works in both Safari and PWA/standalone mode on iOS
-    const handleNotifyCustomer = useCallback((orderNumber, orderPhone) => {
-        if (!orderPhone) return;
-        const message = 'Your corndog order is ready for pickup!';
-        const a = document.createElement('a');
-        a.href = `sms:${orderPhone}&body=${encodeURIComponent(message)}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+    const markNotified = useCallback((orderNumber) => {
         setNotifiedOrders((prev) => new Set([...prev, orderNumber]));
     }, []);
 
@@ -241,19 +232,22 @@ export default function OrderSystem() {
                 );
             }
 
+            const smsHref = `sms:${orderPhone}&body=${encodeURIComponent('Your corndog order is ready for pickup!')}`;
             return (
-                <Button
-                    size='sm'
+                // Use <a> so iOS handles the sms: tap as a native trusted gesture
+                <a
+                    href={smsHref}
                     onClick={(e) => {
                         e.stopPropagation();
-                        handleNotifyCustomer(orderNumber, orderPhone);
+                        markNotified(orderNumber);
                     }}
+                    className='rounded px-3 py-1 text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors'
                 >
                     Notify Customer
-                </Button>
+                </a>
             );
         },
-        [corndogStates, history, notifiedOrders, handleNotifyCustomer]
+        [corndogStates, history, notifiedOrders, markNotified]
     );
 
     // Item style/badge/tooltip helpers
