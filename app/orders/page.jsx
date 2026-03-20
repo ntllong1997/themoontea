@@ -12,8 +12,6 @@ import { Button } from '@/components/ui/Button';
 import OrderPanel, { PRICES, TAX_RATE } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
 
-const SMS_WEBHOOK_URL = process.env.NEXT_PUBLIC_SMS_WEBHOOK_URL || '';
-
 const CORNDOG_STATES = { received: 'received', making: 'making', ready: 'ready' };
 
 const CORNDOG_STATE_CLASS = {
@@ -198,23 +196,8 @@ export default function OrderSystem() {
         }
     }, [corndogStates]);
 
-    // Send SMS notification for a whole order
-    const handleNotifyCustomer = useCallback(async (orderNumber, orderPhone) => {
-        if (!SMS_WEBHOOK_URL || !orderPhone) return;
-        try {
-            await fetch(SMS_WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    phone: orderPhone,
-                    orderNumber,
-                    message: 'Your corndog order is ready for pickup!',
-                }),
-            });
-            setNotifiedOrders((prev) => new Set([...prev, orderNumber]));
-        } catch (err) {
-            console.error('Failed to send SMS notification:', err);
-        }
+    const markNotified = useCallback((orderNumber) => {
+        setNotifiedOrders((prev) => new Set([...prev, orderNumber]));
     }, []);
 
     // Returns a "Notify Customer" button for corndog order headers when all items are ready
@@ -249,19 +232,23 @@ export default function OrderSystem() {
                 );
             }
 
+            const smsHref = `sms:${orderPhone}?body=${encodeURIComponent(`Your corndog order #${orderNumber} is ready for pickup at The Moon Tea!`)}`;
             return (
-                <Button
-                    size='sm'
+                // Delay markNotified so the <a> stays in the DOM long enough for
+                // iOS to process the sms: scheme before the element is replaced.
+                <a
+                    href={smsHref}
                     onClick={(e) => {
                         e.stopPropagation();
-                        handleNotifyCustomer(orderNumber, orderPhone);
+                        setTimeout(() => markNotified(orderNumber), 500);
                     }}
+                    className='rounded px-3 py-1 text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors'
                 >
                     Notify Customer
-                </Button>
+                </a>
             );
         },
-        [corndogStates, history, notifiedOrders, handleNotifyCustomer]
+        [corndogStates, history, notifiedOrders, markNotified]
     );
 
     // Item style/badge/tooltip helpers
