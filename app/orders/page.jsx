@@ -234,15 +234,13 @@ export default function OrderSystem() {
 
             const smsHref = `sms:${orderPhone}?body=${encodeURIComponent('Your corndog order is ready for pickup!')}`;
             return (
-                // Use <a> with target="_blank" so Next.js router doesn't intercept;
-                // sms: scheme hands off to iOS Messages natively
+                // Delay markNotified so the <a> stays in the DOM long enough for
+                // iOS to process the sms: scheme before the element is replaced.
                 <a
                     href={smsHref}
-                    target="_blank"
-                    rel="noreferrer"
                     onClick={(e) => {
                         e.stopPropagation();
-                        markNotified(orderNumber);
+                        setTimeout(() => markNotified(orderNumber), 500);
                     }}
                     className='rounded px-3 py-1 text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors'
                 >
