@@ -232,7 +232,9 @@ export default function OrderSystem() {
                 );
             }
 
-            const smsHref = `sms:${orderPhone}?body=${encodeURIComponent(`Your corndog order #${orderNumber} is ready for pickup at The Moon Tea!`)}`;
+            const itemList = items.map(({ item }) => `• ${item.name}`).join('\n');
+            const smsBody = `🌙 The Moon Tea\nOrder #${orderNumber} is ready for pickup! 🎉\n\n${itemList}\n\nSee you soon! 🧡`;
+            const smsHref = `sms:${orderPhone}?body=${encodeURIComponent(smsBody)}`;
             return (
                 // Delay markNotified so the <a> stays in the DOM long enough for
                 // iOS to process the sms: scheme before the element is replaced.
