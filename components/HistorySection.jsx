@@ -1,5 +1,11 @@
 import { Card, CardContent } from '@/components/ui/Card';
 
+const PAYMENT_BADGE = {
+    cash: '💵 Cash',
+    cashapp: '💚 CashApp',
+    card: '💳 Tap',
+};
+
 const calculateOrderTotal = (orderList, taxRate) => {
     const subtotal = orderList.reduce((sum, item) => sum + item.price, 0);
     const tax = subtotal * taxRate;
@@ -33,7 +39,10 @@ export default function HistorySection({
                         No orders yet.
                     </p>
                 ) : (
-                    orders.map(({ orderNumber, items }) => (
+                    orders.map(({ orderNumber, items }) => {
+                        const paymentMethod = items[0]?.item?.payment_method;
+                        const paymentBadge = PAYMENT_BADGE[paymentMethod];
+                        return (
                         <div
                             key={`${sectionKey}-${orderNumber}`}
                             className='mb-4 border rounded-lg overflow-hidden'
@@ -43,6 +52,11 @@ export default function HistorySection({
                                     Order #{orderNumber}
                                 </p>
                                 <div className='flex items-center gap-2 ml-auto'>
+                                    {paymentBadge && (
+                                        <span className='text-xs font-medium text-gray-600 bg-white border border-gray-200 px-2 py-0.5 rounded-full shrink-0'>
+                                            {paymentBadge}
+                                        </span>
+                                    )}
                                     {getOrderActions?.({ orderNumber, items })}
                                     <p className='text-sm text-gray-600 shrink-0'>
                                         $
@@ -86,7 +100,8 @@ export default function HistorySection({
                                 })}
                             </div>
                         </div>
-                    ))
+                        );
+                    })
                 )}
 
                 <div className='mt-4 pt-3 border-t flex justify-between items-center font-bold text-base'>

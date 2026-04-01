@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     getLatestOrderNumber,
     getOrderHistory,
@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel, { PRICES, TAX_RATE } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
+import { QRCodeSVG } from 'qrcode.react';
 
 const CORNDOG_STATES = { received: 'received', making: 'making', ready: 'ready' };
 
@@ -86,6 +87,13 @@ export default function OrderSystem() {
 
     const [activeTab, setActiveTab] = useState('order');
 
+    // Queue / self-order state
+    const [queueToken, setQueueToken] = useState(null);       // active session token
+    const [queueExpiry, setQueueExpiry] = useState(null);     // Date
+    const [queueSecondsLeft, setQueueSecondsLeft] = useState(0);
+    const [queueLoading, setQueueLoading] = useState(false);
+    const queueTimerRef = useRef(null);
+
     const fetchHistory = useCallback(async () => {
         try {
             const groupedOrders = await getOrderHistory();
@@ -97,6 +105,57 @@ export default function OrderSystem() {
 
     const isHistoryTab =
         activeTab === 'bobaHistory' || activeTab === 'corndogHistory';
+
+    // Start countdown timer for active queue session
+    const startQueueTimer = useCallback((expiryDate) => {
+        if (queueTimerRef.current) clearInterval(queueTimerRef.current);
+        const tick = () => {
+            const secs = Math.max(0, Math.floor((expiryDate - Date.now()) / 1000));
+            setQueueSecondsLeft(secs);
+            if (secs === 0) {
+                clearInterval(queueTimerRef.current);
+                setQueueToken(null);
+                setQueueExpiry(null);
+            }
+        };
+        tick();
+        queueTimerRef.current = setInterval(tick, 1000);
+    }, []);
+
+    useEffect(() => () => { if (queueTimerRef.current) clearInterval(queueTimerRef.current); }, []);
+
+    const handleNextCustomer = useCallback(async () => {
+        setQueueLoading(true);
+        try {
+            const res = await fetch('/api/sessions', { method: 'POST' });
+            const { token } = await res.json();
+            const expiry = new Date(Date.now() + 5 * 60 * 1000);
+            setQueueToken(token);
+            setQueueExpiry(expiry);
+            startQueueTimer(expiry);
+        } catch (err) {
+            console.error('Failed to create session:', err);
+        } finally {
+            setQueueLoading(false);
+        }
+    }, [startQueueTimer]);
+
+    const handleCancelSession = useCallback(async () => {
+        try {
+            await fetch('/api/sessions', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'cancel' }),
+            });
+        } catch (err) {
+            console.error('Failed to cancel session:', err);
+        } finally {
+            if (queueTimerRef.current) clearInterval(queueTimerRef.current);
+            setQueueToken(null);
+            setQueueExpiry(null);
+            setQueueSecondsLeft(0);
+        }
+    }, []);
 
     useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
@@ -290,6 +349,7 @@ export default function OrderSystem() {
                 <TabsTrigger value='bobaHistory'>Boba History</TabsTrigger>
                 <TabsTrigger value='corndogHistory'>Corndog History</TabsTrigger>
                 <TabsTrigger value='summary'>Summary</TabsTrigger>
+                <TabsTrigger value='queue'>Queue</TabsTrigger>
             </TabsList>
 
             <TabsContent value='order'>
@@ -393,6 +453,63 @@ export default function OrderSystem() {
                     getItemTooltip={getCorndogItemTooltip}
                     getOrderActions={getCorndogOrderActions}
                 />
+            </TabsContent>
+
+            <TabsContent value='queue'>
+                <Card className='mt-4'>
+                    <CardContent>
+                        <h2 className='text-xl font-bold mb-4'>Customer Self-Order Queue</h2>
+
+                        {!queueToken ? (
+                            <div className='flex flex-col items-center gap-4 py-8'>
+                                <p className='text-gray-500 text-sm text-center max-w-xs'>
+                                    When the next customer is at the counter, tap the button below. A QR code will appear for them to scan and self-order from their phone.
+                                </p>
+                                <Button
+                                    onClick={handleNextCustomer}
+                                    disabled={queueLoading}
+                                    className='text-lg px-8 py-4 h-auto'
+                                >
+                                    {queueLoading ? 'Generating…' : 'Next Customer →'}
+                                </Button>
+                            </div>
+                        ) : (
+                            <div className='flex flex-col items-center gap-4'>
+                                <p className='text-green-700 font-semibold text-sm bg-green-50 border border-green-200 rounded-full px-4 py-1'>
+                                    Active — {Math.floor(queueSecondsLeft / 60)}:{String(queueSecondsLeft % 60).padStart(2, '0')} remaining
+                                </p>
+
+                                <p className='text-gray-600 text-sm text-center'>
+                                    Show this QR code to the customer at the front of the line.
+                                </p>
+
+                                <div className='p-4 bg-white border-2 border-gray-200 rounded-xl shadow-sm'>
+                                    <QRCodeSVG
+                                        value={typeof window !== 'undefined'
+                                            ? `${window.location.origin}/customer-order/${queueToken}`
+                                            : `/customer-order/${queueToken}`}
+                                        size={220}
+                                        level='M'
+                                    />
+                                </div>
+
+                                <p className='text-xs text-gray-400 text-center max-w-xs break-all'>
+                                    {typeof window !== 'undefined'
+                                        ? `${window.location.origin}/customer-order/${queueToken}`
+                                        : ''}
+                                </p>
+
+                                <Button
+                                    variant='destructive'
+                                    onClick={handleCancelSession}
+                                    className='mt-2'
+                                >
+                                    Cancel / Reset
+                                </Button>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
             </TabsContent>
 
             <TabsContent value='summary'>
