@@ -8,6 +8,8 @@ import {
     getRestockLevels, saveRestockLevel,
     getInventorySubmissions, saveInventorySubmission,
     deleteInventorySubmission, clearInventorySubmissions,
+    getPrices, savePrice,
+    getLocations, saveLocation,
 } from '@/lib/inventoryDb';
 import {
     getEmployees, verifyPin,
@@ -137,6 +139,144 @@ const UNITS_KEY        = 'inventory_units';
 const UNIT_TYPES_KEY   = 'inventory_unit_types';
 const LAST_COUNTS_KEY  = 'inventory_last_counts';
 const DEFAULT_UNIT_TYPES = ['bottles', 'cans', 'bags', 'boxes', 'cases', 'kg', 'lbs', 'oz', 'liters', 'gallons', 'pcs', 'trays'];
+const DEFAULT_STORE_NAMES = ['Bossen', 'HEB', 'Restaurant Depot', 'Costco', 'Webstaurant', 'Lollicup Store'];
+
+const DEFAULT_PRICES = {
+    // Bossen
+    'Strawberry Syrup': 12.50, 'Mango Syrup': 12.50, 'Rose Syrup': 14.75,
+    'Passionfruit Syrup': 12.50, 'Peach Syrup': 12.50, 'Lychee Syrup': 12.50,
+    'Honeydew Syrup': 12.50, 'Pineapple Syrup': 12.50, 'Lemon Syrup': 12.50,
+    'Red Guava Syrup': 13.50, 'Grape Syrup': 13.50, 'Kumquat Syrup': 13.50,
+    'Kiwi Syrup': 13.50, 'Banana Syrup': 12.50,
+    'Strawberry Jam': 21.75, 'Mango Jam': 24.00, 'Passion Fruit Jam': 21.75,
+    'Rainbow Jelly – BT': 16.25, 'Lychee Jelly': 16.25, 'Coconut Jelly': 16.25,
+    'Coffee Jelly': 19.25, 'Brown Sugar Agar Jelly': 18.75,
+    'Strawberry': 18.00, 'Mango': 18.00, 'Blueberry': 18.00,
+    'Lychee': 18.00, 'Kiwi': 18.00, 'Peach': 18.00,
+    'PP Sealing Film – Good Time Printed': 43.50,
+    'Thai Green Tea (Thumb up brand)': 6.00, 'Premium Thai Tea Mix (Cha Tra Mue)': 6.50,
+    // HEB
+    'Whole Milk': 3.50, 'Eggs': 3.97, 'Bananas': 0.50, 'Strawberries': 4.00,
+    'Pineapple': 5.00, 'Lemons': 5.00, 'Limes': 5.00, 'Oranges': 4.00,
+    'Apples': 2.52, 'Cantaloupe': 2.97, 'Onions': 0.67, 'Corn': 1.48,
+    'Cotija cheese': 3.89, 'Chicken breast (bulk)': 2.00, 'All purpose flour': 3.68,
+    // Restaurant Depot
+    'Mango Chunk (IQF)': 18.50, 'Mango Dice (IQF)': 23.00,
+    'Sweetened Condensed Milk 14oz': 40.00, 'Milk Evaporated 12oz': 28.00,
+    'Mascarpone 1 lb': 25.00, 'Mozzarella Bulk (~49lb)': 100.00,
+    'French Fry 3/8 Big C': 32.00, 'Onion Ring': 26.00,
+    'KIKO Bread Crumbs': 26.00, 'Nacho Cheese Sauce': 30.00,
+    'Yeast Instant Dry': 5.27, 'Cornstarch 3 lbs': 31.00,
+    'Garlic Powder 5#': 25.00, 'Onion Powder 5#': 25.00, 'OIL CLEAR SOY': 29.00,
+    'Sugar Gran Nat 50#': 30.00, 'Kosher Salt': 6.00,
+    'Honey Hot Sauce': 25.00, 'Sriracha': 37.00,
+    'Heinz Ketchup (3/44oz)': 11.00, "Hellmann's Mayo (1 gal)": 20.00,
+    'Nutella Tub 6.6#': 52.00, 'Oreo 2.5#': 14.50,
+    'Hershey Syrup (Jug)': 15.00, 'Chamoy': 9.00, 'Tajin': 10.00,
+    'Poly Bags': 18.00, 'T-shirt Bags': 22.00, 'Gloves (LG / MD)': 28.00,
+    'Degreaser 1 Gal': 20.00,
+    // Costco
+    'Heavy Cream (if purchased)': 3.49, 'KS HOT DOGS': 19.99,
+    // Webstaurant
+    '6 1/2" x 2 1/2" x 2 1/4" White Paper Hot Dog Clamshell Container - 500/Case': 72.99,
+    "Lavex 2-Ply White Center Pull Paper Towel 500' Roll - 6/Case": 32.99,
+    'Choice Clear PET Customizable Plastic Cold Cup - 24 oz. - 600/Case': 43.49,
+    'Choice 9 oz. 12 oz. 16 oz. 20 oz. 24 oz. Clear PET Dome Lid with 2" Hole - 1 000/Case': 33.99,
+    'Choice Black Plastic Souffle Cup / Portion Cup - 2 oz. - 2 500/Case': 21.49,
+    'Choice PET Plastic Lid for 1.5 to 2.5 oz. Souffle Cup / Portion Cup - 2 500/Case': 16.99,
+    'Fast Take Tamper-Evident Clear HDPE 2 Drink Beverage Carrier - 1 000/Case': 122.49,
+    'Choice 12" x 12" Natural Kraft Customizable Basket Liner / Deli Wrap - 5 000/Case': 79.99,
+    'Carnival King #200 2 lb. Cornerstone Paper Food Tray - 1 000/Case': 36.79,
+    'Choice Kraft Microwavable Folded Paper #8 Take-Out Customizable Container 6" x 4 3/4" x 2 1/2" - 300/Case': 49.49,
+    'Dixie Ultra White 2-Ply Interfold Paper Dispenser Napkin - 6 000/Case': 74.49,
+    'Lotus Biscoff Creamy Cookie Butter Spread Pail 6.6 lb.': 47.99,
+    'Lotus Biscoff Cookies 8.8 oz. - 10/Case': 36.49,
+    'Jade Leaf Culinary Matcha Powder 1 lb. (454g) - 6/Case': 60.00,
+    'Torani Vanilla': 78.99,
+    // Lollicup Store
+    '[1,600 ct] Boba Straws | Diagonal Cut | Individually Wrapped | Black (0.39" x 9")': 39.75,
+    '[1,000 ct] Plastic Dome Cup Lids | PET | 90 mm': 49.50,
+    'Taro Powder | Made in USA | 2.2 lbs': 15.50,
+    'Non-Dairy Creamer': 67.75, 'Tapioca Pearls (Chewy)': 45.25,
+    'Strawberry Syrup, 64oz': 10.25,
+};
+
+const DEFAULT_LOCATIONS = {
+    // Bossen
+    'Strawberry Syrup': 'Bossen', 'Mango Syrup': 'Bossen', 'Rose Syrup': 'Bossen',
+    'Passionfruit Syrup': 'Bossen', 'Peach Syrup': 'Bossen', 'Lychee Syrup': 'Bossen',
+    'Honeydew Syrup': 'Bossen', 'Pineapple Syrup': 'Bossen', 'Lemon Syrup': 'Bossen',
+    'Red Guava Syrup': 'Bossen', 'Grape Syrup': 'Bossen', 'Kumquat Syrup': 'Bossen',
+    'Kiwi Syrup': 'Bossen', 'Banana Syrup': 'Bossen',
+    'Strawberry Jam': 'Bossen', 'Mango Jam': 'Bossen', 'Passion Fruit Jam': 'Bossen',
+    'Rainbow Jelly – BT': 'Bossen', 'Lychee Jelly': 'Bossen', 'Coconut Jelly': 'Bossen',
+    'Coffee Jelly': 'Bossen', 'Brown Sugar Agar Jelly': 'Bossen',
+    'Strawberry': 'Bossen', 'Mango': 'Bossen', 'Blueberry': 'Bossen',
+    'Lychee': 'Bossen', 'Kiwi': 'Bossen', 'Peach': 'Bossen',
+    'PP Sealing Film – Good Time Printed': 'Bossen',
+    'Thai Green Tea (Thumb up brand)': 'Bossen', 'Premium Thai Tea Mix (Cha Tra Mue)': 'Bossen',
+    // HEB
+    'Whole Milk': 'HEB', 'Eggs': 'HEB', 'Bananas': 'HEB', 'Strawberries': 'HEB',
+    'Pineapple': 'HEB', 'Lemons': 'HEB', 'Limes': 'HEB', 'Oranges': 'HEB',
+    'Apples': 'HEB', 'Cantaloupe': 'HEB', 'Onions': 'HEB', 'Corn': 'HEB',
+    'Cotija cheese': 'HEB', 'Chicken breast (bulk)': 'HEB', 'All purpose flour': 'HEB',
+    // Restaurant Depot
+    'Mango Chunk (IQF)': 'Restaurant Depot', 'Mango Dice (IQF)': 'Restaurant Depot',
+    'Sweetened Condensed Milk 14oz': 'Restaurant Depot', 'Milk Evaporated 12oz': 'Restaurant Depot',
+    'Mascarpone 1 lb': 'Restaurant Depot', 'Mozzarella Bulk (~49lb)': 'Restaurant Depot',
+    'French Fry 3/8 Big C': 'Restaurant Depot', 'Onion Ring': 'Restaurant Depot',
+    'KIKO Bread Crumbs': 'Restaurant Depot', 'Nacho Cheese Sauce': 'Restaurant Depot',
+    'Yeast Instant Dry': 'Restaurant Depot', 'Cornstarch 3 lbs': 'Restaurant Depot',
+    'Garlic Powder 5#': 'Restaurant Depot', 'Onion Powder 5#': 'Restaurant Depot',
+    'OIL CLEAR SOY': 'Restaurant Depot', 'Sugar Gran Nat 50#': 'Restaurant Depot',
+    'Kosher Salt': 'Restaurant Depot', 'Honey Hot Sauce': 'Restaurant Depot',
+    'Sriracha': 'Restaurant Depot', 'Heinz Ketchup (3/44oz)': 'Restaurant Depot',
+    "Hellmann's Mayo (1 gal)": 'Restaurant Depot', 'Nutella Tub 6.6#': 'Restaurant Depot',
+    'Oreo 2.5#': 'Restaurant Depot', 'Hershey Syrup (Jug)': 'Restaurant Depot',
+    'Chamoy': 'Restaurant Depot', 'Tajin': 'Restaurant Depot',
+    'Poly Bags': 'Restaurant Depot', 'T-shirt Bags': 'Restaurant Depot',
+    'Gloves (LG / MD)': 'Restaurant Depot', 'Degreaser 1 Gal': 'Restaurant Depot',
+    // Costco
+    'Heavy Cream (if purchased)': 'Costco', 'Lemons 3 lb': 'Costco', 'Limes 3 lb': 'Costco',
+    'Garlic (bulk bag)': 'Costco', 'Pink Salt': 'Costco', 'KS HOT DOGS': 'Costco',
+    'Samyang Buldak Ramen Carbonara': 'Costco', 'OREO': 'Costco',
+    'Jif Creamy Peanut Butter': 'Costco', 'Sweetened Condensed Milk': 'Costco',
+    'Organic Coconut Water': 'Costco', 'Dish Soap': 'Costco', 'Scrub Daddy': 'Costco',
+    'Drinking Water': 'Costco', 'Seedless Watermelon': 'Costco',
+    '33-Gallon Trash Bag': 'Costco', '13-Gallon Kitchen Trash Bag': 'Costco',
+    'Sliced Peaches': 'Costco', 'Lysol Disinfecting Wipes': 'Costco',
+    'Almond Milk': 'Costco', 'Oat Milk': 'Costco', 'Shin Black': 'Costco',
+    'Shin Ramyun Noodles': 'Costco', 'Coke': 'Costco', 'Diet Coke': 'Costco',
+    'Spirte': 'Costco', 'Sugar Free Dr Pepper': 'Costco', 'Hand Soap': 'Costco',
+    'Gallon Plus Freezer Bags': 'Costco', 'Pure Vanilla Extract': 'Costco',
+    'Organic Brown Sugar': 'Costco', 'Laughing Cow Light Wedges': 'Costco',
+    'Kraft Grated Parmesan Cheese': 'Costco',
+    // Webstaurant
+    '6 1/2" x 2 1/2" x 2 1/4" White Paper Hot Dog Clamshell Container - 500/Case': 'Webstaurant',
+    "Lavex 2-Ply White Center Pull Paper Towel 500' Roll - 6/Case": 'Webstaurant',
+    'Choice Clear PET Customizable Plastic Cold Cup - 24 oz. - 600/Case': 'Webstaurant',
+    'Choice 9 oz. 12 oz. 16 oz. 20 oz. 24 oz. Clear PET Dome Lid with 2" Hole - 1 000/Case': 'Webstaurant',
+    'Choice Black Plastic Souffle Cup / Portion Cup - 2 oz. - 2 500/Case': 'Webstaurant',
+    'Choice PET Plastic Lid for 1.5 to 2.5 oz. Souffle Cup / Portion Cup - 2 500/Case': 'Webstaurant',
+    'Fast Take Tamper-Evident Clear HDPE 2 Drink Beverage Carrier - 1 000/Case': 'Webstaurant',
+    'Choice 12" x 12" Natural Kraft Customizable Basket Liner / Deli Wrap - 5 000/Case': 'Webstaurant',
+    'Carnival King #200 2 lb. Cornerstone Paper Food Tray - 1 000/Case': 'Webstaurant',
+    'Choice Kraft Microwavable Folded Paper #8 Take-Out Customizable Container 6" x 4 3/4" x 2 1/2" - 300/Case': 'Webstaurant',
+    'Dixie Ultra White 2-Ply Interfold Paper Dispenser Napkin - 6 000/Case': 'Webstaurant',
+    'Lotus Biscoff Creamy Cookie Butter Spread Pail 6.6 lb.': 'Webstaurant',
+    'Lotus Biscoff Cookies 8.8 oz. - 10/Case': 'Webstaurant',
+    'Jade Leaf Culinary Matcha Powder 1 lb. (454g) - 6/Case': 'Webstaurant',
+    'Torani Vanilla': 'Webstaurant',
+    // Lollicup Store
+    '[1,600 ct] Boba Straws | Diagonal Cut | Individually Wrapped | Black (0.39" x 9")': 'Lollicup Store',
+    '[1,000 ct] Plastic Dome Cup Lids | PET | 90 mm': 'Lollicup Store',
+    'Taro Powder | Made in USA | 2.2 lbs': 'Lollicup Store',
+    'Non-Dairy Creamer': 'Lollicup Store', 'Tapioca Pearls (Chewy)': 'Lollicup Store',
+    'Strawberry Syrup, 64oz': 'Lollicup Store', 'Tropical Syrup, 64oz': 'Lollicup Store',
+    'Black Tea': 'Lollicup Store', 'Jasmine Green Tea': 'Lollicup Store',
+    'Milk Tea': 'Lollicup Store', 'Honeydew': 'Lollicup Store',
+    'Coconut': 'Lollicup Store', 'Egg Pudding': 'Lollicup Store',
+};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -467,13 +607,14 @@ function CSVImportModal({ parsed, onConfirm, onCancel }) {
 
 // ─── ManageTab ───────────────────────────────────────────────────────────────
 
-function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockChange, units, onUnitChange, unitTypes, onAddUnitType, onDeleteUnitType }) {
+function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockChange, units, onUnitChange, unitTypes, onAddUnitType, onDeleteUnitType, prices, onPriceChange, locations, onLocationChange }) {
     const [editCat,        setEditCat]        = useState(null); // { catIdx, value }
     const [editItem,       setEditItem]       = useState(null); // { catIdx, itemIdx, value }
     const [newItem,        setNewItem]        = useState({});   // { [catIdx]: string }
     const [newCat,         setNewCat]         = useState('');
     const [pendingPars,    setPendingPars]    = useState({});   // { [itemName]: string } — unsaved par edits
     const [pendingRestocks, setPendingRestocks] = useState({}); // { [itemName]: string } — unsaved restock edits
+    const [pendingPrices,  setPendingPrices]  = useState({});   // { [itemName]: string } — unsaved price edits
     const [csvModal,    setCsvModal]    = useState(null); // parsed groups | null
     const [collapsed,   setCollapsed]   = useState({});   // { [catIdx]: bool }
     const [showUnitMgr, setShowUnitMgr] = useState(false);
@@ -592,6 +733,13 @@ function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockCha
         if (val === undefined) return;
         onRestockChange(itemName, val);
         setPendingRestocks((p) => { const n = { ...p }; delete n[itemName]; return n; });
+    };
+
+    const confirmPrice = (itemName) => {
+        const val = pendingPrices[itemName];
+        if (val === undefined) return;
+        onPriceChange(itemName, val);
+        setPendingPrices((p) => { const n = { ...p }; delete n[itemName]; return n; });
     };
 
     // ── CSV import ────────────────────────────────────────────────────────
@@ -864,6 +1012,39 @@ function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockCha
                                         <option value=''>unit</option>
                                         {unitTypes.map((u) => <option key={u} value={u}>{u}</option>)}
                                     </select>
+                                    {/* Price — slide-to-confirm */}
+                                    <div className='flex shrink-0 items-center'>
+                                        <span className='text-xs text-gray-400 mr-0.5'>$</span>
+                                        <input
+                                            type='number' min='0' step='0.01' inputMode='decimal'
+                                            value={pendingPrices[item] !== undefined ? pendingPrices[item] : (prices[item] ?? '')}
+                                            onChange={(e) => setPendingPrices((p) => ({ ...p, [item]: e.target.value }))}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') confirmPrice(item);
+                                                if (e.key === 'Escape') setPendingPrices((p) => { const n = { ...p }; delete n[item]; return n; });
+                                            }}
+                                            placeholder='price'
+                                            title='Unit price'
+                                            className='w-16 shrink-0 rounded-l border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-green-400'
+                                        />
+                                        <div className={`overflow-hidden transition-all duration-200 ${pendingPrices[item] !== undefined ? 'w-7 opacity-100' : 'w-0 opacity-0'}`}>
+                                            <button
+                                                type='button'
+                                                onClick={() => confirmPrice(item)}
+                                                title='Confirm price'
+                                                className='flex h-[1.625rem] w-7 items-center justify-center rounded-r bg-green-500 text-white text-xs font-bold'
+                                            >✓</button>
+                                        </div>
+                                    </div>
+                                    {/* Location — direct-save select */}
+                                    <select
+                                        value={locations[item] || ''} onChange={(e) => onLocationChange(item, e.target.value)}
+                                        title='Store / supplier'
+                                        className='w-28 shrink-0 rounded border border-gray-200 px-1 py-1 text-xs text-gray-500 outline-none focus:border-green-400'
+                                    >
+                                        <option value=''>store…</option>
+                                        {DEFAULT_STORE_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}
+                                    </select>
                                 </div>
                             </div>
                         ))}
@@ -1036,6 +1217,8 @@ export default function InventoryPage() {
     const [pars,         setPars]         = useState({});
     const [restocks,     setRestocks]     = useState({});
     const [units,        setUnits]        = useState({});
+    const [prices,       setPrices]       = useState({});
+    const [locations,    setLocations]    = useState({});
     const [unitTypes,    setUnitTypes]    = useState(DEFAULT_UNIT_TYPES);
     const [isLoading,    setIsLoading]    = useState(true);
     const [currentUser,  setCurrentUser]  = useState(null);
@@ -1047,6 +1230,7 @@ export default function InventoryPage() {
     const draftTimer        = useRef(null);
     const parSaveTimer      = useRef(null);
     const restockSaveTimer  = useRef(null);
+    const priceSaveTimer    = useRef(null);
 
     // Derived
     const flatItems = useMemo(() => buildFlat(groups), [groups]);
@@ -1069,12 +1253,14 @@ export default function InventoryPage() {
     useEffect(() => {
         const load = async () => {
             try {
-                const [fetchedGroups, fetchedPars, fetchedRestocks, fetchedHistory, fetchedEmployees] = await Promise.all([
+                const [fetchedGroups, fetchedPars, fetchedRestocks, fetchedHistory, fetchedEmployees, fetchedPrices, fetchedLocations] = await Promise.all([
                     getInventoryGroups(),
                     getParLevels(),
                     getRestockLevels(),
                     getInventorySubmissions(),
                     getEmployees(),
+                    getPrices(),
+                    getLocations(),
                 ]);
 
                 if (fetchedGroups) {
@@ -1086,6 +1272,19 @@ export default function InventoryPage() {
                 setRestocks(fetchedRestocks);
                 setHistory(fetchedHistory);
                 setEmployees(fetchedEmployees);
+
+                if (Object.keys(fetchedPrices).length > 0) {
+                    setPrices(fetchedPrices);
+                } else {
+                    setPrices(DEFAULT_PRICES);
+                    Object.entries(DEFAULT_PRICES).forEach(([name, price]) => savePrice(name, price).catch(console.error));
+                }
+                if (Object.keys(fetchedLocations).length > 0) {
+                    setLocations(fetchedLocations);
+                } else {
+                    setLocations(DEFAULT_LOCATIONS);
+                    Object.entries(DEFAULT_LOCATIONS).forEach(([name, loc]) => saveLocation(name, loc).catch(console.error));
+                }
 
                 // Restore session
                 try {
@@ -1221,6 +1420,26 @@ export default function InventoryPage() {
         });
     };
 
+    const handlePriceChange = (itemName, value) => {
+        const num = Math.max(0, parseFloat(value) || 0);
+        setPrices((prev) => {
+            const next = { ...prev };
+            if (num > 0) { next[itemName] = num; } else { delete next[itemName]; }
+            clearTimeout(priceSaveTimer.current);
+            priceSaveTimer.current = setTimeout(() => savePrice(itemName, num).catch(console.error), 600);
+            return next;
+        });
+    };
+
+    const handleLocationChange = (itemName, value) => {
+        setLocations((prev) => {
+            const next = { ...prev, [itemName]: value };
+            if (!value) delete next[itemName];
+            saveLocation(itemName, value).catch(console.error);
+            return next;
+        });
+    };
+
     const handleUnitChange = (itemName, unit) => {
         setUnits((prev) => {
             const next = { ...prev, [itemName]: unit };
@@ -1318,6 +1537,17 @@ export default function InventoryPage() {
         flatItems.filter((i) => pars[i.name] > 0 && (lastCounts[i.name] ?? 0) < pars[i.name]),
         [flatItems, pars, lastCounts]
     );
+
+    const shoppingByStore = useMemo(() => {
+        const map = {};
+        for (const item of shoppingItems) {
+            const store = locations[item.name] || '__none__';
+            if (!map[store]) map[store] = [];
+            map[store].push(item);
+        }
+        const order = [...DEFAULT_STORE_NAMES, '__none__'];
+        return order.filter((s) => map[s]).map((s) => ({ store: s, items: map[s] }));
+    }, [shoppingItems, locations]);
 
     const isAdmin = currentUser?.role === 'admin';
     const tabs = [
@@ -1614,39 +1844,99 @@ export default function InventoryPage() {
                                     <div className='flex gap-2'>
                                         <button
                                             type='button'
-                                            onClick={() => { copyShoppingListText(shoppingItems, lastCounts, pars); }}
+                                            onClick={() => {
+                                                const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                                                const lines = [`SHOPPING LIST — ${date}`, ''];
+                                                shoppingByStore.forEach(({ store, items: storeItems }) => {
+                                                    const total = storeItems.reduce((sum, i) => {
+                                                        const price = prices[i.name];
+                                                        const short = Math.max(0, (pars[i.name] ?? 0) - (lastCounts[i.name] ?? 0));
+                                                        return price ? sum + price * short : sum;
+                                                    }, 0);
+                                                    lines.push(`${store === '__none__' ? 'No Store Set' : store}${total > 0 ? `  (~$${total.toFixed(2)})` : ''}`);
+                                                    storeItems.forEach((i) => {
+                                                        const have  = lastCounts[i.name] ?? 0;
+                                                        const par   = pars[i.name];
+                                                        const short = Math.max(0, par - have);
+                                                        const price = prices[i.name];
+                                                        const lineTotal = price ? ` = $${(price * short).toFixed(2)}` : '';
+                                                        const priceStr  = price ? `  @ $${price.toFixed(2)}` : '';
+                                                        lines.push(`  • ${i.name}   have ${have}, need ${par}, buy ${short}${priceStr}${lineTotal}`);
+                                                    });
+                                                    lines.push('');
+                                                });
+                                                navigator.clipboard.writeText(lines.join('\n'));
+                                            }}
                                             className='rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50'
                                         >
                                             Copy Text
                                         </button>
                                         <button
                                             type='button'
-                                            onClick={() => exportShoppingList(shoppingItems, lastCounts, pars)}
+                                            onClick={() => {
+                                                const rows = [['Store', 'Category', 'Item', 'Have', 'Need (Par)', 'Buy', 'Unit Price', 'Line Total']];
+                                                shoppingByStore.forEach(({ store, items: storeItems }) => {
+                                                    storeItems.forEach((i) => {
+                                                        const have  = lastCounts[i.name] ?? 0;
+                                                        const par   = pars[i.name];
+                                                        const short = Math.max(0, par - have);
+                                                        const price = prices[i.name] ?? '';
+                                                        const lineTotal = price ? (price * short).toFixed(2) : '';
+                                                        rows.push([store === '__none__' ? '' : store, i.category, i.name, have, par, short, price, lineTotal]);
+                                                    });
+                                                });
+                                                const csv  = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+                                                const blob = new Blob([csv], { type: 'text/csv' });
+                                                const url  = URL.createObjectURL(blob);
+                                                const a    = document.createElement('a');
+                                                a.href = url; a.download = `shopping_list_${new Date().toISOString().slice(0, 10)}.csv`;
+                                                a.click(); URL.revokeObjectURL(url);
+                                            }}
                                             className='rounded-lg bg-black px-3 py-1.5 text-xs font-medium text-white'
                                         >
                                             Export CSV
                                         </button>
                                     </div>
                                 </div>
-                                {[...new Set(shoppingItems.map((i) => i.category))].map((cat) => {
-                                    const catItems = shoppingItems.filter((i) => i.category === cat);
+                                {shoppingByStore.map(({ store, items: storeItems }) => {
+                                    const storeTotal = storeItems.reduce((sum, i) => {
+                                        const price = prices[i.name];
+                                        const short = Math.max(0, (pars[i.name] ?? 0) - (lastCounts[i.name] ?? 0));
+                                        return price ? sum + price * short : sum;
+                                    }, 0);
                                     return (
-                                        <section key={cat} className='rounded-xl bg-white shadow-sm'>
-                                            <div className='border-b border-gray-100 px-4 py-3'>
-                                                <span className='font-semibold'>{cat}</span>
-                                                <span className='ml-2 text-xs text-gray-400'>{catItems.length} item{catItems.length !== 1 ? 's' : ''}</span>
+                                        <section key={store} className='rounded-xl bg-white shadow-sm'>
+                                            <div className='flex items-center justify-between border-b border-gray-100 px-4 py-3'>
+                                                <div>
+                                                    <span className='font-semibold'>{store === '__none__' ? 'No Store Set' : store}</span>
+                                                    <span className='ml-2 text-xs text-gray-400'>{storeItems.length} item{storeItems.length !== 1 ? 's' : ''}</span>
+                                                </div>
+                                                {storeTotal > 0 && (
+                                                    <span className='text-sm font-medium text-gray-700'>~${storeTotal.toFixed(2)}</span>
+                                                )}
                                             </div>
                                             <div className='divide-y divide-gray-50'>
-                                                {catItems.map((i) => {
-                                                    const have = lastCounts[i.name] ?? 0;
-                                                    const par  = pars[i.name];
+                                                {storeItems.map((i) => {
+                                                    const have  = lastCounts[i.name] ?? 0;
+                                                    const par   = pars[i.name];
+                                                    const short = Math.max(0, par - have);
+                                                    const price = prices[i.name];
                                                     return (
                                                         <div key={i.name} className='flex items-center justify-between px-4 py-3'>
                                                             <div>
                                                                 <p className='text-sm font-medium'>{i.name}</p>
-                                                                <p className='text-xs text-orange-500'>have {have} · need {par} · short {par - have}</p>
+                                                                <p className='text-xs text-orange-500'>
+                                                                    have {have} · need {par} · buy {short}
+                                                                    {price ? ` · $${price.toFixed(2)} ea` : ''}
+                                                                </p>
+                                                                <p className='text-xs text-gray-400'>{i.category}</p>
                                                             </div>
-                                                            <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>Below par</span>
+                                                            <div className='flex flex-col items-end gap-1'>
+                                                                {price && short > 0 && (
+                                                                    <span className='text-sm font-semibold text-gray-700'>${(price * short).toFixed(2)}</span>
+                                                                )}
+                                                                <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>Below par</span>
+                                                            </div>
                                                         </div>
                                                     );
                                                 })}
@@ -1692,6 +1982,8 @@ export default function InventoryPage() {
                         restocks={restocks} onRestockChange={handleRestockChange}
                         units={units} onUnitChange={handleUnitChange}
                         unitTypes={unitTypes} onAddUnitType={handleAddUnitType} onDeleteUnitType={handleDeleteUnitType}
+                        prices={prices} onPriceChange={handlePriceChange}
+                        locations={locations} onLocationChange={handleLocationChange}
                     />
                 )}
 
