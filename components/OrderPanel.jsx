@@ -65,7 +65,7 @@ export default function OrderPanel({
                                                 ? 'default'
                                                 : 'outline'
                                         }
-                                        className='w-full mb-1 text-sm'
+                                        className='w-full mb-1 text-xs sm:text-sm leading-tight'
                                         onClick={() => onSelectDrink(drink)}
                                     >
                                         {drink}
@@ -84,7 +84,7 @@ export default function OrderPanel({
                                                 ? 'default'
                                                 : 'outline'
                                         }
-                                        className='w-full mb-1 text-sm'
+                                        className='w-full mb-1 text-xs sm:text-sm leading-tight'
                                         onClick={() => onSelectBoba(boba)}
                                     >
                                         {boba}
@@ -114,7 +114,7 @@ export default function OrderPanel({
                                             ? 'default'
                                             : 'outline'
                                     }
-                                    className='w-full text-sm'
+                                    className='w-full text-xs sm:text-sm leading-tight'
                                     onClick={() => onSelectCorndog(corndog)}
                                 >
                                     {corndog}

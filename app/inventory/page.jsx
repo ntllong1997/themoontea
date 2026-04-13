@@ -8,6 +8,10 @@ import {
     getRestockLevels, saveRestockLevel,
     getInventorySubmissions, saveInventorySubmission,
     deleteInventorySubmission, clearInventorySubmissions,
+    getPrices, savePrice,
+    getLocations, saveLocation,
+    getCaseSizes, saveCaseSize,
+    getDailyCheckItems, saveDailyCheckItem,
 } from '@/lib/inventoryDb';
 import {
     getEmployees, verifyPin,
@@ -137,6 +141,144 @@ const UNITS_KEY        = 'inventory_units';
 const UNIT_TYPES_KEY   = 'inventory_unit_types';
 const LAST_COUNTS_KEY  = 'inventory_last_counts';
 const DEFAULT_UNIT_TYPES = ['bottles', 'cans', 'bags', 'boxes', 'cases', 'kg', 'lbs', 'oz', 'liters', 'gallons', 'pcs', 'trays'];
+const DEFAULT_STORE_NAMES = ['Bossen', 'HEB', 'Restaurant Depot', 'Costco', 'Webstaurant', 'Lollicup Store', "Sam's Club", 'Amazon'];
+
+const DEFAULT_PRICES = {
+    // Bossen
+    'Strawberry Syrup': 12.50, 'Mango Syrup': 12.50, 'Rose Syrup': 14.75,
+    'Passionfruit Syrup': 12.50, 'Peach Syrup': 12.50, 'Lychee Syrup': 12.50,
+    'Honeydew Syrup': 12.50, 'Pineapple Syrup': 12.50, 'Lemon Syrup': 12.50,
+    'Red Guava Syrup': 13.50, 'Grape Syrup': 13.50, 'Kumquat Syrup': 13.50,
+    'Kiwi Syrup': 13.50, 'Banana Syrup': 12.50,
+    'Strawberry Jam': 21.75, 'Mango Jam': 24.00, 'Passion Fruit Jam': 21.75,
+    'Rainbow Jelly – BT': 16.25, 'Lychee Jelly': 16.25, 'Coconut Jelly': 16.25,
+    'Coffee Jelly': 19.25, 'Brown Sugar Agar Jelly': 18.75,
+    'Strawberry': 18.00, 'Mango': 18.00, 'Blueberry': 18.00,
+    'Lychee': 18.00, 'Kiwi': 18.00, 'Peach': 18.00,
+    'PP Sealing Film – Good Time Printed': 43.50,
+    'Thai Green Tea (Thumb up brand)': 6.00, 'Premium Thai Tea Mix (Cha Tra Mue)': 6.50,
+    // HEB
+    'Whole Milk': 3.50, 'Eggs': 3.97, 'Bananas': 0.50, 'Strawberries': 4.00,
+    'Pineapple': 5.00, 'Lemons': 5.00, 'Limes': 5.00, 'Oranges': 4.00,
+    'Apples': 2.52, 'Cantaloupe': 2.97, 'Onions': 0.67, 'Corn': 1.48,
+    'Cotija cheese': 3.89, 'Chicken breast (bulk)': 2.00, 'All purpose flour': 3.68,
+    // Restaurant Depot
+    'Mango Chunk (IQF)': 18.50, 'Mango Dice (IQF)': 23.00,
+    'Sweetened Condensed Milk 14oz': 40.00, 'Milk Evaporated 12oz': 28.00,
+    'Mascarpone 1 lb': 25.00, 'Mozzarella Bulk (~49lb)': 100.00,
+    'French Fry 3/8 Big C': 32.00, 'Onion Ring': 26.00,
+    'KIKO Bread Crumbs': 26.00, 'Nacho Cheese Sauce': 30.00,
+    'Yeast Instant Dry': 5.27, 'Cornstarch 3 lbs': 31.00,
+    'Garlic Powder 5#': 25.00, 'Onion Powder 5#': 25.00, 'OIL CLEAR SOY': 29.00,
+    'Sugar Gran Nat 50#': 30.00, 'Kosher Salt': 6.00,
+    'Honey Hot Sauce': 25.00, 'Sriracha': 37.00,
+    'Heinz Ketchup (3/44oz)': 11.00, "Hellmann's Mayo (1 gal)": 20.00,
+    'Nutella Tub 6.6#': 52.00, 'Oreo 2.5#': 14.50,
+    'Hershey Syrup (Jug)': 15.00, 'Chamoy': 9.00, 'Tajin': 10.00,
+    'Poly Bags': 18.00, 'T-shirt Bags': 22.00, 'Gloves (LG / MD)': 28.00,
+    'Degreaser 1 Gal': 20.00,
+    // Costco
+    'Heavy Cream (if purchased)': 3.49, 'KS HOT DOGS': 19.99,
+    // Webstaurant
+    '6 1/2" x 2 1/2" x 2 1/4" White Paper Hot Dog Clamshell Container - 500/Case': 72.99,
+    "Lavex 2-Ply White Center Pull Paper Towel 500' Roll - 6/Case": 32.99,
+    'Choice Clear PET Customizable Plastic Cold Cup - 24 oz. - 600/Case': 43.49,
+    'Choice 9 oz. 12 oz. 16 oz. 20 oz. 24 oz. Clear PET Dome Lid with 2" Hole - 1 000/Case': 33.99,
+    'Choice Black Plastic Souffle Cup / Portion Cup - 2 oz. - 2 500/Case': 21.49,
+    'Choice PET Plastic Lid for 1.5 to 2.5 oz. Souffle Cup / Portion Cup - 2 500/Case': 16.99,
+    'Fast Take Tamper-Evident Clear HDPE 2 Drink Beverage Carrier - 1 000/Case': 122.49,
+    'Choice 12" x 12" Natural Kraft Customizable Basket Liner / Deli Wrap - 5 000/Case': 79.99,
+    'Carnival King #200 2 lb. Cornerstone Paper Food Tray - 1 000/Case': 36.79,
+    'Choice Kraft Microwavable Folded Paper #8 Take-Out Customizable Container 6" x 4 3/4" x 2 1/2" - 300/Case': 49.49,
+    'Dixie Ultra White 2-Ply Interfold Paper Dispenser Napkin - 6 000/Case': 74.49,
+    'Lotus Biscoff Creamy Cookie Butter Spread Pail 6.6 lb.': 47.99,
+    'Lotus Biscoff Cookies 8.8 oz. - 10/Case': 36.49,
+    'Jade Leaf Culinary Matcha Powder 1 lb. (454g) - 6/Case': 60.00,
+    'Torani Vanilla': 78.99,
+    // Lollicup Store
+    '[1,600 ct] Boba Straws | Diagonal Cut | Individually Wrapped | Black (0.39" x 9")': 39.75,
+    '[1,000 ct] Plastic Dome Cup Lids | PET | 90 mm': 49.50,
+    'Taro Powder | Made in USA | 2.2 lbs': 15.50,
+    'Non-Dairy Creamer': 67.75, 'Tapioca Pearls (Chewy)': 45.25,
+    'Strawberry Syrup, 64oz': 10.25,
+};
+
+const DEFAULT_LOCATIONS = {
+    // Bossen
+    'Strawberry Syrup': 'Bossen', 'Mango Syrup': 'Bossen', 'Rose Syrup': 'Bossen',
+    'Passionfruit Syrup': 'Bossen', 'Peach Syrup': 'Bossen', 'Lychee Syrup': 'Bossen',
+    'Honeydew Syrup': 'Bossen', 'Pineapple Syrup': 'Bossen', 'Lemon Syrup': 'Bossen',
+    'Red Guava Syrup': 'Bossen', 'Grape Syrup': 'Bossen', 'Kumquat Syrup': 'Bossen',
+    'Kiwi Syrup': 'Bossen', 'Banana Syrup': 'Bossen',
+    'Strawberry Jam': 'Bossen', 'Mango Jam': 'Bossen', 'Passion Fruit Jam': 'Bossen',
+    'Rainbow Jelly – BT': 'Bossen', 'Lychee Jelly': 'Bossen', 'Coconut Jelly': 'Bossen',
+    'Coffee Jelly': 'Bossen', 'Brown Sugar Agar Jelly': 'Bossen',
+    'Strawberry': 'Bossen', 'Mango': 'Bossen', 'Blueberry': 'Bossen',
+    'Lychee': 'Bossen', 'Kiwi': 'Bossen', 'Peach': 'Bossen',
+    'PP Sealing Film – Good Time Printed': 'Bossen',
+    'Thai Green Tea (Thumb up brand)': 'Bossen', 'Premium Thai Tea Mix (Cha Tra Mue)': 'Bossen',
+    // HEB
+    'Whole Milk': 'HEB', 'Eggs': 'HEB', 'Bananas': 'HEB', 'Strawberries': 'HEB',
+    'Pineapple': 'HEB', 'Lemons': 'HEB', 'Limes': 'HEB', 'Oranges': 'HEB',
+    'Apples': 'HEB', 'Cantaloupe': 'HEB', 'Onions': 'HEB', 'Corn': 'HEB',
+    'Cotija cheese': 'HEB', 'Chicken breast (bulk)': 'HEB', 'All purpose flour': 'HEB',
+    // Restaurant Depot
+    'Mango Chunk (IQF)': 'Restaurant Depot', 'Mango Dice (IQF)': 'Restaurant Depot',
+    'Sweetened Condensed Milk 14oz': 'Restaurant Depot', 'Milk Evaporated 12oz': 'Restaurant Depot',
+    'Mascarpone 1 lb': 'Restaurant Depot', 'Mozzarella Bulk (~49lb)': 'Restaurant Depot',
+    'French Fry 3/8 Big C': 'Restaurant Depot', 'Onion Ring': 'Restaurant Depot',
+    'KIKO Bread Crumbs': 'Restaurant Depot', 'Nacho Cheese Sauce': 'Restaurant Depot',
+    'Yeast Instant Dry': 'Restaurant Depot', 'Cornstarch 3 lbs': 'Restaurant Depot',
+    'Garlic Powder 5#': 'Restaurant Depot', 'Onion Powder 5#': 'Restaurant Depot',
+    'OIL CLEAR SOY': 'Restaurant Depot', 'Sugar Gran Nat 50#': 'Restaurant Depot',
+    'Kosher Salt': 'Restaurant Depot', 'Honey Hot Sauce': 'Restaurant Depot',
+    'Sriracha': 'Restaurant Depot', 'Heinz Ketchup (3/44oz)': 'Restaurant Depot',
+    "Hellmann's Mayo (1 gal)": 'Restaurant Depot', 'Nutella Tub 6.6#': 'Restaurant Depot',
+    'Oreo 2.5#': 'Restaurant Depot', 'Hershey Syrup (Jug)': 'Restaurant Depot',
+    'Chamoy': 'Restaurant Depot', 'Tajin': 'Restaurant Depot',
+    'Poly Bags': 'Restaurant Depot', 'T-shirt Bags': 'Restaurant Depot',
+    'Gloves (LG / MD)': 'Restaurant Depot', 'Degreaser 1 Gal': 'Restaurant Depot',
+    // Costco
+    'Heavy Cream (if purchased)': 'Costco', 'Lemons 3 lb': 'Costco', 'Limes 3 lb': 'Costco',
+    'Garlic (bulk bag)': 'Costco', 'Pink Salt': 'Costco', 'KS HOT DOGS': 'Costco',
+    'Samyang Buldak Ramen Carbonara': 'Costco', 'OREO': 'Costco',
+    'Jif Creamy Peanut Butter': 'Costco', 'Sweetened Condensed Milk': 'Costco',
+    'Organic Coconut Water': 'Costco', 'Dish Soap': 'Costco', 'Scrub Daddy': 'Costco',
+    'Drinking Water': 'Costco', 'Seedless Watermelon': 'Costco',
+    '33-Gallon Trash Bag': 'Costco', '13-Gallon Kitchen Trash Bag': 'Costco',
+    'Sliced Peaches': 'Costco', 'Lysol Disinfecting Wipes': 'Costco',
+    'Almond Milk': 'Costco', 'Oat Milk': 'Costco', 'Shin Black': 'Costco',
+    'Shin Ramyun Noodles': 'Costco', 'Coke': 'Costco', 'Diet Coke': 'Costco',
+    'Spirte': 'Costco', 'Sugar Free Dr Pepper': 'Costco', 'Hand Soap': 'Costco',
+    'Gallon Plus Freezer Bags': 'Costco', 'Pure Vanilla Extract': 'Costco',
+    'Organic Brown Sugar': 'Costco', 'Laughing Cow Light Wedges': 'Costco',
+    'Kraft Grated Parmesan Cheese': 'Costco',
+    // Webstaurant
+    '6 1/2" x 2 1/2" x 2 1/4" White Paper Hot Dog Clamshell Container - 500/Case': 'Webstaurant',
+    "Lavex 2-Ply White Center Pull Paper Towel 500' Roll - 6/Case": 'Webstaurant',
+    'Choice Clear PET Customizable Plastic Cold Cup - 24 oz. - 600/Case': 'Webstaurant',
+    'Choice 9 oz. 12 oz. 16 oz. 20 oz. 24 oz. Clear PET Dome Lid with 2" Hole - 1 000/Case': 'Webstaurant',
+    'Choice Black Plastic Souffle Cup / Portion Cup - 2 oz. - 2 500/Case': 'Webstaurant',
+    'Choice PET Plastic Lid for 1.5 to 2.5 oz. Souffle Cup / Portion Cup - 2 500/Case': 'Webstaurant',
+    'Fast Take Tamper-Evident Clear HDPE 2 Drink Beverage Carrier - 1 000/Case': 'Webstaurant',
+    'Choice 12" x 12" Natural Kraft Customizable Basket Liner / Deli Wrap - 5 000/Case': 'Webstaurant',
+    'Carnival King #200 2 lb. Cornerstone Paper Food Tray - 1 000/Case': 'Webstaurant',
+    'Choice Kraft Microwavable Folded Paper #8 Take-Out Customizable Container 6" x 4 3/4" x 2 1/2" - 300/Case': 'Webstaurant',
+    'Dixie Ultra White 2-Ply Interfold Paper Dispenser Napkin - 6 000/Case': 'Webstaurant',
+    'Lotus Biscoff Creamy Cookie Butter Spread Pail 6.6 lb.': 'Webstaurant',
+    'Lotus Biscoff Cookies 8.8 oz. - 10/Case': 'Webstaurant',
+    'Jade Leaf Culinary Matcha Powder 1 lb. (454g) - 6/Case': 'Webstaurant',
+    'Torani Vanilla': 'Webstaurant',
+    // Lollicup Store
+    '[1,600 ct] Boba Straws | Diagonal Cut | Individually Wrapped | Black (0.39" x 9")': 'Lollicup Store',
+    '[1,000 ct] Plastic Dome Cup Lids | PET | 90 mm': 'Lollicup Store',
+    'Taro Powder | Made in USA | 2.2 lbs': 'Lollicup Store',
+    'Non-Dairy Creamer': 'Lollicup Store', 'Tapioca Pearls (Chewy)': 'Lollicup Store',
+    'Strawberry Syrup, 64oz': 'Lollicup Store', 'Tropical Syrup, 64oz': 'Lollicup Store',
+    'Black Tea': 'Lollicup Store', 'Jasmine Green Tea': 'Lollicup Store',
+    'Milk Tea': 'Lollicup Store', 'Honeydew': 'Lollicup Store',
+    'Coconut': 'Lollicup Store', 'Egg Pudding': 'Lollicup Store',
+};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -369,13 +511,13 @@ function SummaryModal({ flatItems, counts, pars, employeeName, notes, onConfirm,
     const filled    = flatItems.filter((i) => counts[i.name] > 0);
     const belowPar  = flatItems.filter((i) => pars[i.name] > 0 && (counts[i.name] ?? 0) < pars[i.name]);
     return (
-        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>
-            <div className='w-full max-w-lg rounded-xl bg-white shadow-xl'>
-                <div className='border-b border-gray-100 px-6 py-4'>
+        <div className='fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4'>
+            <div className='w-full max-w-lg rounded-t-2xl bg-white shadow-xl sm:rounded-xl'>
+                <div className='border-b border-gray-100 px-4 py-4 sm:px-6'>
                     <h2 className='text-lg font-bold'>Review & Submit</h2>
                     <p className='text-sm text-gray-500'>{employeeName} · {new Date().toLocaleDateString()}</p>
                 </div>
-                <div className='max-h-80 overflow-y-auto space-y-4 px-6 py-4'>
+                <div className='max-h-[60vh] overflow-y-auto space-y-4 px-4 py-4 sm:max-h-80 sm:px-6'>
                     {notes && <p className='text-sm text-gray-600'><span className='font-medium'>Notes:</span> {notes}</p>}
                     <div>
                         <p className='mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500'>Summary</p>
@@ -395,9 +537,9 @@ function SummaryModal({ flatItems, counts, pars, employeeName, notes, onConfirm,
                             <p className='mb-1 text-xs font-semibold uppercase tracking-wide text-orange-500'>Below Par</p>
                             <div className='space-y-1'>
                                 {belowPar.map((i) => (
-                                    <div key={i.name} className='flex items-center justify-between text-sm'>
-                                        <span className='text-gray-700'>{i.name}</span>
-                                        <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>
+                                    <div key={i.name} className='flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-sm'>
+                                        <span className='min-w-0 truncate text-gray-700'>{i.name}</span>
+                                        <span className='shrink-0 rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>
                                             have {counts[i.name] ?? 0} · need {pars[i.name]}
                                         </span>
                                     </div>
@@ -406,7 +548,7 @@ function SummaryModal({ flatItems, counts, pars, employeeName, notes, onConfirm,
                         </div>
                     )}
                 </div>
-                <div className='flex justify-end gap-2 border-t border-gray-100 px-6 py-4'>
+                <div className='flex justify-end gap-2 border-t border-gray-100 px-4 py-4 sm:px-6'>
                     <button type='button' onClick={onCancel} disabled={submitting} className='rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50'>Back</button>
                     <button type='button' onClick={onConfirm} disabled={submitting} className='rounded-lg bg-black px-5 py-2 text-sm text-white disabled:opacity-50'>
                         {submitting ? 'Submitting…' : 'Confirm & Submit'}
@@ -467,13 +609,18 @@ function CSVImportModal({ parsed, onConfirm, onCancel }) {
 
 // ─── ManageTab ───────────────────────────────────────────────────────────────
 
-function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockChange, units, onUnitChange, unitTypes, onAddUnitType, onDeleteUnitType }) {
+function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockChange, units, onUnitChange, unitTypes, onAddUnitType, onDeleteUnitType, prices, onPriceChange, locations, onLocationChange, caseSizes, onCaseSizeChange, onSaveAll, dailyChecks, onDailyCheckToggle }) {
     const [editCat,        setEditCat]        = useState(null); // { catIdx, value }
     const [editItem,       setEditItem]       = useState(null); // { catIdx, itemIdx, value }
     const [newItem,        setNewItem]        = useState({});   // { [catIdx]: string }
     const [newCat,         setNewCat]         = useState('');
-    const [pendingPars,    setPendingPars]    = useState({});   // { [itemName]: string } — unsaved par edits
-    const [pendingRestocks, setPendingRestocks] = useState({}); // { [itemName]: string } — unsaved restock edits
+    const [pendingPars,      setPendingPars]      = useState({});
+    const [pendingRestocks,  setPendingRestocks]  = useState({});
+    const [pendingPrices,    setPendingPrices]    = useState({});
+    const [pendingCaseSizes, setPendingCaseSizes] = useState({});
+    const [pendingLocations, setPendingLocations] = useState({});
+    const [saving,  setSaving]  = useState(false);
+    const [saved,   setSaved]   = useState(false);
     const [csvModal,    setCsvModal]    = useState(null); // parsed groups | null
     const [collapsed,   setCollapsed]   = useState({});   // { [catIdx]: bool }
     const [showUnitMgr, setShowUnitMgr] = useState(false);
@@ -580,18 +727,34 @@ function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockCha
         setNewItem((p) => ({ ...p, [catIdx]: '' }));
     };
 
-    const confirmPar = (itemName) => {
-        const val = pendingPars[itemName];
-        if (val === undefined) return;
-        onParChange(itemName, val);
-        setPendingPars((p) => { const n = { ...p }; delete n[itemName]; return n; });
-    };
+    const hasPending = (
+        Object.keys(pendingPars).length > 0 ||
+        Object.keys(pendingRestocks).length > 0 ||
+        Object.keys(pendingPrices).length > 0 ||
+        Object.keys(pendingCaseSizes).length > 0 ||
+        Object.keys(pendingLocations).length > 0
+    );
 
-    const confirmRestock = (itemName) => {
-        const val = pendingRestocks[itemName];
-        if (val === undefined) return;
-        onRestockChange(itemName, val);
-        setPendingRestocks((p) => { const n = { ...p }; delete n[itemName]; return n; });
+    const handleSaveAll = async () => {
+        if (!hasPending || saving) return;
+        setSaving(true);
+        // Apply pending changes to parent React state
+        Object.entries(pendingPars).forEach(([name, val]) => onParChange(name, val));
+        Object.entries(pendingRestocks).forEach(([name, val]) => onRestockChange(name, val));
+        Object.entries(pendingPrices).forEach(([name, val]) => onPriceChange(name, val));
+        Object.entries(pendingCaseSizes).forEach(([name, val]) => onCaseSizeChange(name, val));
+        Object.entries(pendingLocations).forEach(([name, val]) => onLocationChange(name, val));
+        // Persist to database
+        await onSaveAll({ pars: pendingPars, restocks: pendingRestocks, prices: pendingPrices, caseSizes: pendingCaseSizes, locations: pendingLocations });
+        // Clear pending
+        setPendingPars({});
+        setPendingRestocks({});
+        setPendingPrices({});
+        setPendingCaseSizes({});
+        setPendingLocations({});
+        setSaving(false);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
     };
 
     // ── CSV import ────────────────────────────────────────────────────────
@@ -723,14 +886,26 @@ function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockCha
                 </button>
             </div>
 
-            {/* Reset to defaults */}
-            <div className='flex justify-end'>
+            {/* Reset to defaults + Save */}
+            <div className='flex items-center justify-between'>
                 <button
                     type='button'
                     onClick={() => { if (confirm('Reset to default items? This cannot be undone.')) onChange(DEFAULT_ITEMS); }}
                     className='text-xs text-red-400 hover:text-red-600'
                 >
                     Reset to defaults
+                </button>
+                <button
+                    type='button'
+                    onClick={handleSaveAll}
+                    disabled={!hasPending || saving}
+                    className={`flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition-all ${
+                        saved ? 'bg-green-500 text-white' :
+                        hasPending ? 'bg-black text-white shadow-md hover:bg-gray-800' :
+                        'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
+                >
+                    {saving ? 'Saving…' : saved ? '✓ Saved' : hasPending ? `Save Changes (${Object.keys(pendingPars).length + Object.keys(pendingRestocks).length + Object.keys(pendingPrices).length + Object.keys(pendingCaseSizes).length + Object.keys(pendingLocations).length})` : 'No changes'}
                 </button>
             </div>
 
@@ -805,57 +980,35 @@ function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockCha
                                     ) : (
                                         <span className='flex-1 truncate text-sm'>{item}</span>
                                     )}
+                                    <button
+                                        type='button'
+                                        onClick={() => onDailyCheckToggle(item)}
+                                        title={dailyChecks?.has(item) ? 'Remove from daily check' : 'Add to daily check'}
+                                        className={`shrink-0 p-1 text-base leading-none transition-colors ${dailyChecks?.has(item) ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-200 hover:text-yellow-300'}`}
+                                    >☀</button>
                                     <button type='button' onClick={() => setEditItem({ catIdx, itemIdx, value: item })} className='shrink-0 p-1 text-gray-300 hover:text-black' title='Rename item'>✎</button>
                                     <button type='button' onClick={() => deleteItem(catIdx, itemIdx)} className='shrink-0 p-1 text-gray-300 hover:text-red-500' title='Delete item'>✕</button>
                                 </div>
                                 {/* Row 2 (mobile) / inline (desktop): par + unit */}
-                                <div className='flex items-center gap-2 sm:contents'>
-                                    {/* Slide-to-confirm par input */}
-                                    <div className='flex shrink-0 items-center'>
-                                        <input
-                                            type='number' min='0' step='1' inputMode='numeric'
-                                            value={pendingPars[item] !== undefined ? pendingPars[item] : (pars[item] ?? 1)}
-                                            onChange={(e) => setPendingPars((p) => ({ ...p, [item]: e.target.value }))}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') confirmPar(item);
-                                                if (e.key === 'Escape') setPendingPars((p) => { const n = { ...p }; delete n[item]; return n; });
-                                            }}
-                                            title='Par level'
-                                            className='w-14 shrink-0 rounded-l border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400'
-                                        />
-                                        {/* Expands into flow to push sibling elements right */}
-                                        <div className={`overflow-hidden transition-all duration-200 ${pendingPars[item] !== undefined ? 'w-7 opacity-100' : 'w-0 opacity-0'}`}>
-                                            <button
-                                                type='button'
-                                                onClick={() => confirmPar(item)}
-                                                title='Confirm par'
-                                                className='flex h-[1.625rem] w-7 items-center justify-center rounded-r bg-green-500 text-white text-xs font-bold'
-                                            >✓</button>
-                                        </div>
-                                    </div>
-                                    {/* Restock qty — same slide-to-confirm pattern */}
-                                    <div className='flex shrink-0 items-center'>
-                                        <input
-                                            type='number' min='0' step='1' inputMode='numeric'
-                                            value={pendingRestocks[item] !== undefined ? pendingRestocks[item] : (restocks[item] ?? '')}
-                                            onChange={(e) => setPendingRestocks((p) => ({ ...p, [item]: e.target.value }))}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') confirmRestock(item);
-                                                if (e.key === 'Escape') setPendingRestocks((p) => { const n = { ...p }; delete n[item]; return n; });
-                                            }}
-                                            placeholder='Restock'
-                                            title='Restock qty — how many to buy when low'
-                                            className='w-16 shrink-0 rounded-l border border-gray-200 px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-blue-400'
-                                        />
-                                        <div className={`overflow-hidden transition-all duration-200 ${pendingRestocks[item] !== undefined ? 'w-7 opacity-100' : 'w-0 opacity-0'}`}>
-                                            <button
-                                                type='button'
-                                                onClick={() => confirmRestock(item)}
-                                                title='Confirm restock qty'
-                                                className='flex h-[1.625rem] w-7 items-center justify-center rounded-r bg-blue-500 text-white text-xs font-bold'
-                                            >✓</button>
-                                        </div>
-                                    </div>
+                                <div className='flex flex-wrap items-center gap-2 sm:contents'>
+                                    {/* Par level */}
+                                    <input
+                                        type='number' min='0' step='1' inputMode='numeric'
+                                        value={pendingPars[item] !== undefined ? pendingPars[item] : (pars[item] ?? 1)}
+                                        onChange={(e) => setPendingPars((p) => ({ ...p, [item]: e.target.value }))}
+                                        title='Par level'
+                                        className={`w-14 shrink-0 rounded border px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-orange-400 ${pendingPars[item] !== undefined ? 'border-orange-300 bg-orange-50' : 'border-gray-200'}`}
+                                    />
+                                    {/* Restock qty */}
+                                    <input
+                                        type='number' min='0' step='1' inputMode='numeric'
+                                        value={pendingRestocks[item] !== undefined ? pendingRestocks[item] : (restocks[item] ?? '')}
+                                        onChange={(e) => setPendingRestocks((p) => ({ ...p, [item]: e.target.value }))}
+                                        placeholder='Restock'
+                                        title='Restock qty — how many to buy when low'
+                                        className={`w-16 shrink-0 rounded border px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-blue-400 ${pendingRestocks[item] !== undefined ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}
+                                    />
+                                    {/* Unit type */}
                                     <select
                                         value={units[item] || ''} onChange={(e) => onUnitChange(item, e.target.value)}
                                         title='Unit type'
@@ -863,6 +1016,37 @@ function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockCha
                                     >
                                         <option value=''>unit</option>
                                         {unitTypes.map((u) => <option key={u} value={u}>{u}</option>)}
+                                    </select>
+                                    {/* Case size */}
+                                    <input
+                                        type='number' min='0' step='1' inputMode='numeric'
+                                        value={pendingCaseSizes[item] !== undefined ? pendingCaseSizes[item] : (caseSizes[item] ?? '')}
+                                        onChange={(e) => setPendingCaseSizes((p) => ({ ...p, [item]: e.target.value }))}
+                                        placeholder='case'
+                                        title='Units per case (e.g. 12 means 1 case = 12 units)'
+                                        className={`w-14 shrink-0 rounded border px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-purple-400 ${pendingCaseSizes[item] !== undefined ? 'border-purple-300 bg-purple-50' : 'border-gray-200'}`}
+                                    />
+                                    {/* Price */}
+                                    <div className='flex shrink-0 items-center'>
+                                        <span className='text-xs text-gray-400 mr-0.5'>$</span>
+                                        <input
+                                            type='number' min='0' step='0.01' inputMode='decimal'
+                                            value={pendingPrices[item] !== undefined ? pendingPrices[item] : (prices[item] ?? '')}
+                                            onChange={(e) => setPendingPrices((p) => ({ ...p, [item]: e.target.value }))}
+                                            placeholder='price'
+                                            title='Unit price'
+                                            className={`w-16 rounded border px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-green-400 ${pendingPrices[item] !== undefined ? 'border-green-300 bg-green-50' : 'border-gray-200'}`}
+                                        />
+                                    </div>
+                                    {/* Location */}
+                                    <select
+                                        value={pendingLocations[item] !== undefined ? pendingLocations[item] : (locations[item] || '')}
+                                        onChange={(e) => setPendingLocations((p) => ({ ...p, [item]: e.target.value }))}
+                                        title='Store / supplier'
+                                        className={`w-28 shrink-0 rounded border px-1 py-1 text-xs text-gray-500 outline-none focus:border-green-400 ${pendingLocations[item] !== undefined ? 'border-green-300 bg-green-50' : 'border-gray-200'}`}
+                                    >
+                                        <option value=''>store…</option>
+                                        {DEFAULT_STORE_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}
                                     </select>
                                 </div>
                             </div>
@@ -1036,17 +1220,27 @@ export default function InventoryPage() {
     const [pars,         setPars]         = useState({});
     const [restocks,     setRestocks]     = useState({});
     const [units,        setUnits]        = useState({});
+    const [prices,       setPrices]       = useState({});
+    const [locations,    setLocations]    = useState({});
+    const [caseSizes,    setCaseSizes]    = useState({});
+    const [caseCounts,   setCaseCounts]   = useState({});
+    const [dailyChecks,  setDailyChecks]  = useState(new Set());
+    const [buyInCases,   setBuyInCases]   = useState(true);
     const [unitTypes,    setUnitTypes]    = useState(DEFAULT_UNIT_TYPES);
     const [isLoading,    setIsLoading]    = useState(true);
-    const [currentUser,  setCurrentUser]  = useState(null);
-    const [employees,    setEmployees]    = useState([]);
+    const [currentUser,         setCurrentUser]         = useState(null);
+    const [employees,           setEmployees]           = useState([]);
+    const [selectedShoppingStore, setSelectedShoppingStore] = useState(null);
+    const [shoppingBaseId,  setShoppingBaseId]  = useState(null);  // null = most recent
+    const [purchasedAmounts,     setPurchasedAmounts]     = useState({});  // { [itemName]: total units received }
+    const [purchasedCaseCounts, setPurchasedCaseCounts] = useState({});  // { [itemName]: {cases, units} }
+    const [purchaseMode,        setPurchaseMode]        = useState(false);
+    const [applyingRestock,     setApplyingRestock]     = useState(false);
     const [pinEmployee,  setPinEmployee]  = useState('');
     const [pinInput,     setPinInput]     = useState('');
     const [pinError,     setPinError]     = useState('');
     const [pinLoading,   setPinLoading]   = useState(false);
-    const draftTimer        = useRef(null);
-    const parSaveTimer      = useRef(null);
-    const restockSaveTimer  = useRef(null);
+    const draftTimer = useRef(null);
 
     // Derived
     const flatItems = useMemo(() => buildFlat(groups), [groups]);
@@ -1069,12 +1263,16 @@ export default function InventoryPage() {
     useEffect(() => {
         const load = async () => {
             try {
-                const [fetchedGroups, fetchedPars, fetchedRestocks, fetchedHistory, fetchedEmployees] = await Promise.all([
+                const [fetchedGroups, fetchedPars, fetchedRestocks, fetchedHistory, fetchedEmployees, fetchedPrices, fetchedLocations, fetchedCaseSizes, fetchedDailyChecks] = await Promise.all([
                     getInventoryGroups(),
                     getParLevels(),
                     getRestockLevels(),
                     getInventorySubmissions(),
                     getEmployees(),
+                    getPrices(),
+                    getLocations(),
+                    getCaseSizes(),
+                    getDailyCheckItems(),
                 ]);
 
                 if (fetchedGroups) {
@@ -1086,6 +1284,22 @@ export default function InventoryPage() {
                 setRestocks(fetchedRestocks);
                 setHistory(fetchedHistory);
                 setEmployees(fetchedEmployees);
+
+                if (Object.keys(fetchedPrices).length > 0) {
+                    setPrices(fetchedPrices);
+                } else {
+                    setPrices(DEFAULT_PRICES);
+                    Object.entries(DEFAULT_PRICES).forEach(([name, price]) => savePrice(name, price).catch(console.error));
+                }
+                if (Object.keys(fetchedLocations).length > 0) {
+                    setLocations(fetchedLocations);
+                } else {
+                    setLocations(DEFAULT_LOCATIONS);
+                    Object.entries(DEFAULT_LOCATIONS).forEach(([name, loc]) => saveLocation(name, loc).catch(console.error));
+                }
+
+                setCaseSizes(fetchedCaseSizes);
+                setDailyChecks(fetchedDailyChecks);
 
                 // Restore session
                 try {
@@ -1099,7 +1313,16 @@ export default function InventoryPage() {
                 // Draft stays in localStorage (per-session)
                 const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
                 if (draft) {
-                    if (draft.counts)   setCounts(draft.counts);
+                    if (draft.counts) {
+                        setCounts(draft.counts);
+                        // Derive caseCounts from saved totals + loaded case sizes
+                        const derived = {};
+                        Object.entries(draft.counts).forEach(([name, total]) => {
+                            const cs = fetchedCaseSizes[name];
+                            if (cs > 1) derived[name] = { cases: Math.floor(total / cs), units: total % cs };
+                        });
+                        setCaseCounts(derived);
+                    }
                     if (draft.statuses) setStatuses(draft.statuses);
                     if (draft.notes)    setNotes(draft.notes);
                 }
@@ -1181,6 +1404,22 @@ export default function InventoryPage() {
         });
     };
 
+    const handleCaseCountChange = (itemName, field, value) => {
+        const num = Math.max(0, Math.floor(Number(value) || 0));
+        setCaseCounts((prev) => {
+            const cur = prev[itemName] || { cases: 0, units: 0 };
+            const next = { ...prev, [itemName]: { ...cur, [field]: num } };
+            const cs = caseSizes[itemName] ?? 1;
+            const total = next[itemName].cases * cs + next[itemName].units;
+            setCounts((c) => {
+                const nc = { ...c, [itemName]: total };
+                saveDraft(nc, statuses, employeeName, notes);
+                return nc;
+            });
+            return next;
+        });
+    };
+
     const handleCountKeyDown = (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -1200,10 +1439,6 @@ export default function InventoryPage() {
         setPars((prev) => {
             const next = { ...prev };
             if (num > 0) { next[itemName] = num; } else { delete next[itemName]; }
-            clearTimeout(parSaveTimer.current);
-            parSaveTimer.current = setTimeout(() => {
-                saveParLevel(itemName, num).catch(console.error);
-            }, 600);
             return next;
         });
     };
@@ -1213,18 +1448,60 @@ export default function InventoryPage() {
         setRestocks((prev) => {
             const next = { ...prev };
             if (num > 0) { next[itemName] = num; } else { delete next[itemName]; }
-            clearTimeout(restockSaveTimer.current);
-            restockSaveTimer.current = setTimeout(() => {
-                saveRestockLevel(itemName, num).catch(console.error);
-            }, 600);
             return next;
         });
+    };
+
+    const handlePriceChange = (itemName, value) => {
+        const num = Math.max(0, parseFloat(value) || 0);
+        setPrices((prev) => {
+            const next = { ...prev };
+            if (num > 0) { next[itemName] = num; } else { delete next[itemName]; }
+            return next;
+        });
+    };
+
+    const handleCaseSizeChange = (itemName, value) => {
+        const num = Math.max(0, Math.floor(Number(value) || 0));
+        setCaseSizes((prev) => {
+            const next = { ...prev };
+            if (num > 0) { next[itemName] = num; } else { delete next[itemName]; }
+            return next;
+        });
+    };
+
+    const handleLocationChange = (itemName, value) => {
+        setLocations((prev) => {
+            const next = { ...prev, [itemName]: value };
+            if (!value) delete next[itemName];
+            return next;
+        });
+    };
+
+    const handleSaveManageAll = async ({ pars: pendingPars, restocks: pendingRestocks, prices: pendingPrices, caseSizes: pendingCaseSizes, locations: pendingLocations }) => {
+        const saves = [];
+        Object.entries(pendingPars).forEach(([name, val]) => saves.push(saveParLevel(name, Math.max(0, Math.floor(Number(val) || 0)))));
+        Object.entries(pendingRestocks).forEach(([name, val]) => saves.push(saveRestockLevel(name, Math.max(0, Math.floor(Number(val) || 0)))));
+        Object.entries(pendingPrices).forEach(([name, val]) => saves.push(savePrice(name, Math.max(0, parseFloat(val) || 0))));
+        Object.entries(pendingCaseSizes).forEach(([name, val]) => saves.push(saveCaseSize(name, Math.max(0, Math.floor(Number(val) || 0)))));
+        Object.entries(pendingLocations).forEach(([name, val]) => saves.push(saveLocation(name, val)));
+        await Promise.all(saves);
     };
 
     const handleUnitChange = (itemName, unit) => {
         setUnits((prev) => {
             const next = { ...prev, [itemName]: unit };
             localStorage.setItem(UNITS_KEY, JSON.stringify(next));
+            return next;
+        });
+    };
+
+    const handleDailyCheckToggle = (itemName) => {
+        setDailyChecks((prev) => {
+            const next = new Set(prev);
+            const enabled = !next.has(itemName);
+            if (enabled) next.add(itemName); else next.delete(itemName);
+            saveDailyCheckItem(itemName, enabled).catch(console.error);
             return next;
         });
     };
@@ -1302,6 +1579,45 @@ export default function InventoryPage() {
         }
     };
 
+    const handleConfirmPurchase = async () => {
+        setApplyingRestock(true);
+        // Merge case-based and unit-based purchases into a single totals map
+        const totals = { ...purchasedAmounts };
+        Object.entries(purchasedCaseCounts).forEach(([name, { cases, units }]) => {
+            const cs = caseSizes[name] ?? 1;
+            totals[name] = (cases ?? 0) * cs + (units ?? 0);
+        });
+        // Compute new stock: current stock (lastCounts) + what was just received
+        const newCounts = { ...lastCounts };
+        Object.entries(totals).forEach(([name, bought]) => {
+            if (bought > 0) newCounts[name] = (newCounts[name] ?? 0) + bought;
+        });
+        const payload = {
+            employeeName: `Restock (${currentUser?.name || 'Admin'})`,
+            notes: `Purchase recorded from shopping list${shoppingBaseId ? ' (based on historical count)' : ''}`,
+            submittedAt: new Date().toISOString(),
+            items: flatItems.map((item) => ({
+                category: item.category,
+                name:     item.name,
+                amount:   newCounts[item.name] ?? null,
+            })),
+        };
+        try {
+            const newId = await saveInventorySubmission(payload);
+            setHistory((prev) => [{ ...payload, _id: newId }, ...prev].slice(0, 50));
+            localStorage.setItem(LAST_COUNTS_KEY, JSON.stringify(newCounts));
+            setLastCounts(newCounts);
+            setPurchaseMode(false);
+            setPurchasedAmounts({});
+            setPurchasedCaseCounts({});
+            setShoppingBaseId(null);
+        } catch (err) {
+            alert('Failed to save purchase: ' + err.message);
+        } finally {
+            setApplyingRestock(false);
+        }
+    };
+
     // Derived stats
     const filledCount  = useMemo(() => flatItems.filter((i) => counts[i.name] > 0).length, [flatItems, counts]);
     const progressPct  = flatItems.length ? Math.round((filledCount / flatItems.length) * 100) : 0;
@@ -1314,13 +1630,51 @@ export default function InventoryPage() {
             .filter((g) => g.items.length > 0);
     }, [search, groups]);
 
+    const shoppingBaseCounts = useMemo(() => {
+        if (!shoppingBaseId) return lastCounts;
+        const sub = history.find((h) => h._id === shoppingBaseId);
+        if (!sub) return lastCounts;
+        const map = {};
+        for (const item of (sub.items || [])) map[item.name] = item.amount ?? 0;
+        return map;
+    }, [shoppingBaseId, history, lastCounts]);
+
     const shoppingItems = useMemo(() =>
-        flatItems.filter((i) => pars[i.name] > 0 && (lastCounts[i.name] ?? 0) < pars[i.name]),
-        [flatItems, pars, lastCounts]
+        flatItems.filter((i) => pars[i.name] > 0 && (shoppingBaseCounts[i.name] ?? 0) < pars[i.name]),
+        [flatItems, pars, shoppingBaseCounts]
+    );
+
+    const shoppingByStore = useMemo(() => {
+        const map = {};
+        for (const item of shoppingItems) {
+            const store = locations[item.name] || '__none__';
+            if (!map[store]) map[store] = [];
+            map[store].push(item);
+        }
+        const order = [...DEFAULT_STORE_NAMES, '__none__'];
+        return order.filter((s) => map[s]).map((s) => ({ store: s, items: map[s] }));
+    }, [shoppingItems, locations]);
+
+    const visibleShoppingStores = useMemo(() =>
+        selectedShoppingStore
+            ? shoppingByStore.filter(({ store }) => store === selectedShoppingStore)
+            : shoppingByStore,
+        [shoppingByStore, selectedShoppingStore]
     );
 
     const isAdmin = currentUser?.role === 'admin';
+    const dailyLowCount = useMemo(() => {
+        let low = 0;
+        dailyChecks.forEach((name) => {
+            const stock = lastCounts[name] ?? 0;
+            const par   = pars[name] ?? 1;
+            if (stock < par) low++;
+        });
+        return low;
+    }, [dailyChecks, lastCounts, pars]);
+
     const tabs = [
+        { key: 'daily',     label: `Daily Check${dailyLowCount > 0 ? ` ⚠ ${dailyLowCount}` : ''}` },
         { key: 'checklist', label: 'Checklist' },
         { key: 'stock',     label: 'Current Stock' },
         ...(isAdmin ? [
@@ -1409,13 +1763,13 @@ export default function InventoryPage() {
                     </div>
                 </div>
                 {/* Row 2: tabs — horizontally scrollable on mobile */}
-                <div className='overflow-x-auto border-t border-gray-100 px-4 sm:px-6'>
-                    <div className='flex gap-1 py-1.5'>
+                <div className='overflow-x-auto border-t border-gray-100 px-2 sm:px-6'>
+                    <div className='flex gap-0.5 py-1.5 sm:gap-1'>
                         {tabs.map((t) => (
                             <button
                                 key={t.key}
                                 onClick={() => setTab(t.key)}
-                                className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${tab === t.key ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                                className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-xs font-medium transition-colors sm:px-3 sm:py-1.5 sm:text-sm ${tab === t.key ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'}`}
                             >
                                 {t.label}
                             </button>
@@ -1427,6 +1781,82 @@ export default function InventoryPage() {
             <div className='mx-auto max-w-4xl p-3 sm:p-6'>
 
                 {/* ── Checklist Tab ── */}
+                {/* ── Daily Check Tab ── */}
+                {tab === 'daily' && (
+                    <div className='space-y-4'>
+                        {/* Header */}
+                        <div className='rounded-xl bg-white p-4 shadow-sm'>
+                            <div className='flex items-center justify-between'>
+                                <div>
+                                    <h2 className='text-base font-semibold'>Daily Check</h2>
+                                    <p className='text-xs text-gray-400 mt-0.5'>
+                                        {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                                    </p>
+                                </div>
+                                <div className='text-right'>
+                                    {dailyChecks.size === 0 ? (
+                                        <p className='text-xs text-gray-400'>No items tagged yet.<br/>Tag items in Manage Items tab.</p>
+                                    ) : (
+                                        <>
+                                            <p className='text-2xl font-bold text-red-500'>{dailyLowCount}</p>
+                                            <p className='text-xs text-gray-400'>items low / out of {dailyChecks.size}</p>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {dailyChecks.size === 0 ? (
+                            <div className='rounded-xl bg-white p-8 shadow-sm text-center'>
+                                <p className='text-gray-400 text-sm'>Go to <strong>Manage Items</strong> and tap the ☀ icon next to items you want to check daily.</p>
+                            </div>
+                        ) : (
+                            groups.map((group) => {
+                                const dayItems = group.items.filter((item) => dailyChecks.has(item));
+                                if (dayItems.length === 0) return null;
+                                return (
+                                    <section key={group.category} className='rounded-xl bg-white shadow-sm overflow-hidden'>
+                                        <div className='px-4 py-2.5 border-b border-gray-100'>
+                                            <h3 className='text-xs font-semibold uppercase tracking-wide text-gray-500'>{group.category}</h3>
+                                        </div>
+                                        <ul className='divide-y divide-gray-50'>
+                                            {dayItems.map((item) => {
+                                                const stock = lastCounts[item] ?? 0;
+                                                const par   = pars[item] ?? 1;
+                                                const isOut = stock === 0;
+                                                const isLow = !isOut && stock < par;
+                                                const isOk  = stock >= par;
+                                                return (
+                                                    <li key={item} className='flex items-center gap-3 px-4 py-3'>
+                                                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${isOut ? 'bg-red-500' : isLow ? 'bg-yellow-400' : 'bg-green-500'}`} />
+                                                        <span className='flex-1 text-sm'>{item}</span>
+                                                        <div className='flex items-center gap-2 text-xs'>
+                                                            <span className={`font-semibold ${isOut ? 'text-red-500' : isLow ? 'text-yellow-600' : 'text-green-600'}`}>
+                                                                {stock}
+                                                            </span>
+                                                            <span className='text-gray-300'>/</span>
+                                                            <span className='text-gray-400'>{par} par</span>
+                                                            <span className={`rounded-full px-2 py-0.5 font-medium ${isOut ? 'bg-red-100 text-red-600' : isLow ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                                                                {isOut ? 'OUT' : isLow ? 'LOW' : 'OK'}
+                                                            </span>
+                                                        </div>
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    </section>
+                                );
+                            })
+                        )}
+
+                        {dailyChecks.size > 0 && (
+                            <p className='text-center text-xs text-gray-400 pb-2'>
+                                Stock levels are from the last submitted count. Submit a new count to update.
+                            </p>
+                        )}
+                    </div>
+                )}
+
                 {tab === 'checklist' && (
                     <div className='space-y-5'>
                         <div className='rounded-xl bg-white p-4 shadow-sm'>
@@ -1502,31 +1932,56 @@ export default function InventoryPage() {
                                     </button>
                                     {!isCollapsed && (
                                         <div className='grid gap-3 border-t border-gray-100 p-3 sm:gap-4 sm:p-4 md:grid-cols-2 lg:grid-cols-3'>
-                                            {group.items.map((item) => (
+                                            {group.items.map((item) => {
+                                                const cs = caseSizes[item];
+                                                const hasCount = (counts[item] ?? 0) > 0;
+                                                const borderCls = hasCount ? 'border-green-400 bg-green-50' : 'border-gray-300';
+                                                return (
                                                 <div key={item}>
-                                                    <label className='mb-1 block text-sm font-medium leading-tight'>{item}</label>
-                                                    <input
-                                                        type='text'
-                                                        inputMode='numeric'
-                                                        pattern='[0-9]*'
-                                                        data-count-input={item}
-                                                        value={counts[item] ?? 0}
-                                                        onChange={(e) => handleCountChange(item, e.target.value)}
-                                                        onKeyDown={handleCountKeyDown}
-                                                        onFocus={(e) => e.target.select()}
-                                                        className={`w-full rounded-lg border px-3 py-2 outline-none focus:border-black ${
-                                                            pars[item] > 0 && (counts[item] ?? 0) < pars[item]
-                                                                ? 'border-orange-400 bg-orange-50'
-                                                                : counts[item] > 0
-                                                                ? 'border-green-400 bg-green-50'
-                                                                : 'border-gray-300'
-                                                        }`}
-                                                    />
-                                                    {pars[item] > 0 && (counts[item] ?? 0) < pars[item] && (
-                                                        <p className='mt-0.5 text-xs text-orange-500'>Below par (need {pars[item]})</p>
+                                                    <label className='mb-1 block text-sm font-medium leading-tight'>
+                                                        {item}
+                                                        {cs > 1 && <span className='ml-1.5 text-xs font-normal text-gray-400'>1 case = {cs} units</span>}
+                                                    </label>
+                                                    {cs > 1 ? (
+                                                        <div className='flex gap-1.5'>
+                                                            <div className='flex flex-1 flex-col gap-0.5'>
+                                                                <input
+                                                                    type='text' inputMode='numeric' pattern='[0-9]*'
+                                                                    data-count-input={item}
+                                                                    value={caseCounts[item]?.cases ?? 0}
+                                                                    onChange={(e) => handleCaseCountChange(item, 'cases', e.target.value)}
+                                                                    onKeyDown={handleCountKeyDown}
+                                                                    onFocus={(e) => e.target.select()}
+                                                                    className={`w-full rounded-lg border px-3 py-2 outline-none focus:border-black ${borderCls}`}
+                                                                />
+                                                                <span className='text-center text-xs text-gray-400'>cases</span>
+                                                            </div>
+                                                            <span className='mt-2.5 text-gray-400'>+</span>
+                                                            <div className='flex flex-1 flex-col gap-0.5'>
+                                                                <input
+                                                                    type='text' inputMode='numeric' pattern='[0-9]*'
+                                                                    value={caseCounts[item]?.units ?? 0}
+                                                                    onChange={(e) => handleCaseCountChange(item, 'units', e.target.value)}
+                                                                    onFocus={(e) => e.target.select()}
+                                                                    className={`w-full rounded-lg border px-3 py-2 outline-none focus:border-black ${borderCls}`}
+                                                                />
+                                                                <span className='text-center text-xs text-gray-400'>units</span>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <input
+                                                            type='text' inputMode='numeric' pattern='[0-9]*'
+                                                            data-count-input={item}
+                                                            value={counts[item] ?? 0}
+                                                            onChange={(e) => handleCountChange(item, e.target.value)}
+                                                            onKeyDown={handleCountKeyDown}
+                                                            onFocus={(e) => e.target.select()}
+                                                            className={`w-full rounded-lg border px-3 py-2 outline-none focus:border-black ${borderCls}`}
+                                                        />
                                                     )}
                                                 </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </section>
@@ -1601,6 +2056,55 @@ export default function InventoryPage() {
                 {/* ── Shopping List Tab ── */}
                 {tab === 'shopping' && (
                     <div className='space-y-4'>
+                        {/* Store filter + Cases/Units toggle */}
+                        <div className='flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'>
+                            <div className='flex flex-wrap gap-2'>
+                                <button
+                                    type='button'
+                                    onClick={() => setSelectedShoppingStore(null)}
+                                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${selectedShoppingStore === null ? 'bg-black text-white' : 'bg-white text-gray-600 shadow-sm hover:bg-gray-50'}`}
+                                >
+                                    All Stores
+                                </button>
+                                {shoppingByStore.map(({ store }) => (
+                                    <button
+                                        key={store}
+                                        type='button'
+                                        onClick={() => setSelectedShoppingStore(store === selectedShoppingStore ? null : store)}
+                                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${selectedShoppingStore === store ? 'bg-black text-white' : 'bg-white text-gray-600 shadow-sm hover:bg-gray-50'}`}
+                                    >
+                                        {store === '__none__' ? 'No Store Set' : store}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className='flex rounded-lg border border-gray-200 bg-white text-xs font-medium overflow-hidden'>
+                                <button type='button' onClick={() => setBuyInCases(true)}
+                                    className={`px-3 py-1.5 transition-colors ${buyInCases ? 'bg-purple-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                    By Case
+                                </button>
+                                <button type='button' onClick={() => setBuyInCases(false)}
+                                    className={`px-3 py-1.5 transition-colors ${!buyInCases ? 'bg-purple-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                                    By Unit
+                                </button>
+                            </div>
+                        </div>
+                        {/* Submission selector */}
+                        <div className='flex items-center gap-2 rounded-xl bg-white px-4 py-3 shadow-sm'>
+                            <span className='shrink-0 text-xs font-medium text-gray-500'>Based on count:</span>
+                            <select
+                                value={shoppingBaseId ?? ''}
+                                onChange={(e) => { setShoppingBaseId(e.target.value || null); setPurchaseMode(false); }}
+                                className='flex-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 outline-none focus:border-black'
+                            >
+                                <option value=''>Most recent submission</option>
+                                {history.map((h) => (
+                                    <option key={h._id} value={h._id}>
+                                        {h.employeeName} — {new Date(h.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
                         {shoppingItems.length === 0 ? (
                             <div className='rounded-xl bg-white p-10 text-center shadow-sm'>
                                 <p className='text-2xl'>✓</p>
@@ -1610,43 +2114,191 @@ export default function InventoryPage() {
                         ) : (
                             <>
                                 <div className='flex flex-wrap items-center justify-between gap-2'>
-                                    <p className='text-sm text-gray-500'>{shoppingItems.length} item{shoppingItems.length !== 1 ? 's' : ''} to order</p>
+                                    <p className='text-sm text-gray-500'>
+                                        {visibleShoppingStores.reduce((s, { items }) => s + items.length, 0)} item{visibleShoppingStores.reduce((s, { items }) => s + items.length, 0) !== 1 ? 's' : ''} to order
+                                        {selectedShoppingStore ? ` at ${selectedShoppingStore === '__none__' ? 'No Store Set' : selectedShoppingStore}` : ''}
+                                    </p>
                                     <div className='flex gap-2'>
                                         <button
                                             type='button'
-                                            onClick={() => { copyShoppingListText(shoppingItems, lastCounts, pars); }}
+                                            onClick={() => {
+                                                const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                                                const lines = [`SHOPPING LIST — ${date}`, ''];
+                                                visibleShoppingStores.forEach(({ store, items: storeItems }) => {
+                                                    const total = storeItems.reduce((sum, i) => {
+                                                        const price = prices[i.name];
+                                                        const short = Math.max(0, (pars[i.name] ?? 0) - (shoppingBaseCounts[i.name] ?? 0));
+                                                        return price ? sum + price * short : sum;
+                                                    }, 0);
+                                                    lines.push(`${store === '__none__' ? 'No Store Set' : store}${total > 0 ? `  (~$${total.toFixed(2)})` : ''}`);
+                                                    storeItems.forEach((i) => {
+                                                        const have  = shoppingBaseCounts[i.name] ?? 0;
+                                                        const par   = pars[i.name];
+                                                        const short = Math.max(0, par - have);
+                                                        const cs    = caseSizes[i.name];
+                                                        const price = prices[i.name];
+                                                        const buyStr = (buyInCases && cs > 1)
+                                                            ? `${Math.ceil(short / cs)} case${Math.ceil(short / cs) !== 1 ? 's' : ''} (${short} units)`
+                                                            : `${short} units`;
+                                                        const lineTotal = price ? ` = $${(price * short).toFixed(2)}` : '';
+                                                        const priceStr  = price ? `  @ $${price.toFixed(2)}/unit` : '';
+                                                        lines.push(`  • ${i.name}   have ${have}, need ${par}, buy ${buyStr}${priceStr}${lineTotal}`);
+                                                    });
+                                                    lines.push('');
+                                                });
+                                                navigator.clipboard.writeText(lines.join('\n'));
+                                            }}
                                             className='rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50'
                                         >
                                             Copy Text
                                         </button>
                                         <button
                                             type='button'
-                                            onClick={() => exportShoppingList(shoppingItems, lastCounts, pars)}
+                                            onClick={() => {
+                                                const rows = [['Store', 'Category', 'Item', 'Have', 'Need (Par)', 'Buy (Units)', 'Buy (Cases)', 'Case Size', 'Unit Price', 'Line Total']];
+                                                visibleShoppingStores.forEach(({ store, items: storeItems }) => {
+                                                    storeItems.forEach((i) => {
+                                                        const have    = shoppingBaseCounts[i.name] ?? 0;
+                                                        const par     = pars[i.name];
+                                                        const short   = Math.max(0, par - have);
+                                                        const cs      = caseSizes[i.name] ?? '';
+                                                        const buyCase = cs ? Math.ceil(short / cs) : '';
+                                                        const price   = prices[i.name] ?? '';
+                                                        const lineTotal = price ? (price * short).toFixed(2) : '';
+                                                        rows.push([store === '__none__' ? '' : store, i.category, i.name, have, par, short, buyCase, cs, price, lineTotal]);
+                                                    });
+                                                });
+                                                const csv  = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+                                                const blob = new Blob([csv], { type: 'text/csv' });
+                                                const url  = URL.createObjectURL(blob);
+                                                const a    = document.createElement('a');
+                                                a.href = url; a.download = `shopping_list_${new Date().toISOString().slice(0, 10)}.csv`;
+                                                a.click(); URL.revokeObjectURL(url);
+                                            }}
                                             className='rounded-lg bg-black px-3 py-1.5 text-xs font-medium text-white'
                                         >
                                             Export CSV
                                         </button>
+                                        <button
+                                            type='button'
+                                            onClick={() => {
+                                                if (!purchaseMode) {
+                                                    const initUnits = {};
+                                                    const initCases = {};
+                                                    shoppingItems.forEach((i) => {
+                                                        const short = Math.max(0, (pars[i.name] ?? 0) - (shoppingBaseCounts[i.name] ?? 0));
+                                                        const cs = caseSizes[i.name];
+                                                        if (buyInCases && cs > 1) {
+                                                            initCases[i.name] = { cases: Math.ceil(short / cs), units: 0 };
+                                                        } else {
+                                                            initUnits[i.name] = short;
+                                                        }
+                                                    });
+                                                    setPurchasedAmounts(initUnits);
+                                                    setPurchasedCaseCounts(initCases);
+                                                } else {
+                                                    setPurchasedAmounts({});
+                                                    setPurchasedCaseCounts({});
+                                                }
+                                                setPurchaseMode((v) => !v);
+                                            }}
+                                            className={`rounded-lg px-3 py-1.5 text-xs font-medium ${purchaseMode ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'border border-green-600 text-green-700 hover:bg-green-50'}`}
+                                        >
+                                            {purchaseMode ? 'Cancel' : 'Enter Purchase'}
+                                        </button>
                                     </div>
                                 </div>
-                                {[...new Set(shoppingItems.map((i) => i.category))].map((cat) => {
-                                    const catItems = shoppingItems.filter((i) => i.category === cat);
+                                {visibleShoppingStores.map(({ store, items: storeItems }) => {
+                                    const storeTotal = storeItems.reduce((sum, i) => {
+                                        const price = prices[i.name];
+                                        const short = Math.max(0, (pars[i.name] ?? 0) - (shoppingBaseCounts[i.name] ?? 0));
+                                        return price ? sum + price * short : sum;
+                                    }, 0);
                                     return (
-                                        <section key={cat} className='rounded-xl bg-white shadow-sm'>
-                                            <div className='border-b border-gray-100 px-4 py-3'>
-                                                <span className='font-semibold'>{cat}</span>
-                                                <span className='ml-2 text-xs text-gray-400'>{catItems.length} item{catItems.length !== 1 ? 's' : ''}</span>
+                                        <section key={store} className='rounded-xl bg-white shadow-sm'>
+                                            <div className='flex items-center justify-between border-b border-gray-100 px-4 py-3'>
+                                                <div>
+                                                    <span className='font-semibold'>{store === '__none__' ? 'No Store Set' : store}</span>
+                                                    <span className='ml-2 text-xs text-gray-400'>{storeItems.length} item{storeItems.length !== 1 ? 's' : ''}</span>
+                                                </div>
+                                                {storeTotal > 0 && (
+                                                    <span className='text-sm font-medium text-gray-700'>~${storeTotal.toFixed(2)}</span>
+                                                )}
                                             </div>
                                             <div className='divide-y divide-gray-50'>
-                                                {catItems.map((i) => {
-                                                    const have = lastCounts[i.name] ?? 0;
-                                                    const par  = pars[i.name];
+                                                {storeItems.map((i) => {
+                                                    const have  = shoppingBaseCounts[i.name] ?? 0;
+                                                    const par   = pars[i.name];
+                                                    const short = Math.max(0, par - have);
+                                                    const price = prices[i.name];
+                                                    const cs    = caseSizes[i.name];
+                                                    const casesToBuy = cs > 1 ? Math.ceil(short / cs) : null;
                                                     return (
-                                                        <div key={i.name} className='flex items-center justify-between px-4 py-3'>
-                                                            <div>
-                                                                <p className='text-sm font-medium'>{i.name}</p>
-                                                                <p className='text-xs text-orange-500'>have {have} · need {par} · short {par - have}</p>
+                                                        <div key={i.name} className='px-4 py-3'>
+                                                            {/* Top row: item info + price/badge */}
+                                                            <div className='flex items-start justify-between gap-2'>
+                                                                <div className='min-w-0 flex-1'>
+                                                                    <p className='text-sm font-medium'>{i.name}</p>
+                                                                    <p className='text-xs text-orange-500'>
+                                                                        have {have} · need {par} · buy{' '}
+                                                                        {buyInCases && casesToBuy !== null
+                                                                            ? <><strong>{casesToBuy} case{casesToBuy !== 1 ? 's' : ''}</strong><span className='text-orange-400'> ({short} units)</span></>
+                                                                            : <strong>{short} units</strong>}
+                                                                        {price ? ` · $${price.toFixed(2)}/unit` : ''}
+                                                                    </p>
+                                                                    <p className='text-xs text-gray-400'>
+                                                                        {i.category}
+                                                                        {cs > 1 && <span className='ml-1.5'>· 1 case = {cs} units</span>}
+                                                                    </p>
+                                                                </div>
+                                                                <div className='flex shrink-0 flex-col items-end gap-1'>
+                                                                    {price && short > 0 && (
+                                                                        <span className='text-sm font-semibold text-gray-700'>${(price * short).toFixed(2)}</span>
+                                                                    )}
+                                                                    <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>Below par</span>
+                                                                </div>
                                                             </div>
-                                                            <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>Below par</span>
+                                                            {/* Purchase inputs — full-width row below on mobile */}
+                                                            {purchaseMode && (
+                                                                <div className='mt-2 flex items-center gap-2'>
+                                                                    <span className='text-xs text-gray-400'>Received:</span>
+                                                                    {buyInCases && cs > 1 ? (
+                                                                        <div className='flex items-end gap-1'>
+                                                                            <div className='flex flex-col items-center gap-0.5'>
+                                                                                <input
+                                                                                    type='text' inputMode='numeric' pattern='[0-9]*'
+                                                                                    value={purchasedCaseCounts[i.name]?.cases ?? 0}
+                                                                                    onChange={(e) => setPurchasedCaseCounts((p) => ({ ...p, [i.name]: { ...(p[i.name] || { cases: 0, units: 0 }), cases: Math.max(0, Math.floor(Number(e.target.value) || 0)) } }))}
+                                                                                    onFocus={(e) => e.target.select()}
+                                                                                    className='w-16 rounded border border-green-300 bg-green-50 px-2 py-1.5 text-center text-sm outline-none focus:border-green-600'
+                                                                                />
+                                                                                <span className='text-xs text-gray-400'>cases</span>
+                                                                            </div>
+                                                                            <span className='mb-4 text-xs text-gray-400'>+</span>
+                                                                            <div className='flex flex-col items-center gap-0.5'>
+                                                                                <input
+                                                                                    type='text' inputMode='numeric' pattern='[0-9]*'
+                                                                                    value={purchasedCaseCounts[i.name]?.units ?? 0}
+                                                                                    onChange={(e) => setPurchasedCaseCounts((p) => ({ ...p, [i.name]: { ...(p[i.name] || { cases: 0, units: 0 }), units: Math.max(0, Math.floor(Number(e.target.value) || 0)) } }))}
+                                                                                    onFocus={(e) => e.target.select()}
+                                                                                    className='w-16 rounded border border-green-300 bg-green-50 px-2 py-1.5 text-center text-sm outline-none focus:border-green-600'
+                                                                                />
+                                                                                <span className='text-xs text-gray-400'>units</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className='flex flex-col items-start gap-0.5'>
+                                                                            <input
+                                                                                type='text' inputMode='numeric' pattern='[0-9]*'
+                                                                                value={purchasedAmounts[i.name] ?? 0}
+                                                                                onChange={(e) => setPurchasedAmounts((p) => ({ ...p, [i.name]: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))}
+                                                                                onFocus={(e) => e.target.select()}
+                                                                                className='w-20 rounded border border-green-300 bg-green-50 px-2 py-1.5 text-center text-sm outline-none focus:border-green-600'
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     );
                                                 })}
@@ -1654,6 +2306,55 @@ export default function InventoryPage() {
                                         </section>
                                     );
                                 })}
+                                {purchaseMode && (() => {
+                                    // Compute total units received per item (merging case counts + unit counts)
+                                    const receivedTotals = {};
+                                    shoppingItems.forEach((i) => {
+                                        const cs = caseSizes[i.name];
+                                        if (buyInCases && cs > 1) {
+                                            const cc = purchasedCaseCounts[i.name] || { cases: 0, units: 0 };
+                                            receivedTotals[i.name] = (cc.cases ?? 0) * cs + (cc.units ?? 0);
+                                        } else {
+                                            receivedTotals[i.name] = purchasedAmounts[i.name] ?? 0;
+                                        }
+                                    });
+                                    const hasAny = shoppingItems.some((i) => receivedTotals[i.name] > 0);
+                                    return (
+                                    <div className='rounded-xl border-2 border-green-200 bg-green-50 p-4'>
+                                        <p className='mb-1 text-sm font-semibold text-green-800'>Confirm Purchase</p>
+                                        <p className='mb-3 text-xs text-green-700'>
+                                            Stock will be updated: current level + received amount. Saved as a new submission.
+                                        </p>
+                                        <div className='mb-3 space-y-1 text-xs text-green-900'>
+                                            {shoppingItems.filter((i) => receivedTotals[i.name] > 0).map((i) => {
+                                                const current = lastCounts[i.name] ?? 0;
+                                                const received = receivedTotals[i.name];
+                                                const cs = caseSizes[i.name];
+                                                const caseStr = (buyInCases && cs > 1)
+                                                    ? ` (${purchasedCaseCounts[i.name]?.cases ?? 0} cases + ${purchasedCaseCounts[i.name]?.units ?? 0} units)`
+                                                    : '';
+                                                return (
+                                                    <div key={i.name} className='flex justify-between gap-4'>
+                                                        <span className='truncate'>{i.name}</span>
+                                                        <span className='shrink-0 tabular-nums'>
+                                                            {current} + {received}{caseStr} → <strong>{current + received}</strong>
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                            {!hasAny && <p className='text-green-600'>No amounts entered yet.</p>}
+                                        </div>
+                                        <button
+                                            type='button'
+                                            onClick={handleConfirmPurchase}
+                                            disabled={!hasAny || applyingRestock}
+                                            className='rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40 hover:bg-green-700'
+                                        >
+                                            {applyingRestock ? 'Saving…' : 'Save & Update Stock'}
+                                        </button>
+                                    </div>
+                                    );
+                                })()}
                             </>
                         )}
                     </div>
@@ -1692,6 +2393,11 @@ export default function InventoryPage() {
                         restocks={restocks} onRestockChange={handleRestockChange}
                         units={units} onUnitChange={handleUnitChange}
                         unitTypes={unitTypes} onAddUnitType={handleAddUnitType} onDeleteUnitType={handleDeleteUnitType}
+                        prices={prices} onPriceChange={handlePriceChange}
+                        locations={locations} onLocationChange={handleLocationChange}
+                        caseSizes={caseSizes} onCaseSizeChange={handleCaseSizeChange}
+                        onSaveAll={handleSaveManageAll}
+                        dailyChecks={dailyChecks} onDailyCheckToggle={handleDailyCheckToggle}
                     />
                 )}
 
