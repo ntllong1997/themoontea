@@ -44,7 +44,7 @@ export function Tabs({
 
 export function TabsList({ children, activeTab, onTabChange, className = '' }) {
     return (
-        <div className={`flex border-b ${className}`}>
+        <div className={`flex overflow-x-auto ${className}`}>
             {React.Children.map(children, (child) =>
                 React.cloneElement(child, { activeTab, onTabChange })
             )}
@@ -64,10 +64,10 @@ export function TabsTrigger({
     return (
         <button
             onClick={() => onTabChange(value)}
-            className={`px-4 py-2 -mb-px border-b-2 font-semibold ${
+            className={`whitespace-nowrap shrink-0 px-4 py-2 border-b-2 font-semibold ${
                 isActive
                     ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-800'
+                    : 'border-gray-200 text-gray-600 hover:text-gray-800 hover:border-gray-400'
             } ${className}`}
         >
             {children}
