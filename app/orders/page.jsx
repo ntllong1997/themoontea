@@ -9,7 +9,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import OrderPanel, { PRICES, TAX_RATE } from '@/components/OrderPanel';
+import OrderPanel, { PRICES, TAX_RATE, HOT_CHEETO_DUST_PRICE, DRINK_CUSTOMIZATIONS, POTATO_CORNDOGS } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
 
 const CORNDOG_STATES = { received: 'received', making: 'making', ready: 'ready' };
@@ -77,6 +77,8 @@ export default function OrderSystem() {
     const [selectedBoba, setSelectedBoba] = useState('');
     const [selectedDrink, setSelectedDrink] = useState('');
     const [selectedCorndog, setSelectedCorndog] = useState('');
+    const [drinkCustomization, setDrinkCustomization] = useState(false);
+    const [corndogDust, setCorndogDust] = useState(false);
     const [phone, setPhone] = useState('');
 
     const [bobaReadyItems, setBobaReadyItems] = useState({});
@@ -107,9 +109,21 @@ export default function OrderSystem() {
         return () => clearInterval(id);
     }, [isHistoryTab, fetchHistory]);
 
+    const handleSelectDrink = useCallback((drink) => {
+        setSelectedDrink(drink);
+        setDrinkCustomization(false);
+    }, []);
+
+    const handleSelectCorndog = useCallback((corndog) => {
+        setSelectedCorndog(corndog);
+        setCorndogDust(false);
+    }, []);
+
     const handleAddBoba = useCallback(() => {
         if (!selectedDrink || !selectedBoba) return;
-        const name = `${selectedDrink} with ${selectedBoba}`;
+        const customLabel = drinkCustomization ? DRINK_CUSTOMIZATIONS[selectedDrink] : null;
+        const drinkLabel  = customLabel ? `${selectedDrink} (${customLabel})` : selectedDrink;
+        const name        = `${drinkLabel} with ${selectedBoba}`;
         setOrders((prev) => {
             const idx = prev.findIndex((i) => i.name === name);
             if (idx >= 0) {
@@ -121,21 +135,26 @@ export default function OrderSystem() {
         });
         setSelectedDrink('');
         setSelectedBoba('');
-    }, [selectedDrink, selectedBoba]);
+        setDrinkCustomization(false);
+    }, [selectedDrink, selectedBoba, drinkCustomization]);
 
     const handleAddCorndog = useCallback(() => {
         if (!selectedCorndog) return;
+        const hasDust = corndogDust && POTATO_CORNDOGS.includes(selectedCorndog);
+        const name    = hasDust ? `${selectedCorndog} + Hot Cheeto Dust` : selectedCorndog;
+        const price   = hasDust ? PRICES.Corndog + HOT_CHEETO_DUST_PRICE : PRICES.Corndog;
         setOrders((prev) => {
-            const idx = prev.findIndex((i) => i.name === selectedCorndog);
+            const idx = prev.findIndex((i) => i.name === name);
             if (idx >= 0) {
                 const next = [...prev];
                 next[idx].quantity += 1;
                 return next;
             }
-            return [...prev, { name: selectedCorndog, price: PRICES.Corndog, type: 'Corndog', quantity: 1 }];
+            return [...prev, { name, price, type: 'Corndog', quantity: 1 }];
         });
         setSelectedCorndog('');
-    }, [selectedCorndog]);
+        setCorndogDust(false);
+    }, [selectedCorndog, corndogDust]);
 
     const handleQuantityChange = useCallback((index, delta) => {
         setOrders((prev) => {
@@ -283,6 +302,7 @@ export default function OrderSystem() {
     const totalRevenue = calculateTotalRevenue(history);
     const historySummary = calculateHistorySummary(history);
     const selection = { drink: selectedDrink, boba: selectedBoba, corndog: selectedCorndog };
+
     const { bobaOrders, corndogOrders } = splitHistoryByType(history);
 
     return (
@@ -299,11 +319,15 @@ export default function OrderSystem() {
                     <div className='lg:col-span-2'>
                         <OrderPanel
                             selection={selection}
-                            onSelectDrink={setSelectedDrink}
+                            onSelectDrink={handleSelectDrink}
                             onSelectBoba={setSelectedBoba}
-                            onSelectCorndog={setSelectedCorndog}
+                            onSelectCorndog={handleSelectCorndog}
                             onAddBoba={handleAddBoba}
                             onAddCorndog={handleAddCorndog}
+                            drinkCustomization={drinkCustomization}
+                            onToggleDrinkCustomization={() => setDrinkCustomization((v) => !v)}
+                            corndogDust={corndogDust}
+                            onToggleCorndogDust={() => setCorndogDust((v) => !v)}
                         />
                     </div>
 
