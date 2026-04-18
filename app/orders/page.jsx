@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    getLatestOrderNumber,
     getOrderHistory,
     saveOrderHistory,
+    getNextOrderNumber,
 } from '@/lib/db';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -86,6 +86,9 @@ export default function OrderSystem() {
     // Set of orderNumbers that have already been notified
     const [notifiedOrders, setNotifiedOrders] = useState(new Set());
 
+    const [sending, setSending] = useState(false);
+    const isSending = useRef(false);
+
     const [activeTab, setActiveTab] = useState('order');
 
     const fetchHistory = useCallback(async () => {
@@ -166,29 +169,43 @@ export default function OrderSystem() {
     }, []);
 
     const handleSendOrder = useCallback(async () => {
-        if (orders.length === 0) return;
-        try {
-            const latestOrderNumber = await getLatestOrderNumber();
-            const nextOrderNumber = latestOrderNumber + 1;
-            const timestamp = new Date().toISOString();
+        if (orders.length === 0 || isSending.current) return;
 
-            const enrichedOrders = orders.flatMap((item) =>
+        // Synchronous guard — blocks any re-entry before the first await
+        isSending.current = true;
+        setSending(true);
+
+        // Snapshot and optimistically clear so the button disables immediately
+        const snapshot     = [...orders];
+        const phoneSnapshot = phone.trim() || null;
+        setOrders([]);
+        setPhone('');
+
+        try {
+            const nextOrderNumber = await getNextOrderNumber();
+            const timestamp       = new Date().toISOString();
+
+            const enrichedOrders = snapshot.flatMap((item) =>
                 Array.from({ length: item.quantity }).map(() => ({
                     orderNumber: nextOrderNumber,
-                    name: item.name,
-                    price: item.price,
-                    type: item.type,
+                    name:        item.name,
+                    price:       item.price,
+                    type:        item.type,
                     timestamp,
-                    phone: phone.trim() || null,
+                    phone:       phoneSnapshot,
                 }))
             );
 
             await saveOrderHistory(enrichedOrders);
             setHistory((prev) => [...prev, enrichedOrders]);
-            setOrders([]);
-            setPhone('');
         } catch (err) {
             console.error('Send order failed:', err);
+            // Restore cart so the employee can retry
+            setOrders(snapshot);
+            setPhone(phoneSnapshot || '');
+        } finally {
+            isSending.current = false;
+            setSending(false);
         }
     }, [orders, phone]);
 
@@ -383,8 +400,8 @@ export default function OrderSystem() {
                                     <div className='flex justify-between font-bold text-base pt-1'><span>Total</span><span>${total}</span></div>
                                 </div>
 
-                                <Button onClick={handleSendOrder} className='mt-4 w-full' disabled={orders.length === 0}>
-                                    Send Order
+                                <Button onClick={handleSendOrder} className='mt-4 w-full' disabled={orders.length === 0 || sending}>
+                                    {sending ? 'Sending…' : 'Send Order'}
                                 </Button>
                             </CardContent>
                         </Card>
