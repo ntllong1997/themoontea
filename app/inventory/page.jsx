@@ -980,12 +980,6 @@ function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockCha
                                     ) : (
                                         <span className='flex-1 truncate text-sm'>{item}</span>
                                     )}
-                                    <button
-                                        type='button'
-                                        onClick={() => onDailyCheckToggle(item)}
-                                        title={dailyChecks?.has(item) ? 'Remove from daily check' : 'Add to daily check'}
-                                        className={`shrink-0 p-1 text-base leading-none transition-colors ${dailyChecks?.has(item) ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-200 hover:text-yellow-300'}`}
-                                    >☀</button>
                                     <button type='button' onClick={() => setEditItem({ catIdx, itemIdx, value: item })} className='shrink-0 p-1 text-gray-300 hover:text-black' title='Rename item'>✎</button>
                                     <button type='button' onClick={() => deleteItem(catIdx, itemIdx)} className='shrink-0 p-1 text-gray-300 hover:text-red-500' title='Delete item'>✕</button>
                                 </div>
@@ -1251,7 +1245,8 @@ export default function InventoryPage() {
     const [locations,    setLocations]    = useState({});
     const [caseSizes,    setCaseSizes]    = useState({});
     const [caseCounts,   setCaseCounts]   = useState({});
-    const [dailyChecks,  setDailyChecks]  = useState(new Set());
+    const [dailyChecks,     setDailyChecks]     = useState(new Set());
+    const [dailyCheckInput, setDailyCheckInput] = useState('');
     const [buyInCases,   setBuyInCases]   = useState(true);
     const [unitTypes,    setUnitTypes]    = useState(DEFAULT_UNIT_TYPES);
     const [isLoading,    setIsLoading]    = useState(true);
@@ -1820,65 +1815,92 @@ export default function InventoryPage() {
                                         {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
                                     </p>
                                 </div>
-                                <div className='text-right'>
-                                    {dailyChecks.size === 0 ? (
-                                        <p className='text-xs text-gray-400'>No items tagged yet.<br/>Tag items in Manage Items tab.</p>
-                                    ) : (
-                                        <>
-                                            <p className='text-2xl font-bold text-red-500'>{dailyLowCount}</p>
-                                            <p className='text-xs text-gray-400'>items low / out of {dailyChecks.size}</p>
-                                        </>
-                                    )}
-                                </div>
+                                {dailyChecks.size > 0 && (
+                                    <div className='text-right'>
+                                        <p className='text-2xl font-bold text-red-500'>{dailyLowCount}</p>
+                                        <p className='text-xs text-gray-400'>low / out of {dailyChecks.size}</p>
+                                    </div>
+                                )}
+                            </div>
+                            {/* Manual add input */}
+                            <div className='mt-3 flex gap-2'>
+                                <input
+                                    type='text'
+                                    value={dailyCheckInput}
+                                    onChange={(e) => setDailyCheckInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            const val = dailyCheckInput.trim();
+                                            if (val && !dailyChecks.has(val)) handleDailyCheckToggle(val);
+                                            setDailyCheckInput('');
+                                        }
+                                    }}
+                                    placeholder='Add item to check daily…'
+                                    className='flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black'
+                                />
+                                <button
+                                    type='button'
+                                    disabled={!dailyCheckInput.trim() || dailyChecks.has(dailyCheckInput.trim())}
+                                    onClick={() => {
+                                        const val = dailyCheckInput.trim();
+                                        if (val && !dailyChecks.has(val)) handleDailyCheckToggle(val);
+                                        setDailyCheckInput('');
+                                    }}
+                                    className='rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-40'
+                                >
+                                    + Add
+                                </button>
                             </div>
                         </div>
 
                         {dailyChecks.size === 0 ? (
                             <div className='rounded-xl bg-white p-8 shadow-sm text-center'>
-                                <p className='text-gray-400 text-sm'>Go to <strong>Manage Items</strong> and tap the ☀ icon next to items you want to check daily.</p>
+                                <p className='text-gray-400 text-sm'>No items added yet. Type an item name above to add it.</p>
                             </div>
                         ) : (
-                            groups.map((group) => {
-                                const dayItems = group.items.filter((item) => dailyChecks.has(item));
-                                if (dayItems.length === 0) return null;
-                                return (
-                                    <section key={group.category} className='rounded-xl bg-white shadow-sm overflow-hidden'>
-                                        <div className='px-4 py-2.5 border-b border-gray-100'>
-                                            <h3 className='text-xs font-semibold uppercase tracking-wide text-gray-500'>{group.category}</h3>
-                                        </div>
-                                        <ul className='divide-y divide-gray-50'>
-                                            {dayItems.map((item) => {
-                                                const stock = lastCounts[item] ?? 0;
-                                                const par   = pars[item] ?? 1;
-                                                const isOut = stock === 0;
-                                                const isLow = !isOut && stock < par;
-                                                const isOk  = stock >= par;
-                                                return (
-                                                    <li key={item} className='flex items-center gap-3 px-4 py-3'>
-                                                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${isOut ? 'bg-red-500' : isLow ? 'bg-yellow-400' : 'bg-green-500'}`} />
-                                                        <span className='flex-1 text-sm'>{item}</span>
-                                                        <div className='flex items-center gap-2 text-xs'>
-                                                            <span className={`font-semibold ${isOut ? 'text-red-500' : isLow ? 'text-yellow-600' : 'text-green-600'}`}>
-                                                                {stock}
-                                                            </span>
+                            <div className='rounded-xl bg-white shadow-sm overflow-hidden'>
+                                <ul className='divide-y divide-gray-50'>
+                                    {[...dailyChecks].map((item) => {
+                                        const inInventory = pars[item] !== undefined;
+                                        const stock = lastCounts[item] ?? 0;
+                                        const par   = pars[item] ?? 1;
+                                        const isOut = inInventory && stock === 0;
+                                        const isLow = inInventory && !isOut && stock < par;
+                                        const isOk  = inInventory && stock >= par;
+                                        return (
+                                            <li key={item} className='flex items-center gap-3 px-4 py-3'>
+                                                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${!inInventory ? 'bg-gray-300' : isOut ? 'bg-red-500' : isLow ? 'bg-yellow-400' : 'bg-green-500'}`} />
+                                                <span className='flex-1 text-sm'>{item}</span>
+                                                <div className='flex items-center gap-2 text-xs'>
+                                                    {inInventory ? (
+                                                        <>
+                                                            <span className={`font-semibold ${isOut ? 'text-red-500' : isLow ? 'text-yellow-600' : 'text-green-600'}`}>{stock}</span>
                                                             <span className='text-gray-300'>/</span>
                                                             <span className='text-gray-400'>{par} par</span>
                                                             <span className={`rounded-full px-2 py-0.5 font-medium ${isOut ? 'bg-red-100 text-red-600' : isLow ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
                                                                 {isOut ? 'OUT' : isLow ? 'LOW' : 'OK'}
                                                             </span>
-                                                        </div>
-                                                    </li>
-                                                );
-                                            })}
-                                        </ul>
-                                    </section>
-                                );
-                            })
+                                                        </>
+                                                    ) : (
+                                                        <span className='text-gray-400 italic'>manual</span>
+                                                    )}
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => handleDailyCheckToggle(item)}
+                                                        className='ml-1 p-1 text-gray-300 hover:text-red-500'
+                                                        title='Remove from daily check'
+                                                    >✕</button>
+                                                </div>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            </div>
                         )}
 
                         {dailyChecks.size > 0 && (
                             <p className='text-center text-xs text-gray-400 pb-2'>
-                                Stock levels are from the last submitted count. Submit a new count to update.
+                                Inventory stock levels update after each count submission. Manual items show no stock level.
                             </p>
                         )}
                     </div>
@@ -2153,23 +2175,26 @@ export default function InventoryPage() {
                                                 const lines = [`SHOPPING LIST — ${date}`, ''];
                                                 visibleShoppingStores.forEach(({ store, items: storeItems }) => {
                                                     const total = storeItems.reduce((sum, i) => {
-                                                        const price = prices[i.name];
-                                                        const short = Math.max(0, (pars[i.name] ?? 0) - (shoppingBaseCounts[i.name] ?? 0));
-                                                        return price ? sum + price * short : sum;
+                                                        const price   = prices[i.name];
+                                                        const have    = shoppingBaseCounts[i.name] ?? 0;
+                                                        const restock = restocks[i.name] ?? 0;
+                                                        const buyAmt  = restock > 0 ? restock : Math.max(0, (pars[i.name] ?? 0) - have);
+                                                        return price ? sum + price * buyAmt : sum;
                                                     }, 0);
                                                     lines.push(`${store === '__none__' ? 'No Store Set' : store}${total > 0 ? `  (~$${total.toFixed(2)})` : ''}`);
                                                     storeItems.forEach((i) => {
-                                                        const have  = shoppingBaseCounts[i.name] ?? 0;
-                                                        const par   = pars[i.name];
-                                                        const short = Math.max(0, par - have);
-                                                        const cs    = caseSizes[i.name];
-                                                        const price = prices[i.name];
+                                                        const have    = shoppingBaseCounts[i.name] ?? 0;
+                                                        const par     = pars[i.name];
+                                                        const restock = restocks[i.name] ?? 0;
+                                                        const buyAmt  = restock > 0 ? restock : Math.max(0, par - have);
+                                                        const cs      = caseSizes[i.name];
+                                                        const price   = prices[i.name];
                                                         const buyStr = (buyInCases && cs > 1)
-                                                            ? `${Math.ceil(short / cs)} case${Math.ceil(short / cs) !== 1 ? 's' : ''} (${short} units)`
-                                                            : `${short} units`;
-                                                        const lineTotal = price ? ` = $${(price * short).toFixed(2)}` : '';
+                                                            ? `${Math.ceil(buyAmt / cs)} case${Math.ceil(buyAmt / cs) !== 1 ? 's' : ''} (${buyAmt} units)`
+                                                            : `${buyAmt} units`;
+                                                        const lineTotal = price ? ` = $${(price * buyAmt).toFixed(2)}` : '';
                                                         const priceStr  = price ? `  @ $${price.toFixed(2)}/unit` : '';
-                                                        lines.push(`  • ${i.name}   have ${have}, need ${par}, buy ${buyStr}${priceStr}${lineTotal}`);
+                                                        lines.push(`  • ${i.name}   have ${have}, par ${par}, buy ${buyStr}${priceStr}${lineTotal}`);
                                                     });
                                                     lines.push('');
                                                 });
@@ -2182,17 +2207,18 @@ export default function InventoryPage() {
                                         <button
                                             type='button'
                                             onClick={() => {
-                                                const rows = [['Store', 'Category', 'Item', 'Have', 'Need (Par)', 'Buy (Units)', 'Buy (Cases)', 'Case Size', 'Unit Price', 'Line Total']];
+                                                const rows = [['Store', 'Category', 'Item', 'Have', 'Par', 'Buy (Units)', 'Buy (Cases)', 'Case Size', 'Unit Price', 'Line Total']];
                                                 visibleShoppingStores.forEach(({ store, items: storeItems }) => {
                                                     storeItems.forEach((i) => {
                                                         const have    = shoppingBaseCounts[i.name] ?? 0;
                                                         const par     = pars[i.name];
-                                                        const short   = Math.max(0, par - have);
+                                                        const restock = restocks[i.name] ?? 0;
+                                                        const buyAmt  = restock > 0 ? restock : Math.max(0, par - have);
                                                         const cs      = caseSizes[i.name] ?? '';
-                                                        const buyCase = cs ? Math.ceil(short / cs) : '';
+                                                        const buyCase = cs ? Math.ceil(buyAmt / cs) : '';
                                                         const price   = prices[i.name] ?? '';
-                                                        const lineTotal = price ? (price * short).toFixed(2) : '';
-                                                        rows.push([store === '__none__' ? '' : store, i.category, i.name, have, par, short, buyCase, cs, price, lineTotal]);
+                                                        const lineTotal = price ? (price * buyAmt).toFixed(2) : '';
+                                                        rows.push([store === '__none__' ? '' : store, i.category, i.name, have, par, buyAmt, buyCase, cs, price, lineTotal]);
                                                     });
                                                 });
                                                 const csv  = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -2213,12 +2239,14 @@ export default function InventoryPage() {
                                                     const initUnits = {};
                                                     const initCases = {};
                                                     shoppingItems.forEach((i) => {
-                                                        const short = Math.max(0, (pars[i.name] ?? 0) - (shoppingBaseCounts[i.name] ?? 0));
+                                                        const have    = shoppingBaseCounts[i.name] ?? 0;
+                                                        const restock = restocks[i.name] ?? 0;
+                                                        const buyAmt  = restock > 0 ? restock : Math.max(0, (pars[i.name] ?? 0) - have);
                                                         const cs = caseSizes[i.name];
                                                         if (buyInCases && cs > 1) {
-                                                            initCases[i.name] = { cases: Math.ceil(short / cs), units: 0 };
+                                                            initCases[i.name] = { cases: Math.ceil(buyAmt / cs), units: 0 };
                                                         } else {
-                                                            initUnits[i.name] = short;
+                                                            initUnits[i.name] = buyAmt;
                                                         }
                                                     });
                                                     setPurchasedAmounts(initUnits);
@@ -2237,9 +2265,11 @@ export default function InventoryPage() {
                                 </div>
                                 {visibleShoppingStores.map(({ store, items: storeItems }) => {
                                     const storeTotal = storeItems.reduce((sum, i) => {
-                                        const price = prices[i.name];
-                                        const short = Math.max(0, (pars[i.name] ?? 0) - (shoppingBaseCounts[i.name] ?? 0));
-                                        return price ? sum + price * short : sum;
+                                        const price   = prices[i.name];
+                                        const have    = shoppingBaseCounts[i.name] ?? 0;
+                                        const restock = restocks[i.name] ?? 0;
+                                        const buyAmt  = restock > 0 ? restock : Math.max(0, (pars[i.name] ?? 0) - have);
+                                        return price ? sum + price * buyAmt : sum;
                                     }, 0);
                                     return (
                                         <section key={store} className='rounded-xl bg-white shadow-sm'>
@@ -2254,12 +2284,13 @@ export default function InventoryPage() {
                                             </div>
                                             <div className='divide-y divide-gray-50'>
                                                 {storeItems.map((i) => {
-                                                    const have  = shoppingBaseCounts[i.name] ?? 0;
-                                                    const par   = pars[i.name];
-                                                    const short = Math.max(0, par - have);
-                                                    const price = prices[i.name];
-                                                    const cs    = caseSizes[i.name];
-                                                    const casesToBuy = cs > 1 ? Math.ceil(short / cs) : null;
+                                                    const have    = shoppingBaseCounts[i.name] ?? 0;
+                                                    const par     = pars[i.name];
+                                                    const restock = restocks[i.name] ?? 0;
+                                                    const buyAmt  = restock > 0 ? restock : Math.max(0, par - have);
+                                                    const price   = prices[i.name];
+                                                    const cs      = caseSizes[i.name];
+                                                    const casesToBuy = cs > 1 ? Math.ceil(buyAmt / cs) : null;
                                                     return (
                                                         <div key={i.name} className='px-4 py-3'>
                                                             {/* Top row: item info + price/badge */}
@@ -2267,10 +2298,10 @@ export default function InventoryPage() {
                                                                 <div className='min-w-0 flex-1'>
                                                                     <p className='text-sm font-medium'>{i.name}</p>
                                                                     <p className='text-xs text-orange-500'>
-                                                                        have {have} · need {par} · buy{' '}
+                                                                        have {have} · par {par} · buy{' '}
                                                                         {buyInCases && casesToBuy !== null
-                                                                            ? <><strong>{casesToBuy} case{casesToBuy !== 1 ? 's' : ''}</strong><span className='text-orange-400'> ({short} units)</span></>
-                                                                            : <strong>{short} units</strong>}
+                                                                            ? <><strong>{casesToBuy} case{casesToBuy !== 1 ? 's' : ''}</strong><span className='text-orange-400'> ({buyAmt} units)</span></>
+                                                                            : <strong>{buyAmt} units</strong>}
                                                                         {price ? ` · $${price.toFixed(2)}/unit` : ''}
                                                                     </p>
                                                                     <p className='text-xs text-gray-400'>
@@ -2279,8 +2310,8 @@ export default function InventoryPage() {
                                                                     </p>
                                                                 </div>
                                                                 <div className='flex shrink-0 flex-col items-end gap-1'>
-                                                                    {price && short > 0 && (
-                                                                        <span className='text-sm font-semibold text-gray-700'>${(price * short).toFixed(2)}</span>
+                                                                    {price && buyAmt > 0 && (
+                                                                        <span className='text-sm font-semibold text-gray-700'>${(price * buyAmt).toFixed(2)}</span>
                                                                     )}
                                                                     <span className='rounded bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700'>Below par</span>
                                                                 </div>
