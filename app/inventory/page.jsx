@@ -1017,15 +1017,42 @@ function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockCha
                                         <option value=''>unit</option>
                                         {unitTypes.map((u) => <option key={u} value={u}>{u}</option>)}
                                     </select>
-                                    {/* Case size */}
-                                    <input
-                                        type='number' min='0' step='1' inputMode='numeric'
-                                        value={pendingCaseSizes[item] !== undefined ? pendingCaseSizes[item] : (caseSizes[item] ?? '')}
-                                        onChange={(e) => setPendingCaseSizes((p) => ({ ...p, [item]: e.target.value }))}
-                                        placeholder='case'
-                                        title='Units per case (e.g. 12 means 1 case = 12 units)'
-                                        className={`w-14 shrink-0 rounded border px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-purple-400 ${pendingCaseSizes[item] !== undefined ? 'border-purple-300 bg-purple-50' : 'border-gray-200'}`}
-                                    />
+                                    {/* Case option — checkbox + conditional size input */}
+                                    {(() => {
+                                        const pendingCase   = pendingCaseSizes[item];
+                                        const savedCase     = caseSizes[item] ?? 0;
+                                        const effectiveCase = pendingCase !== undefined ? Number(pendingCase) : savedCase;
+                                        const hasCaseOption = effectiveCase > 0;
+                                        return (
+                                            <div className='flex shrink-0 items-center gap-1'>
+                                                <label className='flex cursor-pointer items-center gap-1' title='Has case option (counts cases + loose units)'>
+                                                    <input
+                                                        type='checkbox'
+                                                        checked={hasCaseOption}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                const init = savedCase > 1 ? savedCase : 2;
+                                                                setPendingCaseSizes((p) => ({ ...p, [item]: init }));
+                                                            } else {
+                                                                setPendingCaseSizes((p) => ({ ...p, [item]: 0 }));
+                                                            }
+                                                        }}
+                                                        className='h-3.5 w-3.5 cursor-pointer accent-purple-500'
+                                                    />
+                                                    <span className='text-xs text-gray-400'>case</span>
+                                                </label>
+                                                {hasCaseOption && (
+                                                    <input
+                                                        type='number' min='1' step='1' inputMode='numeric'
+                                                        value={pendingCase !== undefined ? pendingCase : (caseSizes[item] ?? '')}
+                                                        onChange={(e) => setPendingCaseSizes((p) => ({ ...p, [item]: e.target.value }))}
+                                                        title='Units per case (e.g. 12 = 1 case of 12 units)'
+                                                        className={`w-12 rounded border px-2 py-1 text-center text-xs text-gray-500 outline-none focus:border-purple-400 ${pendingCase !== undefined ? 'border-purple-300 bg-purple-50' : 'border-gray-200'}`}
+                                                    />
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
                                     {/* Price */}
                                     <div className='flex shrink-0 items-center'>
                                         <span className='text-xs text-gray-400 mr-0.5'>$</span>
