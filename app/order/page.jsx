@@ -93,7 +93,7 @@ export default function OrderSystem() {
     const [phoneOverrides, setPhoneOverrides] = useState({});
     const [mobileTab, setMobileTab] = useState('order');
     const [printerIp, setPrinterIp] = useState(() =>
-        (typeof window !== 'undefined' && localStorage.getItem('printerIp')) || '192.168.192.168'
+        (typeof window !== 'undefined' && localStorage.getItem('printerIp')) || '172.16.10.11'
     );
     const [printerStatus, setPrinterStatus] = useState('disconnected'); // 'disconnected'|'connecting'|'connected'|'error'
 
