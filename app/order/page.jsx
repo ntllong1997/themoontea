@@ -386,7 +386,7 @@ export default function OrderSystem() {
     return (
         <div className='h-full'>
             {/* ── iPhone portrait ── */}
-            <div className='lg:hidden flex flex-col h-full'>
+            <div className='[@media(min-width:640px)_and_(orientation:landscape)]:hidden flex flex-col h-full'>
                 {/* Tab bar */}
                 <div className='flex border-b bg-white shrink-0'>
                     <button
@@ -431,7 +431,7 @@ export default function OrderSystem() {
             {/* ── iPad landscape: 2-column resizable ── */}
             <div
                 ref={containerRef}
-                className='hidden lg:flex h-full select-none'
+                className='hidden [@media(min-width:640px)_and_(orientation:landscape)]:flex h-full select-none'
                 onMouseMove={(e) => onDragMove(e.clientX)}
                 onMouseUp={() => { isDragging.current = false; }}
                 onMouseLeave={() => { isDragging.current = false; }}
