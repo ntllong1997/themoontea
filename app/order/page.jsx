@@ -12,6 +12,12 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel, { PRICES, TAX_RATE } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
+import {
+    connectPrinter,
+    disconnectPrinter,
+    isPrinterReady,
+    printReceipt as eposPrint,
+} from '@/lib/printer';
 
 const CORNDOG_STATES = { received: 'received', making: 'making', ready: 'ready', pickedup: 'pickedup' };
 const CORNDOG_NEXT = { received: 'making', making: 'ready', ready: 'pickedup', pickedup: 'received' };
@@ -86,10 +92,10 @@ export default function OrderSystem() {
     const [notifiedOrders, setNotifiedOrders] = useState(new Set());
     const [phoneOverrides, setPhoneOverrides] = useState({});
     const [mobileTab, setMobileTab] = useState('order');
-    const [printerEnabled, setPrinterEnabled] = useState(() =>
-        typeof window !== 'undefined' && localStorage.getItem('printerEnabled') === 'true'
+    const [printerIp, setPrinterIp] = useState(() =>
+        (typeof window !== 'undefined' && localStorage.getItem('printerIp')) || '192.168.192.168'
     );
-    const receiptRef = useRef(null);
+    const [printerStatus, setPrinterStatus] = useState('disconnected'); // 'disconnected'|'connecting'|'connected'|'error'
 
     // Resizable columns
     const [colSplit, setColSplit] = useState(40);
@@ -183,42 +189,20 @@ export default function OrderSystem() {
         });
     }, []);
 
-    const printReceipt = useCallback((orderNumber, enrichedOrders) => {
-        if (!receiptRef.current) return;
-        const itemCounts = {};
-        enrichedOrders.forEach(({ name, price, type }) => {
-            if (!itemCounts[name]) itemCounts[name] = { name, price, type, qty: 0 };
-            itemCounts[name].qty++;
-        });
-        const subtotal = enrichedOrders.reduce((s, i) => s + i.price, 0);
-        const tax = subtotal * TAX_RATE;
-        const total = subtotal + tax;
-        const dateStr = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-        const rows = Object.values(itemCounts).map(({ name, price, qty }) =>
-            `<tr><td>${name}${qty > 1 ? ` ×${qty}` : ''}</td><td style="text-align:right">$${(price * qty).toFixed(2)}</td></tr>`
-        ).join('');
-        receiptRef.current.innerHTML = `
-            <div style="font-family:monospace;font-size:13px;width:100%;max-width:300px;margin:0 auto;padding:8px 4px;">
-                <div style="text-align:center;font-size:17px;font-weight:bold;margin-bottom:2px;">The Moon Tea</div>
-                <div style="text-align:center;font-size:12px;color:#555;margin-bottom:6px;">${dateStr}</div>
-                <div style="text-align:center;font-size:15px;font-weight:bold;margin-bottom:8px;">Order #${orderNumber}</div>
-                <hr style="border:none;border-top:1px dashed #000;margin:6px 0"/>
-                <table style="width:100%;border-collapse:collapse">${rows}</table>
-                <hr style="border:none;border-top:1px dashed #000;margin:6px 0"/>
-                <table style="width:100%">
-                    <tr><td>Subtotal</td><td style="text-align:right">$${subtotal.toFixed(2)}</td></tr>
-                    <tr><td>Tax (8.25%)</td><td style="text-align:right">$${tax.toFixed(2)}</td></tr>
-                    <tr style="font-weight:bold;font-size:15px"><td>Total</td><td style="text-align:right">$${total.toFixed(2)}</td></tr>
-                </table>
-                <hr style="border:none;border-top:1px dashed #000;margin:10px 0"/>
-                <div style="text-align:center;font-weight:bold;font-size:13px;line-height:1.6">
-                    Please show this when<br/>you pick up.
-                </div>
-                <div style="margin-top:24px;"></div>
-            </div>`;
-        window.print();
-        setTimeout(() => { if (receiptRef.current) receiptRef.current.innerHTML = ''; }, 2000);
-    }, []);
+    const handlePrinterToggle = useCallback(async () => {
+        if (printerStatus === 'connected') {
+            disconnectPrinter();
+            setPrinterStatus('disconnected');
+            return;
+        }
+        setPrinterStatus('connecting');
+        try {
+            await connectPrinter(printerIp);
+            setPrinterStatus('connected');
+        } catch {
+            setPrinterStatus('error');
+        }
+    }, [printerStatus, printerIp]);
 
     const handleSendOrder = useCallback(async () => {
         if (orders.length === 0) return;
@@ -244,11 +228,14 @@ export default function OrderSystem() {
             setPhone('');
             setMobileTab('history');
             tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-            if (printerEnabled) printReceipt(nextOrderNumber, enrichedOrders);
+            if (isPrinterReady()) {
+                try { eposPrint({ orderNumber: nextOrderNumber, items: enrichedOrders, taxRate: TAX_RATE }); }
+                catch (printErr) { console.error('Print failed:', printErr); }
+            }
         } catch (err) {
             console.error('Send order failed:', err);
         }
-    }, [orders, phone, printerEnabled, printReceipt]);
+    }, [orders, phone]);
 
     const handleBobaItemClick = useCallback((orderNumber, itemIndex) => {
         const key = `${orderNumber}-${itemIndex}`;
@@ -418,24 +405,45 @@ export default function OrderSystem() {
                     <div className='flex justify-between font-bold text-base pt-1'><span>Total</span><span>${total}</span></div>
                 </div>
 
-                {/* Printer toggle */}
-                <div className='flex items-center justify-between mt-4'>
-                    <div className='flex flex-col'>
+                {/* Printer */}
+                <div className='mt-4 border-t pt-3 space-y-2'>
+                    <div className='flex items-center justify-between'>
                         <span className='text-sm font-medium'>Printer</span>
-                        {printerEnabled && (
-                            <span className='text-xs text-green-600'>Epson TM-M30III connected</span>
-                        )}
+                        <span className={`text-xs font-semibold ${
+                            printerStatus === 'connected' ? 'text-green-600' :
+                            printerStatus === 'connecting' ? 'text-yellow-600' :
+                            printerStatus === 'error' ? 'text-red-600' : 'text-gray-400'
+                        }`}>
+                            {printerStatus === 'connected' ? 'Connected ✓' :
+                             printerStatus === 'connecting' ? 'Connecting…' :
+                             printerStatus === 'error' ? 'Failed ✕' : 'Disconnected'}
+                        </span>
                     </div>
-                    <button
-                        onClick={() => setPrinterEnabled((v) => {
-                            const next = !v;
-                            localStorage.setItem('printerEnabled', String(next));
-                            return next;
-                        })}
-                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${printerEnabled ? 'bg-black' : 'bg-gray-200'}`}
-                    >
-                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${printerEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                    </button>
+                    <div className='flex gap-2'>
+                        <input
+                            type='text'
+                            value={printerIp}
+                            onChange={(e) => {
+                                setPrinterIp(e.target.value);
+                                localStorage.setItem('printerIp', e.target.value);
+                            }}
+                            placeholder='192.168.192.168'
+                            className='flex-1 rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:border-blue-500'
+                        />
+                        <Button
+                            size='sm'
+                            variant={printerStatus === 'connected' ? 'destructive' : 'outline'}
+                            onClick={handlePrinterToggle}
+                            disabled={printerStatus === 'connecting'}
+                        >
+                            {printerStatus === 'connected' ? 'Disconnect' : 'Connect'}
+                        </Button>
+                    </div>
+                    {printerStatus === 'disconnected' || printerStatus === 'error' ? (
+                        <p className='text-xs text-gray-400'>
+                            First time: visit https://{printerIp} in Safari to trust the certificate.
+                        </p>
+                    ) : null}
                 </div>
 
                 <Button onClick={handleSendOrder} className='mt-3 w-full' disabled={orders.length === 0}>
@@ -447,9 +455,6 @@ export default function OrderSystem() {
 
     return (
         <div className='h-full'>
-            {/* Hidden receipt — visible only during print */}
-            <div id='receipt-print-area' ref={receiptRef} />
-
             {/* ── iPhone portrait ── */}
             <div className='[@media(min-width:640px)_and_(orientation:landscape)]:hidden flex flex-col h-full'>
                 {/* Tab bar */}
