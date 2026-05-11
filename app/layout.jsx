@@ -9,10 +9,9 @@ export const viewport = {
 
 const MainLayout = ({ children }) => {
     return (
-        <html>
-            <body>
-                {/* <Navbar /> */}
-                <main>{children}</main>
+        <html className='h-full'>
+            <body className='h-full'>
+                <main className='h-full'>{children}</main>
             </body>
         </html>
     );
