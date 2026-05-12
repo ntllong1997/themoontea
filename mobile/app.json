@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "The Moon Tea POS",
+    "slug": "themoontea-pos",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "themoontea",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.themoontea.pos",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Used to connect to Bluetooth receipt printers",
+        "NSBluetoothPeripheralUsageDescription": "Used to connect to Bluetooth receipt printers",
+        "NSNFCUsageDescription": "Used for tap-to-pay contactless payments",
+        "com.apple.developer.proximity-reader.payment.acceptance": true
+      },
+      "entitlements": {
+        "com.apple.developer.proximity-reader.payment.acceptance": true
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f172a"
+      },
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.NFC",
+        "android.permission.VIBRATE"
+      ],
+      "package": "com.themoontea.pos"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": ["peripheral", "central"],
+          "bluetoothAlwaysPermission": "Used to connect to Bluetooth receipt printers"
+        }
+      ],
+      [
+        "expo-camera",
+        { "cameraPermission": "Used to scan barcodes for menu items" }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
