@@ -28,9 +28,7 @@ const isToday = (isoString) => {
 
 const isThisWeek = (isoString) => {
     const d = new Date(isoString);
-    const now = new Date();
-    const weekAgo = new Date(now);
-    weekAgo.setDate(now.getDate() - 6);
+    const weekAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
     weekAgo.setHours(0, 0, 0, 0);
     return d >= weekAgo;
 };
@@ -39,13 +37,16 @@ export default function SummaryPage() {
     const [history, setHistory] = useState([]);
     const [dateFilter, setDateFilter] = useState('today');
     const [typeFilter, setTypeFilter] = useState('all');
+    const [fetchError, setFetchError] = useState(false);
 
     const fetchHistory = useCallback(async () => {
         try {
             const grouped = await getOrderHistory();
             setHistory(grouped);
+            setFetchError(false);
         } catch (e) {
             console.error('Failed to fetch history:', e);
+            setFetchError(true);
         }
     }, []);
 
@@ -116,7 +117,9 @@ export default function SummaryPage() {
 
                 <Card>
                     <CardContent>
-                        {itemSummary.length === 0 ? (
+                        {fetchError ? (
+                            <p className='text-red-500 text-sm py-8 text-center'>Could not load data — check your connection.</p>
+                        ) : itemSummary.length === 0 ? (
                             <p className='text-gray-400 text-sm py-8 text-center'>No orders for this period.</p>
                         ) : (
                             <table className='w-full text-sm'>

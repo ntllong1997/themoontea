@@ -26,7 +26,7 @@ export default function HistorySection({
     const [draftPhone, setDraftPhone] = useState('');
 
     const handleEditPhone = (orderNumber) => {
-        setDraftPhone(getOrderPhone ? getOrderPhone(orderNumber) : '');
+        setDraftPhone(getOrderPhone?.(orderNumber) ?? '');
         setEditingPhone(orderNumber);
     };
 
