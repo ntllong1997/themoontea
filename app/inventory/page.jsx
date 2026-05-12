@@ -39,7 +39,7 @@ const DEFAULT_ITEMS = [
     },
     {
         category: 'Drinks',
-        items: ['Drinking Water', 'Coke', 'Diet Coke', 'Spirte', 'Sugar Free Dr Pepper'],
+        items: ['Drinking Water', 'Coke', 'Diet Coke', 'Sprite', 'Sugar Free Dr Pepper'],
     },
     {
         category: 'Dry Ingredients',
@@ -249,7 +249,7 @@ const DEFAULT_LOCATIONS = {
     'Sliced Peaches': 'Costco', 'Lysol Disinfecting Wipes': 'Costco',
     'Almond Milk': 'Costco', 'Oat Milk': 'Costco', 'Shin Black': 'Costco',
     'Shin Ramyun Noodles': 'Costco', 'Coke': 'Costco', 'Diet Coke': 'Costco',
-    'Spirte': 'Costco', 'Sugar Free Dr Pepper': 'Costco', 'Hand Soap': 'Costco',
+    'Sprite': 'Costco', 'Sugar Free Dr Pepper': 'Costco', 'Hand Soap': 'Costco',
     'Gallon Plus Freezer Bags': 'Costco', 'Pure Vanilla Extract': 'Costco',
     'Organic Brown Sugar': 'Costco', 'Laughing Cow Light Wedges': 'Costco',
     'Kraft Grated Parmesan Cheese': 'Costco',
@@ -1234,7 +1234,9 @@ export default function InventoryPage() {
     const [submitting,   setSubmitting]   = useState(false);
     const [message,      setMessage]      = useState('');
     const [search,       setSearch]       = useState('');
-    const [collapsed,    setCollapsed]    = useState({});
+    const [collapsed,    setCollapsed]    = useState(() => {
+        try { return JSON.parse(localStorage.getItem('inventory-collapsed') || '{}'); } catch { return {}; }
+    });
     const [draftSaved,   setDraftSaved]   = useState(false);
     const [showSummary,  setShowSummary]  = useState(false);
     const [history,      setHistory]      = useState([]);
@@ -1281,11 +1283,15 @@ export default function InventoryPage() {
         });
     }, [flatItems]);
 
+    useEffect(() => {
+        localStorage.setItem('inventory-collapsed', JSON.stringify(collapsed));
+    }, [collapsed]);
+
     // Load from Supabase on mount
     useEffect(() => {
         const load = async () => {
             try {
-                const [fetchedGroups, fetchedPars, fetchedRestocks, fetchedHistory, fetchedEmployees, fetchedPrices, fetchedLocations, fetchedCaseSizes, fetchedDailyChecks] = await Promise.all([
+                const settled = await Promise.allSettled([
                     getInventoryGroups(),
                     getParLevels(),
                     getRestockLevels(),
@@ -1296,6 +1302,16 @@ export default function InventoryPage() {
                     getCaseSizes(),
                     getDailyCheckItems(),
                 ]);
+                const val = (i, fallback) => settled[i].status === 'fulfilled' ? settled[i].value : (console.error('Inventory load failed at index', i, settled[i].reason), fallback);
+                const fetchedGroups      = val(0, null);
+                const fetchedPars        = val(1, {});
+                const fetchedRestocks    = val(2, {});
+                const fetchedHistory     = val(3, []);
+                const fetchedEmployees   = val(4, []);
+                const fetchedPrices      = val(5, {});
+                const fetchedLocations   = val(6, {});
+                const fetchedCaseSizes   = val(7, {});
+                const fetchedDailyChecks = val(8, []);
 
                 if (fetchedGroups) {
                     setGroups(fetchedGroups);
@@ -1375,11 +1391,16 @@ export default function InventoryPage() {
         if (!pinEmployee) { setPinError('Select your name.'); return; }
         if (!pinInput)    { setPinError('Enter your PIN.'); return; }
         setPinLoading(true); setPinError('');
-        const user = await verifyPin(pinEmployee, pinInput);
-        if (!user) { setPinError('Incorrect PIN. Try again.'); setPinLoading(false); return; }
-        sessionStorage.setItem('inventory_session', JSON.stringify(user));
-        setCurrentUser(user);
-        setEmployeeName(user.name);
+        try {
+            const user = await verifyPin(pinEmployee, pinInput);
+            if (!user) { setPinError('Incorrect PIN. Try again.'); setPinLoading(false); return; }
+            sessionStorage.setItem('inventory_session', JSON.stringify(user));
+            setCurrentUser(user);
+            setEmployeeName(user.name);
+        } catch (err) {
+            console.error('PIN verification failed:', err);
+            setPinError('Something went wrong. Please try again.');
+        }
         setPinLoading(false);
     };
 
@@ -1475,10 +1496,14 @@ export default function InventoryPage() {
     };
 
     const handlePriceChange = (itemName, value) => {
-        const num = Math.max(0, parseFloat(value) || 0);
+        const num = parseFloat(value);
         setPrices((prev) => {
             const next = { ...prev };
-            if (num > 0) { next[itemName] = num; } else { delete next[itemName]; }
+            if (value.trim() === '' || isNaN(num)) {
+                delete next[itemName];
+            } else {
+                next[itemName] = Math.max(0, num);
+            }
             return next;
         });
     };
