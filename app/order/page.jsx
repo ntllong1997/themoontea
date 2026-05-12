@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-    getLatestOrderNumber,
+    getNextOrderNumber,
     getOrderHistory,
     saveOrderHistory,
     updateOrderPhone,
 } from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import OrderPanel, { PRICES, TAX_RATE } from '@/components/OrderPanel';
+import OrderPanel, { PRICES, TAX_RATE, HOT_CHEETO_DUST_PRICE } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
 import {
     connectPrinter,
@@ -96,6 +96,7 @@ export default function OrderSystem() {
         (typeof window !== 'undefined' && localStorage.getItem('printerIp')) || '172.16.10.11'
     );
     const [printerStatus, setPrinterStatus] = useState('disconnected'); // 'disconnected'|'connecting'|'connected'|'error'
+    const [sendError, setSendError] = useState('');
 
     // Resizable columns
     const [colSplit, setColSplit] = useState(40);
@@ -173,7 +174,8 @@ export default function OrderSystem() {
                 next[idx].quantity += 1;
                 return next;
             }
-            return [...prev, { name, price: PRICES.Corndog, type: 'Corndog', quantity: 1 }];
+            const price = PRICES.Corndog + (selectedCorndogDust ? HOT_CHEETO_DUST_PRICE : 0);
+            return [...prev, { name, price, type: 'Corndog', quantity: 1 }];
         });
         setSelectedCorndogInside('');
         setSelectedCorndogOutside('');
@@ -206,9 +208,9 @@ export default function OrderSystem() {
 
     const handleSendOrder = useCallback(async () => {
         if (orders.length === 0) return;
+        setSendError('');
         try {
-            const latestOrderNumber = await getLatestOrderNumber();
-            const nextOrderNumber = latestOrderNumber + 1;
+            const nextOrderNumber = await getNextOrderNumber();
             const timestamp = new Date().toISOString();
 
             const enrichedOrders = orders.flatMap((item) =>
@@ -234,6 +236,7 @@ export default function OrderSystem() {
             }
         } catch (err) {
             console.error('Send order failed:', err);
+            setSendError('Order failed to save — please try again.');
         }
     }, [orders, phone]);
 
@@ -257,7 +260,11 @@ export default function OrderSystem() {
     }, [history, handleBobaItemClick, handleCorndogItemClick]);
 
     const markNotified = useCallback((orderNumber) => {
-        setNotifiedOrders((prev) => new Set([...prev, orderNumber]));
+        setNotifiedOrders((prev) => {
+            const next = new Set(prev);
+            next.add(orderNumber);
+            return next;
+        });
     }, []);
 
     const getOrderPhone = useCallback((orderNumber) => {
@@ -446,6 +453,9 @@ export default function OrderSystem() {
                     ) : null}
                 </div>
 
+                {sendError && (
+                    <p className='mt-2 text-xs text-red-600 font-medium text-center'>{sendError}</p>
+                )}
                 <Button onClick={handleSendOrder} className='mt-3 w-full' disabled={orders.length === 0}>
                     Send Order
                 </Button>
