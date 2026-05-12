@@ -1,12 +1,8 @@
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { TAX_RATE, PRICES, HOT_CHEETO_DUST_PRICE } from '@/lib/constants';
 
-export const TAX_RATE = 0.0825;
-export const PRICES = {
-    Boba: 8.0,
-    Corndog: 8.0,
-};
-export const HOT_CHEETO_DUST_PRICE = 1.0;
+export { TAX_RATE, PRICES, HOT_CHEETO_DUST_PRICE };
 
 export const DRINK_CUSTOMIZATIONS = {
     'Matcha Strawberry': 'Only Matcha',
