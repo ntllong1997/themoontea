@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import OrderPanel, { PRICES, TAX_RATE, HOT_CHEETO_DUST_PRICE } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
 import { checkPrinterStatus, printReceipt as eposPrint } from '@/lib/printer';
+import { discoverReaders, connectReader, collectPayment, disconnectReader } from '@/lib/terminal';
 import { Printer } from 'lucide-react';
 
 const CORNDOG_STATES = { received: 'received', making: 'making', ready: 'ready', pickedup: 'pickedup' };
@@ -90,6 +91,13 @@ export default function OrderSystem() {
     const [mobileTab, setMobileTab] = useState('order');
     const [printerStatus, setPrinterStatus] = useState('disconnected'); // 'disconnected'|'connecting'|'connected'|'error'
     const [sendError, setSendError] = useState('');
+
+    // Stripe Terminal
+    const [readerStatus,  setReaderStatus]  = useState('disconnected'); // 'disconnected'|'discovering'|'connected'|'error'
+    const [readers,       setReaders]       = useState([]);
+    const [showReaders,   setShowReaders]   = useState(false);
+    const [cardStatus,    setCardStatus]    = useState(''); // '' | 'waiting' | 'processing' | 'done' | 'error'
+    const [cardError,     setCardError]     = useState('');
 
     // Resizable columns
     const [colSplit, setColSplit] = useState(40);
@@ -190,6 +198,52 @@ export default function OrderSystem() {
         const id = setInterval(poll, 5000);
         return () => clearInterval(id);
     }, []);
+
+    const handleDiscoverReaders = useCallback(async () => {
+        setReaderStatus('discovering');
+        setShowReaders(true);
+        try {
+            const found = await discoverReaders();
+            setReaders(found);
+            setReaderStatus(found.length ? 'disconnected' : 'error');
+        } catch (err) {
+            setReaderStatus('error');
+            console.error('[terminal] discover:', err);
+        }
+    }, []);
+
+    const handleConnectReader = useCallback(async (reader) => {
+        try {
+            await connectReader(reader);
+            setReaderStatus('connected');
+            setShowReaders(false);
+        } catch (err) {
+            setReaderStatus('error');
+            console.error('[terminal] connect:', err);
+        }
+    }, []);
+
+    const handleDisconnectReader = useCallback(async () => {
+        await disconnectReader();
+        setReaderStatus('disconnected');
+        setReaders([]);
+    }, []);
+
+    const handleChargeCard = useCallback(async () => {
+        if (orders.length === 0 || readerStatus !== 'connected') return;
+        setCardStatus('waiting');
+        setCardError('');
+        try {
+            const subtotal = orders.reduce((s, i) => s + i.price * i.quantity, 0);
+            const total    = subtotal * (1 + TAX_RATE);
+            await collectPayment(parseFloat(total.toFixed(2)));
+            setCardStatus('done');
+            await handleSendOrder();
+        } catch (err) {
+            setCardStatus('error');
+            setCardError(err.message);
+        }
+    }, [orders, readerStatus, handleSendOrder]);
 
     const handleSendOrder = useCallback(async () => {
         if (orders.length === 0) return;
@@ -448,12 +502,67 @@ export default function OrderSystem() {
                     </p>
                 )}
 
+                {/* Stripe Terminal */}
+                <div className='mt-4 border-t pt-3 space-y-2'>
+                    <div className='flex items-center justify-between'>
+                        <span className='text-sm font-medium'>Card Reader</span>
+                        <span className={`text-xs font-semibold ${
+                            readerStatus === 'connected'   ? 'text-green-600' :
+                            readerStatus === 'discovering' ? 'text-yellow-600' :
+                            readerStatus === 'error'       ? 'text-red-500' : 'text-gray-400'
+                        }`}>
+                            {readerStatus === 'connected'   ? 'Connected ✓' :
+                             readerStatus === 'discovering' ? 'Scanning…'   :
+                             readerStatus === 'error'       ? 'Error'       : 'Not connected'}
+                        </span>
+                    </div>
+
+                    {readerStatus !== 'connected' ? (
+                        <Button size='sm' variant='outline' onClick={handleDiscoverReaders}
+                            disabled={readerStatus === 'discovering'} className='w-full'>
+                            {readerStatus === 'discovering' ? 'Scanning for readers…' : 'Find Card Reader'}
+                        </Button>
+                    ) : (
+                        <Button size='sm' variant='outline' onClick={handleDisconnectReader} className='w-full'>
+                            Disconnect Reader
+                        </Button>
+                    )}
+
+                    {/* Reader list */}
+                    {showReaders && readers.length > 0 && (
+                        <div className='border rounded-lg divide-y text-sm'>
+                            {readers.map((r) => (
+                                <button key={r.id} onClick={() => handleConnectReader(r)}
+                                    className='w-full text-left px-3 py-2 hover:bg-gray-50'>
+                                    <span className='font-medium'>{r.label || r.id}</span>
+                                    <span className='text-gray-400 text-xs ml-2'>{r.device_type}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {showReaders && readers.length === 0 && readerStatus !== 'discovering' && (
+                        <p className='text-xs text-gray-400'>No readers found. Make sure your Stripe reader is online.</p>
+                    )}
+                </div>
+
+                {/* Card payment status */}
+                {cardStatus === 'waiting'    && <p className='text-sm text-yellow-600 font-medium text-center mt-2'>Waiting for card tap…</p>}
+                {cardStatus === 'processing' && <p className='text-sm text-blue-600 font-medium text-center mt-2'>Processing payment…</p>}
+                {cardStatus === 'done'       && <p className='text-sm text-green-600 font-medium text-center mt-2'>Payment approved ✓</p>}
+                {cardStatus === 'error'      && <p className='text-xs text-red-600 text-center mt-2'>{cardError}</p>}
+
                 {sendError && (
                     <p className='mt-2 text-xs text-red-600 font-medium text-center'>{sendError}</p>
                 )}
-                <Button onClick={handleSendOrder} className='mt-3 w-full' disabled={orders.length === 0}>
-                    Send Order
-                </Button>
+                <div className='mt-3 flex gap-2'>
+                    <Button onClick={handleSendOrder} className='flex-1' disabled={orders.length === 0}>
+                        Cash
+                    </Button>
+                    <Button onClick={handleChargeCard} className='flex-1' variant='outline'
+                        disabled={orders.length === 0 || readerStatus !== 'connected' || cardStatus === 'waiting' || cardStatus === 'processing'}>
+                        Charge Card
+                    </Button>
+                </div>
             </CardContent>
         </Card>
     );
