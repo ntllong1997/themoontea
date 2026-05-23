@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button';
 import OrderPanel, { PRICES, TAX_RATE, HOT_CHEETO_DUST_PRICE } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
 import { checkPrinterStatus, printReceipt as eposPrint } from '@/lib/printer';
-import { discoverReaders, connectReader, collectPayment, disconnectReader } from '@/lib/terminal';
+import { discoverReaders, connectReader, collectPayment, disconnectReader, createPaymentLink } from '@/lib/terminal';
 import { Printer } from 'lucide-react';
 
 const CORNDOG_STATES = { received: 'received', making: 'making', ready: 'ready', pickedup: 'pickedup' };
@@ -245,7 +245,24 @@ export default function OrderSystem() {
         }
     }, [orders, readerStatus, handleSendOrder]);
 
-    const handleSendOrder = useCallback(async () => {
+    const handleScanToPay = useCallback(async () => {
+        if (orders.length === 0) return;
+        setCardStatus('waiting');
+        setCardError('');
+        try {
+            const subtotal    = orders.reduce((s, i) => s + i.price * i.quantity, 0);
+            const total       = parseFloat((subtotal * (1 + TAX_RATE)).toFixed(2));
+            const latestNum   = await getNextOrderNumber();
+            const paymentUrl  = await createPaymentLink(total, latestNum);
+            await handleSendOrder({ paymentUrl });
+            setCardStatus('done');
+        } catch (err) {
+            setCardStatus('error');
+            setCardError(err.message);
+        }
+    }, [orders, handleSendOrder]);
+
+    const handleSendOrder = useCallback(async ({ paymentUrl = null } = {}) => {
         if (orders.length === 0) return;
         setSendError('');
         try {
@@ -273,7 +290,7 @@ export default function OrderSystem() {
             if (printerStatus === 'connected') {
                 try {
                     console.log('[print] calling eposPrint…');
-                    await eposPrint({ orderNumber: nextOrderNumber, items: enrichedOrders, taxRate: TAX_RATE });
+                    await eposPrint({ orderNumber: nextOrderNumber, items: enrichedOrders, taxRate: TAX_RATE, paymentUrl });
                     console.log('[print] done');
                 } catch (printErr) {
                     console.error('[print] failed:', printErr);
@@ -558,9 +575,13 @@ export default function OrderSystem() {
                     <Button onClick={handleSendOrder} className='flex-1' disabled={orders.length === 0}>
                         Cash
                     </Button>
+                    <Button onClick={handleScanToPay} className='flex-1' variant='outline'
+                        disabled={orders.length === 0 || cardStatus === 'waiting'}>
+                        Scan to Pay
+                    </Button>
                     <Button onClick={handleChargeCard} className='flex-1' variant='outline'
                         disabled={orders.length === 0 || readerStatus !== 'connected' || cardStatus === 'waiting' || cardStatus === 'processing'}>
-                        Charge Card
+                        Card Reader
                     </Button>
                 </div>
             </CardContent>

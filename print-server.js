@@ -75,7 +75,7 @@ function formatItem(label, priceStr) {
     return bodyLines.join('\n') + '\n';
 }
 
-function buildReceipt({ orderNumber, items, taxRate, cashappUrl }) {
+function buildReceipt({ orderNumber, items, taxRate, cashappUrl, paymentUrl }) {
     const cashApp = cashappUrl || CASHAPP_URL;
     const cashTag = cashApp.replace('https://cash.app/', '');
     const grouped = {};
@@ -144,13 +144,13 @@ function buildReceipt({ orderNumber, items, taxRate, cashappUrl }) {
         Buffer.from([ESC, 0x61, 0x01]),          // center
         Buffer.from('Please show this when\nyou pick up.\n'),
 
-        // CashApp QR code
+        // Payment QR — Stripe link if provided, otherwise CashApp
         Buffer.from('\n'),
         Buffer.from([ESC, 0x45, 0x01]),          // bold
-        Buffer.from('Pay with CashApp\n'),
+        Buffer.from(paymentUrl ? 'Scan to Pay\n' : 'Pay with CashApp\n'),
         Buffer.from([ESC, 0x45, 0x00]),          // bold off
-        buildQRCode(cashApp),
-        Buffer.from(cashTag + '\n'),
+        buildQRCode(paymentUrl || cashApp),
+        Buffer.from((paymentUrl ? 'Powered by Stripe' : cashTag) + '\n'),
 
         Buffer.from('\n\n'),
         Buffer.from([GS, 0x56, 0x42, 0x04]),     // cut
