@@ -8,9 +8,10 @@ const http = require('http');
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 // Set PRINTER_PORT to the COM port shown in Device Manager → Ports (COM & LPT)
 // when the printer is plugged in via USB.
-const COM_PORT = process.env.PRINTER_PORT || 'COM9'; // ← change this
-const BAUD_RATE = parseInt(process.env.PRINTER_BAUD || '9600', 10);
+const COM_PORT    = process.env.PRINTER_PORT           || 'COM9';          // ← change this
+const BAUD_RATE   = parseInt(process.env.PRINTER_BAUD  || '9600', 10);
 const SERVER_PORT = parseInt(process.env.PRINT_SERVER_PORT || '3333', 10);
+const CASHAPP_URL = process.env.CASHAPP_URL            || 'https://cash.app/$TheMoonTea';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ESC = 0x1b;
@@ -18,6 +19,22 @@ const GS = 0x1d;
 const W = 48; // characters per line (80 mm / 3⅛" paper at 203 DPI)
 
 let serialPort = null;
+
+// ESC/POS QR code — model 2, error correction M, module size 4 (~1.5 cm)
+function buildQRCode(data) {
+    const bytes  = Buffer.from(data, 'utf8');
+    const len    = bytes.length + 3;             // fn(1) + m(1) + data
+    const pL     = len & 0xFF;
+    const pH     = (len >> 8) & 0xFF;
+    return Buffer.concat([
+        Buffer.from([0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00]), // model 2
+        Buffer.from([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, 0x04]),        // size 4
+        Buffer.from([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x31]),        // error correction M
+        Buffer.from([0x1D, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30]),            // store data
+        bytes,
+        Buffer.from([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30]),        // print
+    ]);
+}
 
 // Right-align `right` against `left` on a single line.
 function pad(left, right) {
@@ -58,7 +75,9 @@ function formatItem(label, priceStr) {
     return bodyLines.join('\n') + '\n';
 }
 
-function buildReceipt({ orderNumber, items, taxRate }) {
+function buildReceipt({ orderNumber, items, taxRate, cashappUrl }) {
+    const cashApp = cashappUrl || CASHAPP_URL;
+    const cashTag = cashApp.replace('https://cash.app/', '');
     const grouped = {};
     items.forEach(({ name, price }) => {
         if (!grouped[name]) grouped[name] = { name, price, qty: 0 };
@@ -122,11 +141,19 @@ function buildReceipt({ orderNumber, items, taxRate }) {
 
         // Footer
         Buffer.from('\n'),
-        Buffer.from([ESC, 0x61, 0x01]), // center
+        Buffer.from([ESC, 0x61, 0x01]),          // center
         Buffer.from('Please show this when\nyou pick up.\n'),
 
-        Buffer.from('\n\n'), // reduced bottom margin
-        Buffer.from([GS, 0x56, 0x42, 0x04]), // cut
+        // CashApp QR code
+        Buffer.from('\n'),
+        Buffer.from([ESC, 0x45, 0x01]),          // bold
+        Buffer.from('Pay with CashApp\n'),
+        Buffer.from([ESC, 0x45, 0x00]),          // bold off
+        buildQRCode(cashApp),
+        Buffer.from(cashTag + '\n'),
+
+        Buffer.from('\n\n'),
+        Buffer.from([GS, 0x56, 0x42, 0x04]),     // cut
     ];
 
     return Buffer.concat(chunks);
