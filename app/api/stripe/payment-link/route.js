@@ -14,7 +14,7 @@ export async function POST(req) {
 
         const link = await stripe.paymentLinks.create({
             line_items:          [{ price: price.id, quantity: 1 }],
-            after_completion:    { type: 'message', message: { message: 'Thank you! Enjoy your order 🧡' } },
+            after_completion:    { type: 'hosted_confirmation', hosted_confirmation: { custom_message: 'Thank you! Enjoy your order 🧡' } },
         });
 
         return Response.json({ url: link.url });
