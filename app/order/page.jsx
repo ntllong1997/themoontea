@@ -199,6 +199,46 @@ export default function OrderSystem() {
         return () => clearInterval(id);
     }, []);
 
+    const handleSendOrder = useCallback(async ({ paymentUrl = null } = {}) => {
+        if (orders.length === 0) return;
+        setSendError('');
+        try {
+            const nextOrderNumber = await getNextOrderNumber();
+            const timestamp = new Date().toISOString();
+
+            const enrichedOrders = orders.flatMap((item) =>
+                Array.from({ length: item.quantity }).map(() => ({
+                    orderNumber: nextOrderNumber,
+                    name: item.name,
+                    price: item.price,
+                    type: item.type,
+                    timestamp,
+                    phone: phone.trim() || null,
+                }))
+            );
+
+            await saveOrderHistory(enrichedOrders);
+            setHistory((prev) => [enrichedOrders, ...prev]);
+            setOrders([]);
+            setPhone('');
+            setMobileTab('history');
+            tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+            console.log('[print] printerStatus =', printerStatus);
+            if (printerStatus === 'connected') {
+                try {
+                    console.log('[print] calling eposPrint…');
+                    await eposPrint({ orderNumber: nextOrderNumber, items: enrichedOrders, taxRate: TAX_RATE, paymentUrl });
+                    console.log('[print] done');
+                } catch (printErr) {
+                    console.error('[print] failed:', printErr);
+                }
+            }
+        } catch (err) {
+            console.error('Send order failed:', err);
+            setSendError('Order failed to save — please try again.');
+        }
+    }, [orders, phone, printerStatus]);
+
     const handleDiscoverReaders = useCallback(async () => {
         setReaderStatus('discovering');
         setShowReaders(true);
@@ -250,10 +290,10 @@ export default function OrderSystem() {
         setCardStatus('waiting');
         setCardError('');
         try {
-            const subtotal    = orders.reduce((s, i) => s + i.price * i.quantity, 0);
-            const total       = parseFloat((subtotal * (1 + TAX_RATE)).toFixed(2));
-            const latestNum   = await getNextOrderNumber();
-            const paymentUrl  = await createPaymentLink(total, latestNum);
+            const subtotal   = orders.reduce((s, i) => s + i.price * i.quantity, 0);
+            const total      = parseFloat((subtotal * (1 + TAX_RATE)).toFixed(2));
+            const latestNum  = await getNextOrderNumber();
+            const paymentUrl = await createPaymentLink(total, latestNum);
             await handleSendOrder({ paymentUrl });
             setCardStatus('done');
         } catch (err) {
@@ -261,46 +301,6 @@ export default function OrderSystem() {
             setCardError(err.message);
         }
     }, [orders, handleSendOrder]);
-
-    const handleSendOrder = useCallback(async ({ paymentUrl = null } = {}) => {
-        if (orders.length === 0) return;
-        setSendError('');
-        try {
-            const nextOrderNumber = await getNextOrderNumber();
-            const timestamp = new Date().toISOString();
-
-            const enrichedOrders = orders.flatMap((item) =>
-                Array.from({ length: item.quantity }).map(() => ({
-                    orderNumber: nextOrderNumber,
-                    name: item.name,
-                    price: item.price,
-                    type: item.type,
-                    timestamp,
-                    phone: phone.trim() || null,
-                }))
-            );
-
-            await saveOrderHistory(enrichedOrders);
-            setHistory((prev) => [enrichedOrders, ...prev]);
-            setOrders([]);
-            setPhone('');
-            setMobileTab('history');
-            tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-            console.log('[print] printerStatus =', printerStatus);
-            if (printerStatus === 'connected') {
-                try {
-                    console.log('[print] calling eposPrint…');
-                    await eposPrint({ orderNumber: nextOrderNumber, items: enrichedOrders, taxRate: TAX_RATE, paymentUrl });
-                    console.log('[print] done');
-                } catch (printErr) {
-                    console.error('[print] failed:', printErr);
-                }
-            }
-        } catch (err) {
-            console.error('Send order failed:', err);
-            setSendError('Order failed to save — please try again.');
-        }
-    }, [orders, phone, printerStatus]);
 
     const handleBobaItemClick = useCallback((orderNumber, itemIndex) => {
         const key = `${orderNumber}-${itemIndex}`;
