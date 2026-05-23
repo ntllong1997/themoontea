@@ -12,12 +12,8 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel, { PRICES, TAX_RATE, HOT_CHEETO_DUST_PRICE } from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
-import {
-    connectPrinter,
-    disconnectPrinter,
-    isPrinterReady,
-    printReceipt as eposPrint,
-} from '@/lib/printer';
+import { checkPrinterStatus, printReceipt as eposPrint } from '@/lib/printer';
+import { Printer } from 'lucide-react';
 
 const CORNDOG_STATES = { received: 'received', making: 'making', ready: 'ready', pickedup: 'pickedup' };
 const CORNDOG_NEXT = { received: 'making', making: 'ready', ready: 'pickedup', pickedup: 'received' };
@@ -92,9 +88,6 @@ export default function OrderSystem() {
     const [notifiedOrders, setNotifiedOrders] = useState(new Set());
     const [phoneOverrides, setPhoneOverrides] = useState({});
     const [mobileTab, setMobileTab] = useState('order');
-    const [printerIp, setPrinterIp] = useState(() =>
-        (typeof window !== 'undefined' && localStorage.getItem('printerIp')) || '172.16.10.11'
-    );
     const [printerStatus, setPrinterStatus] = useState('disconnected'); // 'disconnected'|'connecting'|'connected'|'error'
     const [sendError, setSendError] = useState('');
 
@@ -150,7 +143,7 @@ export default function OrderSystem() {
 
     const handleAddBoba = useCallback(() => {
         if (!selectedDrink || !selectedBoba) return;
-        const name = `${selectedDrink} with ${selectedBoba}`;
+        const name = `${selectedDrink} (${selectedBoba})`;
         setOrders((prev) => {
             const idx = prev.findIndex((i) => i.name === name);
             if (idx >= 0) {
@@ -191,20 +184,12 @@ export default function OrderSystem() {
         });
     }, []);
 
-    const handlePrinterToggle = useCallback(async () => {
-        if (printerStatus === 'connected') {
-            disconnectPrinter();
-            setPrinterStatus('disconnected');
-            return;
-        }
-        setPrinterStatus('connecting');
-        try {
-            await connectPrinter(printerIp);
-            setPrinterStatus('connected');
-        } catch {
-            setPrinterStatus('error');
-        }
-    }, [printerStatus, printerIp]);
+    useEffect(() => {
+        const poll = async () => setPrinterStatus(await checkPrinterStatus());
+        poll();
+        const id = setInterval(poll, 5000);
+        return () => clearInterval(id);
+    }, []);
 
     const handleSendOrder = useCallback(async () => {
         if (orders.length === 0) return;
@@ -230,15 +215,21 @@ export default function OrderSystem() {
             setPhone('');
             setMobileTab('history');
             tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-            if (isPrinterReady()) {
-                try { eposPrint({ orderNumber: nextOrderNumber, items: enrichedOrders, taxRate: TAX_RATE }); }
-                catch (printErr) { console.error('Print failed:', printErr); }
+            console.log('[print] printerStatus =', printerStatus);
+            if (printerStatus === 'connected') {
+                try {
+                    console.log('[print] calling eposPrint…');
+                    await eposPrint({ orderNumber: nextOrderNumber, items: enrichedOrders, taxRate: TAX_RATE });
+                    console.log('[print] done');
+                } catch (printErr) {
+                    console.error('[print] failed:', printErr);
+                }
             }
         } catch (err) {
             console.error('Send order failed:', err);
             setSendError('Order failed to save — please try again.');
         }
-    }, [orders, phone]);
+    }, [orders, phone, printerStatus]);
 
     const handleBobaItemClick = useCallback((orderNumber, itemIndex) => {
         const key = `${orderNumber}-${itemIndex}`;
@@ -277,35 +268,63 @@ export default function OrderSystem() {
         await updateOrderPhone(orderNumber, newPhone);
     }, []);
 
+    const handleReprintOrder = useCallback(async (orderNumber, items) => {
+        try {
+            await eposPrint({
+                orderNumber,
+                items: items.map(({ item }) => item),
+                taxRate: TAX_RATE,
+            });
+        } catch (err) {
+            console.error('[reprint] failed:', err);
+        }
+    }, []);
+
     const getOrderActions = useCallback(
-        ({ orderNumber }) => {
+        ({ orderNumber, items }) => {
             const orderPhone = getOrderPhone(orderNumber);
+
+            const printBtn = printerStatus === 'connected' ? (
+                <button
+                    onClick={(e) => { e.stopPropagation(); handleReprintOrder(orderNumber, items); }}
+                    className='p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors'
+                    title='Reprint receipt'
+                >
+                    <Printer size={14} />
+                </button>
+            ) : null;
 
             if (notifiedOrders.has(orderNumber)) {
                 return (
-                    <span className='text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded'>
-                        Notified ✓
-                    </span>
+                    <div className='flex items-center gap-1'>
+                        {printBtn}
+                        <span className='text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded'>
+                            Notified ✓
+                        </span>
+                    </div>
                 );
             }
 
-            if (!orderPhone) return null;
+            if (!orderPhone) return printBtn;
 
             const orderItems = history.flat().filter((item) => item.orderNumber === orderNumber);
             const itemList = orderItems.map((item) => `• ${item.name}`).join('\n');
             const smsBody = `🌙 The Moon Tea\nOrder #${orderNumber} is ready for pickup! 🎉\n\n${itemList}\n\nSee you soon! 🧡`;
             const smsHref = `sms:${orderPhone}?body=${encodeURIComponent(smsBody)}`;
             return (
-                <a
-                    href={smsHref}
-                    onClick={(e) => { e.stopPropagation(); setTimeout(() => markNotified(orderNumber), 500); }}
-                    className='rounded px-2 py-1 text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors'
-                >
-                    Notify
-                </a>
+                <div className='flex items-center gap-1'>
+                    {printBtn}
+                    <a
+                        href={smsHref}
+                        onClick={(e) => { e.stopPropagation(); setTimeout(() => markNotified(orderNumber), 500); }}
+                        className='rounded px-2 py-1 text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors'
+                    >
+                        Notify
+                    </a>
+                </div>
             );
         },
-        [getOrderPhone, history, notifiedOrders, markNotified]
+        [getOrderPhone, history, notifiedOrders, markNotified, printerStatus, handleReprintOrder]
     );
 
     // Unified item styling — dispatches by item type
@@ -413,45 +432,21 @@ export default function OrderSystem() {
                 </div>
 
                 {/* Printer */}
-                <div className='mt-4 border-t pt-3 space-y-2'>
-                    <div className='flex items-center justify-between'>
-                        <span className='text-sm font-medium'>Printer</span>
-                        <span className={`text-xs font-semibold ${
-                            printerStatus === 'connected' ? 'text-green-600' :
-                            printerStatus === 'connecting' ? 'text-yellow-600' :
-                            printerStatus === 'error' ? 'text-red-600' : 'text-gray-400'
-                        }`}>
-                            {printerStatus === 'connected' ? 'Connected ✓' :
-                             printerStatus === 'connecting' ? 'Connecting…' :
-                             printerStatus === 'error' ? 'Failed ✕' : 'Disconnected'}
-                        </span>
-                    </div>
-                    <div className='flex gap-2'>
-                        <input
-                            type='text'
-                            value={printerIp}
-                            onChange={(e) => {
-                                setPrinterIp(e.target.value);
-                                localStorage.setItem('printerIp', e.target.value);
-                            }}
-                            placeholder='192.168.192.168'
-                            className='flex-1 rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:border-blue-500'
-                        />
-                        <Button
-                            size='sm'
-                            variant={printerStatus === 'connected' ? 'destructive' : 'outline'}
-                            onClick={handlePrinterToggle}
-                            disabled={printerStatus === 'connecting'}
-                        >
-                            {printerStatus === 'connected' ? 'Disconnect' : 'Connect'}
-                        </Button>
-                    </div>
-                    {printerStatus === 'disconnected' || printerStatus === 'error' ? (
-                        <p className='text-xs text-gray-400'>
-                            First time: visit https://{printerIp} in Safari to trust the certificate.
-                        </p>
-                    ) : null}
+                <div className='mt-4 border-t pt-3 flex items-center justify-between'>
+                    <span className='text-sm font-medium'>Printer</span>
+                    <span className={`text-xs font-semibold ${
+                        printerStatus === 'connected'    ? 'text-green-600' :
+                        printerStatus === 'error'        ? 'text-red-500'   : 'text-gray-400'
+                    }`}>
+                        {printerStatus === 'connected' ? 'Ready' :
+                         printerStatus === 'error'     ? 'No printer' : 'Server offline'}
+                    </span>
                 </div>
+                {printerStatus !== 'connected' && (
+                    <p className='text-xs text-gray-400 mt-1'>
+                        Run <span className='font-mono bg-gray-100 px-1 rounded'>npm run print-server</span> in a terminal to enable printing.
+                    </p>
+                )}
 
                 {sendError && (
                     <p className='mt-2 text-xs text-red-600 font-medium text-center'>{sendError}</p>
