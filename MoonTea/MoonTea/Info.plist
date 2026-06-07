@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Epson printer (existing) -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_epson_escpos._tcp</string>
+		<string>_pdl-datastream._tcp</string>
+	</array>
+	<key>UISupportedExternalAccessoryProtocols</key>
+	<array>
+		<string>com.epson.escpos</string>
+		<string>com.squareup.s020</string>
+		<string>com.squareup.s025</string>
+		<string>com.squareup.s089</string>
+		<string>com.squareup.protocol.stand</string>
+	</array>
+
+	<!-- Square Mobile Payments SDK — app ID read by SDK at launch -->
+	<key>SquareMobilePaymentsSDKApplicationID</key>
+	<string>sq0idp-CjarT4TPvF60tv-P2VxfVg</string>
+
+	<!-- Square contactless reader — Bluetooth LE -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>The Moon Tea uses Bluetooth to communicate with the Square card reader for contactless payments.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>The Moon Tea uses Bluetooth to communicate with the Square card reader for contactless payments.</string>
+
+	<!-- Square reader may require location on some firmware versions -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Location is used to verify your Square account and process payments at this location.</string>
+
+	<!-- Square Reader for magstripe (audio jack) uses the microphone -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The Moon Tea uses the microphone to communicate with the Square magstripe reader.</string>
+</dict>
+</plist>
