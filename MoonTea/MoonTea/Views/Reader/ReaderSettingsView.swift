@@ -11,7 +11,6 @@ struct ReaderSettingsView: View {
         }
         .navigationTitle("Card Reader")
         .navigationBarTitleDisplayMode(.inline)
-        .task { SquareService.configure() }
     }
 
     // MARK: - Status
@@ -34,6 +33,12 @@ struct ReaderSettingsView: View {
 
             if !square.connectedReaderName.isEmpty {
                 LabeledContent("Reader", value: square.connectedReaderName)
+            }
+
+            if !square.readerUnavailableReason.isEmpty {
+                Text(square.readerUnavailableReason)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
 
             if !square.lastError.isEmpty {
@@ -69,9 +74,7 @@ struct ReaderSettingsView: View {
                     square.presentReaderSettings()
                 }
                 Button("Disconnect reader", role: .destructive) {
-                    // TODO (SDK): MobilePaymentsClient.shared.readerManager.disconnectAllReaders()
-                    square.connectionState = .disconnected
-                    square.connectedReaderName = ""
+                    square.disconnectReaders()
                 }
             }
         }

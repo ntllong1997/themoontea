@@ -21,6 +21,14 @@
 	<key>SquareMobilePaymentsSDKApplicationID</key>
 	<string>sq0idp-CjarT4TPvF60tv-P2VxfVg</string>
 
+	<!-- Keep the BLE link to the Square contactless reader alive while the
+	     app is backgrounded — without this, iOS suspends Bluetooth central
+	     activity and the reader connection drops as soon as you switch apps. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
+
 	<!-- Square contactless reader — Bluetooth LE -->
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>The Moon Tea uses Bluetooth to communicate with the Square card reader for contactless payments.</string>

@@ -4,6 +4,8 @@ struct CartView: View {
     @Bindable var vm: OrderViewModel
     @Environment(AppRouter.self) private var router
     @State private var printer = EpsonPrinter.shared
+    @State private var showPaymentSheet = false
+    @State private var square = SquareService.shared
     @FocusState private var phoneFieldFocused: Bool
 
     private var phoneIsValid: Bool {
@@ -66,6 +68,9 @@ struct CartView: View {
                 sendButton
             }
         }
+        .sheet(isPresented: $showPaymentSheet) {
+            PaymentConfirmationSheet(vm: vm, isPresented: $showPaymentSheet)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -76,23 +81,44 @@ struct CartView: View {
 
     // MARK: - Send button
 
+    private var readerReady: Bool { square.connectionState == .ready }
+
     private var sendButton: some View {
-        Button {
-            Task { await vm.sendOrder() }
-        } label: {
-            if vm.isSending {
-                ProgressView().tint(.white)
+        VStack(spacing: 6) {
+            Button {
+                if vm.paymentMethod == .card && readerReady {
+                    showPaymentSheet = true
+                } else {
+                    Task { await vm.sendOrder() }
+                }
+            } label: {
+                if vm.isSending {
+                    ProgressView().tint(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                } else {
+                    HStack(spacing: 8) {
+                        Text("Send Order")
+                        if vm.paymentMethod == .card && readerReady {
+                            Image(systemName: "wave.3.right.circle.fill")
+                                .font(.system(size: 13))
+                        }
+                    }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-            } else {
-                Text("Send Order")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.black)
+            .disabled(vm.cart.isEmpty || vm.isSending || !phoneIsValid)
+
+            if vm.paymentMethod == .card && !readerReady {
+                Text("No reader connected — order will be recorded without charging")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.mutedText)
+                    .multilineTextAlignment(.center)
             }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(.black)
-        .disabled(vm.cart.isEmpty || vm.isSending || !phoneIsValid)
     }
 
     // MARK: - Cart rows
@@ -242,6 +268,179 @@ struct CartView: View {
         }
         .font(.system(size: bold ? 16 : 14, weight: bold ? .bold : .regular))
         .foregroundStyle(muted ? Theme.mutedText : Theme.strongText)
+    }
+}
+
+// MARK: - Card payment sheet
+
+private struct PaymentConfirmationSheet: View {
+    @Bindable var vm: OrderViewModel
+    @Binding var isPresented: Bool
+    @State private var square = SquareService.shared
+    @State private var isCharging = false
+    @State private var chargeError: String = ""
+    @Environment(AppRouter.self) private var router
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 28) {
+                    cardIcon
+                    amountDisplay
+                    readerStatusRow
+                    if !chargeError.isEmpty { errorRow }
+                    actionButton
+                }
+                .padding(28)
+            }
+            .navigationTitle("Card Payment")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { isPresented = false }
+                        .disabled(isCharging)
+                }
+            }
+        }
+    }
+
+    // MARK: - Subviews
+
+    private var cardIcon: some View {
+        Image(systemName: square.connectionState == .ready ? "creditcard.fill" : "creditcard.trianglebadge.exclamationmark")
+            .font(.system(size: 64))
+            .foregroundStyle(square.connectionState == .ready ? Color.blue.opacity(0.85) : Color.orange)
+            .symbolEffect(.pulse, isActive: isCharging)
+    }
+
+    private var amountDisplay: some View {
+        VStack(spacing: 4) {
+            Text("AMOUNT DUE")
+                .font(.system(size: 11, weight: .medium))
+                .tracking(1)
+                .foregroundStyle(.secondary)
+            Text("$\(vm.total.fmt2)")
+                .font(.system(size: 54, weight: .bold))
+        }
+    }
+
+    private var readerStatusRow: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(readerStatusColor)
+                .frame(width: 8, height: 8)
+            Text(readerStatusText)
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+            Spacer()
+            if square.connectionState != .ready {
+                Button("Set up") {
+                    isPresented = false
+                    router.push(.reader)
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.blue)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var errorRow: some View {
+        Text(chargeError)
+            .font(.system(size: 13))
+            .foregroundStyle(.red)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 8)
+    }
+
+    // MARK: - Action button
+
+    @ViewBuilder
+    private var actionButton: some View {
+        if square.connectionState == .ready {
+            Button {
+                Task { await charge() }
+            } label: {
+                Group {
+                    if isCharging {
+                        ProgressView().tint(.white)
+                    } else {
+                        HStack(spacing: 8) {
+                            Image(systemName: "wave.3.right.circle.fill")
+                            Text("Tap / Insert Card")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .foregroundStyle(.white)
+                .background(Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isCharging)
+        } else {
+            Button {
+                isPresented = false
+                router.push(.reader)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.right.circle.fill")
+                    Text("Open Reader Settings")
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .foregroundStyle(.white)
+                .background(Color.orange)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Charge
+
+    private func charge() async {
+        isCharging = true
+        chargeError = ""
+        let amountCents = Int((vm.total * 100).rounded())
+        let result = await square.charge(amountCents: amountCents)
+        isCharging = false
+        switch result {
+        case .success:
+            isPresented = false
+            await vm.sendOrder()
+        case .cancelled:
+            break   // sheet stays open, customer can retry
+        case .failure(let msg):
+            chargeError = msg
+        }
+    }
+
+    // MARK: - Helpers
+
+    private var readerStatusColor: Color {
+        switch square.connectionState {
+        case .ready:         .green
+        case .connecting:    .yellow
+        case .disconnected:  .red
+        case .unauthorized, .notConfigured: .orange
+        }
+    }
+
+    private var readerStatusText: String {
+        switch square.connectionState {
+        case .notConfigured:  "Square not configured"
+        case .unauthorized:   "Square not authorized"
+        case .disconnected:   "No reader connected"
+        case .connecting:     "Connecting to reader…"
+        case .ready:          "Reader ready"
+        }
     }
 }
 

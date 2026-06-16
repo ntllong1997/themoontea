@@ -83,6 +83,52 @@ final class EpsonPrinter: NSObject {
     private var discoveryDelegate: DiscoveryDelegate?
     private let printQueue = DispatchQueue(label: "epson.print", qos: .userInitiated)
 
+    // Reused across prints. The ePOS SDK manages connection threads against
+    // shared internal state; allocating a fresh Epos2Printer per print let
+    // one instance's teardown threads race the next instance's connect,
+    // crashing after a couple of prints. Keeping one instance for the app's
+    // lifetime and only connecting/disconnecting it avoids that race.
+    private var printerInstance: Epos2Printer?
+
+    // The target we're currently connected to, or nil if disconnected.
+    // Staying connected between prints skips the ~1-3s reconnect handshake
+    // on every order; we only reconnect when the link is gone or stale.
+    private var connectedTarget: String?
+
+    private func obtainPrinter() -> Epos2Printer? {
+        if let existing = printerInstance { return existing }
+        let created = Epos2Printer(printerSeries: kSeriesM30III, lang: kLangEN)
+        printerInstance = created
+        return created
+    }
+
+    /// Connects `printer` to `target` if it isn't already connected to it.
+    /// Returns false if a connection attempt fails.
+    private func ensureConnected(_ printer: Epos2Printer, target: String) -> Bool {
+        if connectedTarget == target {
+            let status = printer.getStatus()
+            if status?.connection == kTrue { return true }
+            // Link dropped (printer off / out of range) — fall through to reconnect.
+            connectedTarget = nil
+        }
+
+        if connectedTarget != nil {
+            printer.disconnect()
+            connectedTarget = nil
+        }
+
+        let code = printer.connect(target, timeout: 15_000)
+        guard code == kSuccess else { return false }
+        connectedTarget = target
+        return true
+    }
+
+    /// Drops the cached connection so the next print reconnects from scratch.
+    private func disconnectPrinter(_ printer: Epos2Printer) {
+        printer.disconnect()
+        connectedTarget = nil
+    }
+
     // MARK: - Discovery
 
     func startScan() {
@@ -141,6 +187,11 @@ final class EpsonPrinter: NSObject {
     func clearSaved() {
         UserDefaults.standard.removeObject(forKey: savedTargetKey)
         UserDefaults.standard.removeObject(forKey: savedNameKey)
+
+        // Release the now-unused connection so it doesn't sit open in the background.
+        if let printer = printerInstance, connectedTarget != nil {
+            printQueue.async { self.disconnectPrinter(printer) }
+        }
     }
 
     // MARK: - Printing
@@ -177,7 +228,7 @@ final class EpsonPrinter: NSObject {
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             printQueue.async {
-                guard let printer = Epos2Printer(printerSeries: kSeriesM30III, lang: kLangEN) else {
+                guard let printer = self.obtainPrinter() else {
                     cont.resume(throwing: Self.epsonError(0, "Failed to allocate printer."))
                     return
                 }
@@ -185,27 +236,26 @@ final class EpsonPrinter: NSObject {
                 // Clear any leftover commands before composing this receipt.
                 printer.clearCommandBuffer()
 
-                let connectCode = printer.connect(target, timeout: 15_000)
-                guard connectCode == kSuccess else {
+                guard self.ensureConnected(printer, target: target) else {
                     printer.clearCommandBuffer()
-                    cont.resume(throwing: Self.epsonError(connectCode, "Could not connect to printer."))
+                    cont.resume(throwing: Self.epsonError(0, "Could not connect to printer."))
                     return
                 }
 
                 self.buildReceipt(on: printer, payload: payload)
 
                 // Set up a receive delegate so we can wait for the printer to
-                // acknowledge the job before disconnecting. Disconnecting too
-                // early leaves the printer in a state where the next connect
-                // hangs — that's the "works first few times then stops" bug.
+                // acknowledge the job. The connection stays open afterwards —
+                // we only disconnect on error so the next print can reconnect
+                // from a clean slate.
                 let waiter = ReceiveWaiter()
                 printer.setReceiveEventDelegate(waiter)
 
                 let sendCode = printer.sendData(15_000)
                 if sendCode != kSuccess {
                     printer.setReceiveEventDelegate(nil)
-                    printer.disconnect()
                     printer.clearCommandBuffer()
+                    self.disconnectPrinter(printer)
                     cont.resume(throwing: Self.epsonError(sendCode, "Print failed."))
                     return
                 }
@@ -214,18 +264,15 @@ final class EpsonPrinter: NSObject {
                 let ackCode = waiter.wait(timeout: 20)
 
                 printer.setReceiveEventDelegate(nil)
-                printer.disconnect()
                 printer.clearCommandBuffer()
-
-                // Small grace window for iOS / Bluetooth to fully release the
-                // EA session before the next print attempts to connect.
-                Thread.sleep(forTimeInterval: 0.4)
 
                 if ackCode == kSuccess {
                     cont.resume()
                 } else if ackCode == nil {
+                    self.disconnectPrinter(printer)
                     cont.resume(throwing: Self.epsonError(-1, "Printer did not respond in time."))
                 } else {
+                    self.disconnectPrinter(printer)
                     cont.resume(throwing: Self.epsonError(ackCode!, "Print acknowledged with error."))
                 }
             }
