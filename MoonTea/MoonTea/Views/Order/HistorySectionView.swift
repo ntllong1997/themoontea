@@ -81,6 +81,14 @@ struct HistorySectionView: View {
                 Button("OK") { phoneEditorFocused = false }
             }
         }
+        .alert("Save Failed", isPresented: Binding(
+            get: { !vm.phoneError.isEmpty },
+            set: { if !$0 { vm.phoneError = "" } }
+        )) {
+            Button("OK") { vm.phoneError = "" }
+        } message: {
+            Text(vm.phoneError)
+        }
     }
 
     // MARK: - Order card

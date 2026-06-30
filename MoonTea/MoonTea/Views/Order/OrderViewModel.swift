@@ -32,6 +32,7 @@ final class OrderViewModel {
 
     var sendError: String = ""
     var isSending: Bool = false
+    var phoneError: String = ""
 
     private let realtime = SupabaseRealtime(channelName: "orders")
     private var safetyPollTask: Task<Void, Never>?
@@ -277,11 +278,18 @@ final class OrderViewModel {
     }
 
     func savePhone(orderNumber: Int, phone: String) async {
-        phoneOverrides[orderNumber] = phone
+        phoneError = ""
+        phoneOverrides[orderNumber] = phone  // optimistic: show immediately
         do {
             try await SupabaseService.shared.updateOrderPhone(orderNumber: orderNumber, phone: phone)
+            // Refresh so history carries the new phone from DB, then drop the override.
+            await refreshHistory()
+            phoneOverrides.removeValue(forKey: orderNumber)
             Task { [realtime] in await realtime.broadcastChange() }
         } catch {
+            // Keep the optimistic override so the phone stays visible this session.
+            // The alert tells the user it wasn't persisted to the database.
+            phoneError = "Couldn't save phone number. Check your connection and try again."
             print("[order] update phone failed: \(error)")
         }
     }

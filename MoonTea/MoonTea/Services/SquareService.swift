@@ -1,4 +1,5 @@
 import Foundation
+import os
 import UIKit
 import CoreLocation
 import CoreBluetooth
@@ -29,6 +30,22 @@ final class SquareService: NSObject {
     private static var didInitializeSDK = false
     private let locationManager = CLLocationManager()
     private var bluetoothManager: CBCentralManager?
+
+    // When a known reader is unreachable, retryConnection() fails almost
+    // immediately, which flips connectionState .connecting -> .disconnected,
+    // which (via the `wasConnectedOrConnecting` guard below) re-triggers
+    // another retry — a tight loop with no delay between attempts that was
+    // spamming the console with reconnect/log churn on every launch. This
+    // cooldown caps automatic retries to once every few seconds so a reader
+    // that's truly off just sits disconnected instead of being hammered.
+    private var lastAutoReconnectAt: Date = .distantPast
+    private static let autoReconnectCooldown: TimeInterval = 5
+
+    /// Diagnostic logging for the reader-reconnect investigation. View in
+    /// Console.app (or `log stream`) filtered by subsystem "MoonTea",
+    /// category "SquareReader". Remove once the alternating-launch failure
+    /// is root-caused.
+    private let log = Logger(subsystem: "MoonTea", category: "SquareReader")
 
     private override init() {
         super.init()
@@ -70,7 +87,11 @@ final class SquareService: NSObject {
     // MARK: - App-launch setup
 
     static func configure() {
-        guard shared.isConfigured, !didInitializeSDK else { return }
+        guard shared.isConfigured, !didInitializeSDK else {
+            shared.log.info("configure() skipped — configured=\(shared.isConfigured, privacy: .public) didInitializeSDK=\(didInitializeSDK, privacy: .public) (warm path: SDK NOT re-initialized)")
+            return
+        }
+        shared.log.info("configure() running — first SDK initialize this process (COLD launch path)")
         didInitializeSDK = true
         MobilePaymentsSDK.initialize(squareApplicationID: Secrets.squareApplicationID)
         shared.connectionState = .unauthorized
@@ -83,6 +104,9 @@ final class SquareService: NSObject {
 
     func authorize() async {
         guard isConfigured else { connectionState = .notConfigured; return }
+
+        let authState = MobilePaymentsSDK.shared.authorizationManager.state
+        log.info("authorize() — sdk authState=\(authState == .authorized ? "authorized" : authState == .notAuthorized ? "notAuthorized" : "authorizing/other", privacy: .public)")
 
         // If the SDK already holds credentials from a previous session, skip the
         // authorize call entirely and go straight to syncing reader state.
@@ -152,7 +176,7 @@ final class SquareService: NSObject {
         refreshConnectionFromReaders()
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            await MainActor.run { self?.reconnectKnownReaders() }
+            await MainActor.run { self?.reconnectKnownReadersThrottled() }
         }
     }
 
@@ -180,6 +204,10 @@ final class SquareService: NSObject {
         // connected (status showed "Ready — Tap to Pay" with nothing paired).
         // We only care about the physical hardware here, so filter it out.
         let readers = MobilePaymentsSDK.shared.readerManager.readers.filter { $0.model != .tapToPay }
+        for r in readers {
+            let reasonCode = r.statusInfo.unavailableReasonInfo.map { Int($0.reason.rawValue) } ?? -1
+            log.info("refresh: reader '\(r.name, privacy: .public)' status=\(r.statusInfo.status.rawValue, privacy: .public) unavailableReason=\(reasonCode, privacy: .public)")
+        }
         if let ready = readers.first(where: { $0.statusInfo.status == .ready }) {
             connectionState = .ready
             connectedReaderName = ready.name
@@ -207,9 +235,22 @@ final class SquareService: NSObject {
                 readerUnavailableReason = ""
             }
             if wasConnectedOrConnecting {
-                reconnectKnownReaders()
+                reconnectKnownReadersThrottled()
             }
         }
+        log.info("refresh -> connectionState=\(String(describing: self.connectionState), privacy: .public) reader='\(self.connectedReaderName, privacy: .public)' reason='\(self.readerUnavailableReason, privacy: .public)'")
+    }
+
+    /// Gates `reconnectKnownReaders()` behind `autoReconnectCooldown` so a
+    /// reader that keeps failing to reconnect (powered off, out of range)
+    /// can't re-trigger itself in a tight loop — every failed retry flips
+    /// connectionState back to `.disconnected`, which would otherwise queue
+    /// another retry immediately.
+    private func reconnectKnownReadersThrottled() {
+        let now = Date()
+        guard now.timeIntervalSince(lastAutoReconnectAt) >= Self.autoReconnectCooldown else { return }
+        lastAutoReconnectAt = now
+        reconnectKnownReaders()
     }
 
     /// Square remembers readers you've paired before across launches, but
@@ -222,7 +263,8 @@ final class SquareService: NSObject {
         let manager = MobilePaymentsSDK.shared.readerManager
         for reader in manager.readers
         where reader.model != .tapToPay && reader.statusInfo.status == .readerUnavailable {
-            _ = manager.retryConnection(reader)
+            let result = manager.retryConnection(reader)
+            log.info("retryConnection('\(reader.name, privacy: .public)') -> result=\(result.rawValue, privacy: .public)")
         }
     }
 
@@ -298,12 +340,14 @@ final class SquareService: NSObject {
     /// the observer and re-deriving state directly from `readerManager.readers`
     /// guarantees the UI reflects reality as soon as we're active again.
     func handleAppDidBackground() {
+        log.info("scenePhase -> background (didInitializeSDK=\(Self.didInitializeSDK, privacy: .public))")
         guard Self.didInitializeSDK, let observer = readerObserver else { return }
         MobilePaymentsSDK.shared.readerManager.remove(observer)
         readerObserver = nil
     }
 
     func handleAppDidBecomeActive() {
+        log.info("scenePhase -> active (didInitializeSDK=\(Self.didInitializeSDK, privacy: .public))")
         // `MobilePaymentsSDK.shared` asserts (hard crash) if accessed before
         // `initialize` has run — which happens lazily from `configure()`. The
         // very first `.active` transition fires at launch, before that's had a

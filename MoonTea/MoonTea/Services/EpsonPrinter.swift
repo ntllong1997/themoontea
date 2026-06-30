@@ -66,6 +66,12 @@ final class EpsonPrinter: NSObject {
     }
 
     var status: Status = .idle
+    var isConnected: Bool = false {
+        didSet {
+            guard isConnected != oldValue else { return }
+            isConnected ? stopReconnectWatchdog() : startReconnectWatchdog()
+        }
+    }
     var discovered: [Discovered] = []
     var lastError: String = ""
 
@@ -95,6 +101,17 @@ final class EpsonPrinter: NSObject {
     // on every order; we only reconnect when the link is gone or stale.
     private var connectedTarget: String?
 
+    // The Epson TM-m30III has a ~2-hour Bluetooth idle timeout in firmware.
+    // Pinging every 60 minutes keeps the MFi session alive between prints.
+    private var keepaliveTimer: Timer?
+    private static let keepaliveInterval: TimeInterval = 60 * 60
+
+    // Retries the saved printer in the background while it's known to be
+    // unreachable, so a dropped link recovers on its own instead of waiting
+    // for the next order's print (and losing that receipt) to notice.
+    private var reconnectWatchdog: Timer?
+    private static let reconnectWatchdogInterval: TimeInterval = 30
+
     private func obtainPrinter() -> Epos2Printer? {
         if let existing = printerInstance { return existing }
         let created = Epos2Printer(printerSeries: kSeriesM30III, lang: kLangEN)
@@ -118,8 +135,19 @@ final class EpsonPrinter: NSObject {
         }
 
         let code = printer.connect(target, timeout: 15_000)
-        guard code == kSuccess else { return false }
+        guard code == kSuccess else {
+            // Without this, a failed reconnect left `isConnected` stuck on its
+            // last value — the settings screen kept showing "connected" while
+            // prints silently failed, and the reconnect watchdog (driven off
+            // `isConnected` going false) never engaged.
+            DispatchQueue.main.async { self.isConnected = false }
+            return false
+        }
         connectedTarget = target
+        DispatchQueue.main.async {
+            self.isConnected = true
+            self.startKeepalive()
+        }
         return true
     }
 
@@ -127,6 +155,102 @@ final class EpsonPrinter: NSObject {
     private func disconnectPrinter(_ printer: Epos2Printer) {
         printer.disconnect()
         connectedTarget = nil
+        DispatchQueue.main.async {
+            self.isConnected = false
+            self.stopKeepalive()
+        }
+    }
+
+    // MARK: - Keepalive
+    //
+    // `Timer.scheduledTimer(withTimeInterval:repeats:block:)` only registers
+    // the timer on the run loop's `.default` mode. iOS suspends `.default`
+    // timers while the run loop is in `.tracking` mode — i.e. while anyone is
+    // scrolling or dragging anywhere on screen. On a POS UI that's touched
+    // constantly, that silently starved this timer for the exact hours-long
+    // stretch it exists to cover, so the printer rode the firmware's real
+    // idle timeout instead of ever being pinged. Adding it to `.common`
+    // keeps it firing regardless of UI tracking.
+
+    private func startKeepalive() {
+        keepaliveTimer?.invalidate()
+        let timer = Timer(timeInterval: Self.keepaliveInterval, repeats: true) { [weak self] _ in
+            self?.pingConnection()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        keepaliveTimer = timer
+    }
+
+    private func stopKeepalive() {
+        keepaliveTimer?.invalidate()
+        keepaliveTimer = nil
+    }
+
+    private func pingConnection() {
+        guard let printer = printerInstance, connectedTarget != nil else { return }
+        printQueue.async { [weak self] in
+            guard let self else { return }
+            let s = printer.getStatus()
+            if s?.connection != kTrue {
+                DispatchQueue.main.async {
+                    self.connectedTarget = nil
+                    self.isConnected = false
+                }
+            }
+        }
+    }
+
+    // MARK: - Proactive reconnect
+    //
+    // Without this, a dropped link only got retried when the next order
+    // happened to print — which both delayed recovery and lost that order's
+    // receipt on the failed attempt. Once `isConnected` goes false for a
+    // saved printer, keep probing in the background until it's back.
+
+    private func startReconnectWatchdog() {
+        guard reconnectWatchdog == nil, hasSavedPrinter else { return }
+        let timer = Timer(timeInterval: Self.reconnectWatchdogInterval, repeats: true) { [weak self] _ in
+            self?.checkConnection()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        reconnectWatchdog = timer
+        checkConnection()  // try immediately rather than waiting a full interval
+    }
+
+    private func stopReconnectWatchdog() {
+        reconnectWatchdog?.invalidate()
+        reconnectWatchdog = nil
+    }
+
+    // MARK: - Connection probe
+
+    /// Probes whether the saved printer is reachable and updates `isConnected`.
+    /// Uses a short 5-second timeout so the settings screen responds quickly.
+    func checkConnection() {
+        guard hasSavedPrinter else {
+            isConnected = false
+            return
+        }
+        let target = savedTarget
+        printQueue.async { [weak self] in
+            guard let self, let printer = self.obtainPrinter() else { return }
+            if self.connectedTarget == target {
+                let s = printer.getStatus()
+                if s?.connection == kTrue { return }  // still good
+                self.connectedTarget = nil
+                DispatchQueue.main.async { self.isConnected = false }
+            }
+            let code = printer.connect(target, timeout: 5_000)
+            if code == kSuccess {
+                self.connectedTarget = target
+                DispatchQueue.main.async {
+                    self.isConnected = true
+                    self.startKeepalive()
+                }
+            } else {
+                DispatchQueue.main.async { self.isConnected = false }
+            }
+        }
     }
 
     // MARK: - Discovery
@@ -187,6 +311,7 @@ final class EpsonPrinter: NSObject {
     func clearSaved() {
         UserDefaults.standard.removeObject(forKey: savedTargetKey)
         UserDefaults.standard.removeObject(forKey: savedNameKey)
+        stopReconnectWatchdog()
 
         // Release the now-unused connection so it doesn't sit open in the background.
         if let printer = printerInstance, connectedTarget != nil {

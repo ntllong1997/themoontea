@@ -12,11 +12,24 @@ struct PrinterSettingsView: View {
             // ── Selected printer ──────────────────────────────────────
             Section("Selected printer") {
                 if printer.hasSavedPrinter {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(printer.savedName).font(.body)
-                        Text(printer.savedTarget)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(printer.savedName).font(.body)
+                            if printer.isConnected {
+                                Text(printer.savedTarget)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Not connected")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(printer.isConnected ? .green : .secondary)
+                            .padding(.top, 4)
                     }
                     Button("Forget this printer", role: .destructive) {
                         printer.clearSaved()
@@ -122,8 +135,11 @@ struct PrinterSettingsView: View {
             }
         }
         .onAppear {
-            // Auto-scan if there's no printer saved yet
-            if !printer.hasSavedPrinter { startScan() }
+            if printer.hasSavedPrinter {
+                printer.checkConnection()
+            } else {
+                startScan()
+            }
         }
         .onDisappear { stopCountdown() }
     }
