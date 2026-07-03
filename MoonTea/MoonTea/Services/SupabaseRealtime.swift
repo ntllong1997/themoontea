@@ -32,6 +32,7 @@ actor SupabaseRealtime {
     private var onJoin: (@Sendable () -> Void)?
     private var isStopped: Bool = true
     private var isJoined: Bool = false
+    private var isConnecting: Bool = false
     private var backoff: UInt64 = 1_000_000_000 // 1s
 
     /// - Parameter channelName: any room name — every client subscribing to
@@ -75,14 +76,28 @@ actor SupabaseRealtime {
         } else {
             reconnectTask?.cancel()
             backoff = 1_000_000_000
-            await reconnect()
+            await connect()
         }
     }
 
     // MARK: - Connect
 
+    // Actor reentrancy guard: connect() suspends at several `await` points
+    // below (the Secrets accesses, sendJoin()), and during any of those the
+    // actor can run another queued connect() call — a scheduleReconnect()
+    // timer and a foreground nudge() landing close together, for instance.
+    // Without `isConnecting`, both calls would each open their own live
+    // websocket; only the *last* one to finish ends up referenced by
+    // `self.task`, silently orphaning the other as a connection that's
+    // never explicitly closed and lingers until Supabase's server-side idle
+    // timeout reaps it. On a day with more reconnect churn (flaky network),
+    // that's exactly what drives concurrent-connection count above normal.
     private func connect() async {
         guard !isStopped else { return }
+        guard !isConnecting else { return }
+        isConnecting = true
+        defer { isConnecting = false }
+
         guard await !Secrets.supabaseURL.contains("YOUR-PROJECT-REF") else {
             print("[realtime] missing Supabase config")
             return
@@ -99,6 +114,14 @@ actor SupabaseRealtime {
         ]
         guard let url = comps.url else { return }
 
+        // Tear down any existing socket before opening a new one. Keeping
+        // this inside the isConnecting-guarded section (rather than as a
+        // separate pre-step, as before) makes teardown-then-create atomic
+        // with respect to every call path that can trigger a reconnect.
+        heartbeatTask?.cancel(); heartbeatTask = nil
+        receiveTask?.cancel();   receiveTask = nil
+        task?.cancel(with: .goingAway, reason: nil)
+
         let config = URLSessionConfiguration.default
         // On Apple platforms this behaves as an idle-read timeout for a
         // pending receive(): if no frame arrives within the interval, the
@@ -107,14 +130,23 @@ actor SupabaseRealtime {
         // three missed heartbeats, doubling as our dead-socket detector.
         config.timeoutIntervalForRequest = 90
         config.waitsForConnectivity = true
-        let session = URLSession(configuration: config)
-        let task = session.webSocketTask(with: url)
-        self.session = session
-        self.task = task
+        let newSession = URLSession(configuration: config)
+        let newTask = newSession.webSocketTask(with: url)
+        session = newSession
+        task = newTask
         isJoined = false
-        task.resume()
+        newTask.resume()
 
         await sendJoin()
+
+        // unsubscribe() can run while the awaits above were suspended —
+        // don't leave a joined-but-abandoned socket open on Supabase's side.
+        guard !isStopped else {
+            newTask.cancel(with: .goingAway, reason: nil)
+            if task === newTask { task = nil }
+            return
+        }
+
         startReceiveLoop()
         startHeartbeat()
     }
@@ -128,16 +160,8 @@ actor SupabaseRealtime {
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: delay)
             guard let self else { return }
-            await self.reconnect()
+            await self.connect()
         }
-    }
-
-    private func reconnect() async {
-        heartbeatTask?.cancel(); heartbeatTask = nil
-        receiveTask?.cancel();   receiveTask = nil
-        task?.cancel(with: .goingAway, reason: nil)
-        task = nil
-        await connect()
     }
 
     // MARK: - Send
