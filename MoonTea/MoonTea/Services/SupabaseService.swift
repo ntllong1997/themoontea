@@ -188,13 +188,31 @@ actor SupabaseService {
 
     /// Returns the updated rows so callers can patch local state in place
     /// instead of re-fetching.
+    ///
+    /// `orderNumber` resets to 1 each day (see `nextOrderNumber()`), so it's
+    /// only unique *within a day* — without the timestamp bounds this would
+    /// match every past day's order sharing the same number too, both
+    /// overwriting their phone number in the DB and, since callers merge the
+    /// returned rows straight into `history`, briefly flooding today's order
+    /// card with unrelated old items until the next full refresh corrects it.
     func updateOrderPhone(orderNumber: Int, phone: String?) async throws -> [Order] {
         struct Patch: Encodable { let phone: String? }
         let body = try JSONEncoder().encode(Patch(phone: (phone?.isEmpty == false) ? phone : nil))
+
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: Date())
+        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
         let req = try makeRequest(
             path: "/rest/v1/orders",
             method: "PATCH",
-            query: [.init(name: "orderNumber", value: "eq.\(orderNumber)")],
+            query: [
+                .init(name: "orderNumber", value: "eq.\(orderNumber)"),
+                .init(name: "timestamp", value: "gte.\(iso.string(from: start))"),
+                .init(name: "timestamp", value: "lt.\(iso.string(from: end))"),
+            ],
             body: body,
             preferReturn: true
         )
