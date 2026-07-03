@@ -99,6 +99,41 @@ actor SupabaseService {
         }
     }
 
+    /// Same grouping as `todaysOrderGroups()` but bounded to the newest
+    /// `limit` order groups via the `recent_order_groups` Postgres function
+    /// — groups (not raw rows) are limited, so a multi-item order is never
+    /// split across the cutoff. Meant for frequent catch-up refreshes
+    /// (safety poll, foreground return) where the full day's payload would
+    /// otherwise grow unbounded through a shift; callers should merge the
+    /// result into existing state rather than replace it, since older
+    /// groups beyond the limit are intentionally omitted, not gone.
+    func recentOrderGroups(limit: Int = 20) async throws -> [OrderGroup] {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: Date())
+        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        struct Params: Encodable {
+            let range_start: String
+            let range_end: String
+            let group_limit: Int
+        }
+        let body = try JSONEncoder().encode(Params(
+            range_start: iso.string(from: start),
+            range_end: iso.string(from: end),
+            group_limit: limit
+        ))
+        let req = try makeRequest(path: "/rest/v1/rpc/recent_order_groups", method: "POST", body: body)
+        let rows = try await run(req, as: [Order].self)
+
+        var buckets: [Int: [Order]] = [:]
+        for row in rows { buckets[row.orderNumber, default: []].append(row) }
+        return buckets.keys.sorted(by: >).map { key in
+            OrderGroup(orderNumber: key, items: buckets[key] ?? [])
+        }
+    }
+
     /// Fetch all orders (used by sales summary).
     func allOrders() async throws -> [Order] {
         let req = try makeRequest(
@@ -112,7 +147,12 @@ actor SupabaseService {
         return try await run(req, as: [Order].self)
     }
 
-    /// Picks the next order number for today, retrying on collision.
+    /// Atomically computes the next order number for today via the
+    /// `next_order_number` Postgres function, which serializes concurrent
+    /// callers (any device, web or app) behind an advisory lock scoped to
+    /// the day — collisions are structurally impossible rather than
+    /// avoided by retrying, and it's a single round trip instead of the
+    /// old client-side read-check-retry loop's worst case of 10.
     func nextOrderNumber() async throws -> Int {
         let cal = Calendar.current
         let start = cal.startOfDay(for: Date())
@@ -120,37 +160,16 @@ actor SupabaseService {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
-        for attempt in 0..<5 {
-            let latestReq = try makeRequest(
-                path: "/rest/v1/orders",
-                method: "GET",
-                query: [
-                    .init(name: "select", value: "orderNumber"),
-                    .init(name: "timestamp", value: "gte.\(iso.string(from: start))"),
-                    .init(name: "timestamp", value: "lt.\(iso.string(from: end))"),
-                    .init(name: "order", value: "orderNumber.desc"),
-                    .init(name: "limit", value: "1"),
-                ]
-            )
-            struct Row: Decodable { let orderNumber: Int }
-            let rows = try await run(latestReq, as: [Row].self)
-            let candidate = (rows.first?.orderNumber ?? 0) + 1 + attempt
-
-            let checkReq = try makeRequest(
-                path: "/rest/v1/orders",
-                method: "GET",
-                query: [
-                    .init(name: "select", value: "orderNumber"),
-                    .init(name: "timestamp", value: "gte.\(iso.string(from: start))"),
-                    .init(name: "timestamp", value: "lt.\(iso.string(from: end))"),
-                    .init(name: "orderNumber", value: "eq.\(candidate)"),
-                    .init(name: "limit", value: "1"),
-                ]
-            )
-            let existing = try await run(checkReq, as: [Row].self)
-            if existing.isEmpty { return candidate }
+        struct Params: Encodable {
+            let range_start: String
+            let range_end: String
         }
-        return Int(Date().timeIntervalSince1970)
+        let body = try JSONEncoder().encode(Params(
+            range_start: iso.string(from: start),
+            range_end: iso.string(from: end)
+        ))
+        let req = try makeRequest(path: "/rest/v1/rpc/next_order_number", method: "POST", body: body)
+        return try await run(req, as: Int.self)
     }
 
     /// Returns the server-confirmed rows (with their real `id`s) so callers can

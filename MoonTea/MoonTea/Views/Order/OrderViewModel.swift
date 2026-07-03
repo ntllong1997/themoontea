@@ -141,7 +141,7 @@ final class OrderViewModel {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 await self.realtime.nudge()
-                await self.refreshHistory()
+                await self.refreshRecentHistory()
             }
         }
     }
@@ -149,22 +149,26 @@ final class OrderViewModel {
     /// Belt-and-suspenders: if the websocket silently drops we still refresh
     /// every 20s (the web app polls at 3s; realtime hits give us sub-second
     /// freshness in the common case, so this only bounds the worst case).
+    /// Uses the bounded recent-groups fetch, not a full-day refetch — a
+    /// dropped-connection gap is almost always about the most recent
+    /// activity, so there's no need to re-pull the whole day every 20s.
     private func startSafetyPoll() {
         safetyPollTask?.cancel()
         safetyPollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
-                await self?.refreshHistory()
+                await self?.refreshRecentHistory()
             }
         }
     }
 
-    // refreshHistory() fetches *all* of today's orders. It's now only used
-    // for the initial load, the 60s safety-poll fallback, and catching up
-    // after a websocket (re)join — day-to-day changes are applied
-    // incrementally via applyPostgresChange() below. Still coalesced: if a
-    // join and the safety poll land close together, only one fetch runs and
-    // any request that arrives mid-fetch folds into a single follow-up.
+    // refreshHistory() fetches *all* of today's orders and replaces
+    // `history` wholesale. It's now only used for the initial load and
+    // catching up after a websocket (re)join, where an unpredictable gap
+    // means anything could have been missed — day-to-day changes are
+    // applied incrementally via applyPostgresChange() below. Still
+    // coalesced: if two full refreshes land close together, only one fetch
+    // runs and any request that arrives mid-fetch folds into a follow-up.
     private var isRefreshingHistory = false
     private var historyRefreshRequested = false
 
@@ -184,6 +188,36 @@ final class OrderViewModel {
                 print("[order] refresh failed: \(error)")
             }
         } while historyRefreshRequested
+    }
+
+    /// Bounded catch-up used by the frequent safety poll and foreground
+    /// return, where a full-day refetch would be wasteful — those gaps are
+    /// almost always about the most recent activity. Merges into `history`
+    /// rather than replacing it (via the same per-row merge helpers the
+    /// websocket handler uses), since groups older than the limit are
+    /// intentionally omitted from the response, not actually gone.
+    private var isRefreshingRecent = false
+    private var recentRefreshRequested = false
+    private static let recentHistoryLimit = 20
+
+    func refreshRecentHistory() async {
+        guard !isRefreshingRecent else {
+            recentRefreshRequested = true
+            return
+        }
+        isRefreshingRecent = true
+        defer { isRefreshingRecent = false }
+        repeat {
+            recentRefreshRequested = false
+            do {
+                let groups = try await SupabaseService.shared.recentOrderGroups(limit: Self.recentHistoryLimit)
+                for group in groups {
+                    for item in group.items { mergeUpdate(item) }
+                }
+            } catch {
+                print("[order] recent refresh failed: \(error)")
+            }
+        } while recentRefreshRequested
     }
 
     // MARK: incremental sync (postgres_changes)
