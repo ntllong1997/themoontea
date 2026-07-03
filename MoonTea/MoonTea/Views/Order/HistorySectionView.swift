@@ -25,12 +25,10 @@ struct HistorySectionView: View {
         var id: Int { orderNumber }
     }
 
-    private var filteredGroups: [(group: OrderGroup, items: [(item: Order, index: Int)])] {
+    private var filteredGroups: [(group: OrderGroup, items: [Order])] {
         vm.history.compactMap { group in
-            let entries: [(item: Order, index: Int)] = group.items.enumerated().compactMap { idx, item in
-                filter(item) ? (item, idx) : nil
-            }
-            return entries.isEmpty ? nil : (group, entries)
+            let items = group.items.filter(filter)
+            return items.isEmpty ? nil : (group, items)
         }
     }
 
@@ -45,7 +43,7 @@ struct HistorySectionView: View {
                         .padding(.vertical, 30)
                 } else {
                     ForEach(filteredGroups, id: \.group.orderNumber) { entry in
-                        orderCard(group: entry.group, entries: entry.items)
+                        orderCard(group: entry.group, items: entry.items)
                     }
                 }
 
@@ -93,13 +91,13 @@ struct HistorySectionView: View {
 
     // MARK: - Order card
 
-    private func orderCard(group: OrderGroup, entries: [(item: Order, index: Int)]) -> some View {
+    private func orderCard(group: OrderGroup, items: [Order]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             orderCardHeader(group: group)
 
             VStack(spacing: isStation ? 6 : 4) {
-                ForEach(entries, id: \.index) { entry in
-                    itemRow(orderNumber: group.orderNumber, item: entry.item, index: entry.index)
+                ForEach(items, id: \.id) { item in
+                    itemRow(item: item)
                 }
             }
             .padding(isStation ? 10 : 8)
@@ -148,15 +146,14 @@ struct HistorySectionView: View {
 
     // MARK: - Item row
 
-    private func itemRow(orderNumber: Int, item: Order, index: Int) -> some View {
-        let key = ItemKey(orderNumber: orderNumber, itemIndex: index)
+    private func itemRow(item: Order) -> some View {
         let (bg, fg, badge): (Color, Color, String) = {
             switch item.type {
             case .boba:
-                let s = vm.bobaStates[key] ?? .new
+                let s = vm.bobaStates[item.id] ?? .new
                 return (s.background, s.foreground, s.badge)
             case .corndog:
-                let s = vm.corndogStates[key] ?? .received
+                let s = vm.corndogStates[item.id] ?? .received
                 return (s.background, s.foreground, s.badge)
             case .discount:
                 return (Color.green.opacity(0.10), .green, "Coupon")
@@ -164,7 +161,7 @@ struct HistorySectionView: View {
         }()
 
         return Button {
-            vm.cycleItem(orderNumber: orderNumber, index: index)
+            vm.cycleItem(item.id)
         } label: {
             if isStation {
                 stationItemLabel(item: item, bg: bg, fg: fg, badge: badge)

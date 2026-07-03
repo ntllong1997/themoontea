@@ -22,9 +22,9 @@ final class OrderViewModel {
     // History
     var history: [OrderGroup] = []
 
-    // Item state per (order, item index)
-    var bobaStates: [ItemKey: BobaState] = [:]
-    var corndogStates: [ItemKey: CorndogState] = [:]
+    // Item state keyed by the item's stable row id
+    var bobaStates: [Order.ID: BobaState] = [:]
+    var corndogStates: [Order.ID: CorndogState] = [:]
 
     // Notify tracking + per-order phone overrides
     var notifiedOrders: Set<Int> = []
@@ -34,8 +34,9 @@ final class OrderViewModel {
     var isSending: Bool = false
     var phoneError: String = ""
 
-    private let realtime = SupabaseRealtime(channelName: "orders")
+    private let realtime = SupabaseRealtime(channelName: "orders", table: "orders")
     private var safetyPollTask: Task<Void, Never>?
+    private var foregroundObserver: (any NSObjectProtocol)?
 
     // MARK: cart math
 
@@ -95,42 +96,165 @@ final class OrderViewModel {
 
     // MARK: history (realtime)
 
-    /// Initial fetch + subscribe to broadcast pings on the `orders` channel.
+    /// Initial fetch + subscribe to postgres_changes on the `orders` table.
     func startPolling() {
         Task { await refreshHistory() }
         Task { [weak self] in
             guard let self else { return }
-            await self.realtime.subscribe { [weak self] in
-                Task { @MainActor in await self?.refreshHistory() }
-            }
+            await self.realtime.subscribe(
+                onChange: { [weak self] type, record, oldRecord in
+                    Task { @MainActor in self?.applyPostgresChange(type: type, record: record, oldRecord: oldRecord) }
+                },
+                onJoin: { [weak self] in
+                    // postgres_changes doesn't replay events missed while
+                    // disconnected, so every (re)join needs a fresh snapshot.
+                    Task { @MainActor in await self?.refreshHistory() }
+                }
+            )
         }
         startSafetyPoll()
+        startForegroundRefresh()
     }
 
     func stopPolling() {
         Task { [realtime] in await realtime.unsubscribe() }
         safetyPollTask?.cancel()
         safetyPollTask = nil
+        if let foregroundObserver {
+            NotificationCenter.default.removeObserver(foregroundObserver)
+        }
+        foregroundObserver = nil
+    }
+
+    /// iOS suspends the app (and kills the websocket) whenever the device
+    /// locks or the app leaves the foreground. On return, don't wait for the
+    /// dead socket to time out — force a reconnect check and re-fetch now.
+    private func startForegroundRefresh() {
+        if let foregroundObserver {
+            NotificationCenter.default.removeObserver(foregroundObserver)
+        }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.realtime.nudge()
+                await self.refreshHistory()
+            }
+        }
     }
 
     /// Belt-and-suspenders: if the websocket silently drops we still refresh
-    /// once a minute. Realtime hits give us sub-second freshness in the common case.
+    /// every 20s (the web app polls at 3s; realtime hits give us sub-second
+    /// freshness in the common case, so this only bounds the worst case).
     private func startSafetyPoll() {
         safetyPollTask?.cancel()
         safetyPollTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
                 await self?.refreshHistory()
             }
         }
     }
 
+    // refreshHistory() fetches *all* of today's orders. It's now only used
+    // for the initial load, the 60s safety-poll fallback, and catching up
+    // after a websocket (re)join — day-to-day changes are applied
+    // incrementally via applyPostgresChange() below. Still coalesced: if a
+    // join and the safety poll land close together, only one fetch runs and
+    // any request that arrives mid-fetch folds into a single follow-up.
+    private var isRefreshingHistory = false
+    private var historyRefreshRequested = false
+
     func refreshHistory() async {
+        guard !isRefreshingHistory else {
+            historyRefreshRequested = true
+            return
+        }
+        isRefreshingHistory = true
+        defer { isRefreshingHistory = false }
+        repeat {
+            historyRefreshRequested = false
+            do {
+                let groups = try await SupabaseService.shared.todaysOrderGroups()
+                self.history = groups
+            } catch {
+                print("[order] refresh failed: \(error)")
+            }
+        } while historyRefreshRequested
+    }
+
+    // MARK: incremental sync (postgres_changes)
+    //
+    // Shared by both the websocket handler and our own writes (sendOrder /
+    // savePhone), since whether the REST response or the websocket echo of
+    // our own write lands first is non-deterministic — both paths call the
+    // same merge functions, deduped by `id`, so whichever arrives second is
+    // just a no-op.
+
+    private func mergeInsert(orderNumber: Int, rows: [Order]) {
+        guard !rows.isEmpty else { return }
+        if let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) {
+            let existingIDs = Set(history[idx].items.map(\.id))
+            let newItems = rows.filter { !existingIDs.contains($0.id) }
+            guard !newItems.isEmpty else { return }
+            history[idx] = OrderGroup(orderNumber: orderNumber, items: history[idx].items + newItems)
+        } else {
+            let insertAt = history.firstIndex(where: { $0.orderNumber < orderNumber }) ?? history.count
+            history.insert(OrderGroup(orderNumber: orderNumber, items: rows), at: insertAt)
+        }
+    }
+
+    private func mergeUpdate(_ order: Order) {
+        guard let groupIdx = history.firstIndex(where: { $0.orderNumber == order.orderNumber }),
+              let itemIdx = history[groupIdx].items.firstIndex(where: { $0.id == order.id }) else {
+            // We missed the INSERT somehow — heal by inserting instead.
+            mergeInsert(orderNumber: order.orderNumber, rows: [order])
+            return
+        }
+        var items = history[groupIdx].items
+        items[itemIdx] = order
+        history[groupIdx] = OrderGroup(orderNumber: order.orderNumber, items: items)
+    }
+
+    private func mergeDelete(id: Order.ID) {
+        guard let groupIdx = history.firstIndex(where: { $0.items.contains(where: { $0.id == id }) }) else { return }
+        var items = history[groupIdx].items
+        items.removeAll { $0.id == id }
+        bobaStates.removeValue(forKey: id)
+        corndogStates.removeValue(forKey: id)
+        if items.isEmpty {
+            history.remove(at: groupIdx)
+        } else {
+            history[groupIdx] = OrderGroup(orderNumber: history[groupIdx].orderNumber, items: items)
+        }
+    }
+
+    private func applyPostgresChange(type: String, record: [String: Any]?, oldRecord: [String: Any]?) {
+        switch type {
+        case "INSERT":
+            guard let record, let order = Self.decodeOrder(record) else { return }
+            mergeInsert(orderNumber: order.orderNumber, rows: [order])
+        case "UPDATE":
+            guard let record, let order = Self.decodeOrder(record) else { return }
+            mergeUpdate(order)
+        case "DELETE":
+            guard let oldRecord, let idString = oldRecord["id"] as? String, let id = UUID(uuidString: idString) else { return }
+            mergeDelete(id: id)
+        default:
+            break
+        }
+    }
+
+    private static func decodeOrder(_ dict: [String: Any]) -> Order? {
+        guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return nil }
         do {
-            let groups = try await SupabaseService.shared.todaysOrderGroups()
-            self.history = groups
+            return try JSONDecoder().decode(Order.self, from: data)
         } catch {
-            print("[order] refresh failed: \(error)")
+            print("[realtime] decode failed: \(error)")
+            return nil
         }
     }
 
@@ -178,20 +302,19 @@ final class OrderViewModel {
                     quantity: nil
                 ))
             }
-            try await SupabaseService.shared.insertOrders(rows)
+            let inserted = try await SupabaseService.shared.insertOrders(rows)
 
-            // Optimistically prepend to history
-            history.insert(OrderGroup(orderNumber: orderNumber, items: rows), at: 0)
+            // Optimistically apply using the server-confirmed rows (real ids) —
+            // other devices' postgres_changes echo of this same insert will
+            // carry the same ids, so it'll just no-op when it arrives.
+            mergeInsert(orderNumber: orderNumber, rows: inserted)
             cart.removeAll()
             phone = ""
             couponApplied = false
             paymentMethod = .cash
 
-            // Tell other devices to refresh
-            Task { [realtime] in await realtime.broadcastChange() }
-
             // Best-effort print
-            await tryPrint(orderNumber: orderNumber, items: rows)
+            await tryPrint(orderNumber: orderNumber, items: inserted)
         } catch {
             sendError = (error as? LocalizedError)?.errorDescription ?? "Order failed to save."
         }
@@ -256,15 +379,13 @@ final class OrderViewModel {
 
     // MARK: state machines
 
-    func cycleItem(orderNumber: Int, index: Int) {
-        guard let group = history.first(where: { $0.orderNumber == orderNumber }),
-              group.items.indices.contains(index) else { return }
-        let key = ItemKey(orderNumber: orderNumber, itemIndex: index)
-        switch group.items[index].type {
+    func cycleItem(_ id: Order.ID) {
+        guard let item = history.lazy.flatMap(\.items).first(where: { $0.id == id }) else { return }
+        switch item.type {
         case .boba:
-            bobaStates[key] = (bobaStates[key] ?? .new).next
+            bobaStates[id] = (bobaStates[id] ?? .new).next
         case .corndog:
-            corndogStates[key] = (corndogStates[key] ?? .received).next
+            corndogStates[id] = (corndogStates[id] ?? .received).next
         case .discount:
             break
         }
@@ -281,11 +402,12 @@ final class OrderViewModel {
         phoneError = ""
         phoneOverrides[orderNumber] = phone  // optimistic: show immediately
         do {
-            try await SupabaseService.shared.updateOrderPhone(orderNumber: orderNumber, phone: phone)
-            // Refresh so history carries the new phone from DB, then drop the override.
-            await refreshHistory()
+            // Patch history directly from the PATCH's returned rows — other
+            // devices' postgres_changes echo of this same update will apply
+            // the same values again, harmlessly (last-write-wins, idempotent).
+            let updated = try await SupabaseService.shared.updateOrderPhone(orderNumber: orderNumber, phone: phone)
+            for row in updated { mergeUpdate(row) }
             phoneOverrides.removeValue(forKey: orderNumber)
-            Task { [realtime] in await realtime.broadcastChange() }
         } catch {
             // Keep the optimistic override so the phone stays visible this session.
             // The alert tells the user it wasn't persisted to the database.

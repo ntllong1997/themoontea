@@ -66,8 +66,3 @@ enum BobaState: String, CaseIterable, Sendable {
         self == .pickedup ? .white : Color(red: 0.05, green: 0.15, blue: 0.5)
     }
 }
-
-struct ItemKey: Hashable, Sendable {
-    let orderNumber: Int
-    let itemIndex: Int
-}

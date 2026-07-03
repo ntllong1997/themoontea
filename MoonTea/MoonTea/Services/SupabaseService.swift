@@ -70,14 +70,6 @@ actor SupabaseService {
         catch { throw SupabaseError.decoding(error) }
     }
 
-    private func runVoid(_ req: URLRequest) async throws {
-        let (data, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse else { throw SupabaseError.http(0, "no response") }
-        guard (200..<300).contains(http.statusCode) else {
-            throw SupabaseError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
-        }
-    }
-
     // MARK: - Orders
 
     /// Returns today's orders grouped by orderNumber, newest order first.
@@ -161,7 +153,9 @@ actor SupabaseService {
         return Int(Date().timeIntervalSince1970)
     }
 
-    func insertOrders(_ orders: [Order]) async throws {
+    /// Returns the server-confirmed rows (with their real `id`s) so callers can
+    /// use them for optimistic local state that matches what Realtime will echo.
+    func insertOrders(_ orders: [Order]) async throws -> [Order] {
         struct InsertRow: Encodable {
             let orderNumber: Int
             let name: String
@@ -186,20 +180,24 @@ actor SupabaseService {
         let req = try makeRequest(
             path: "/rest/v1/orders",
             method: "POST",
-            body: body
+            body: body,
+            preferReturn: true
         )
-        try await runVoid(req)
+        return try await run(req, as: [Order].self)
     }
 
-    func updateOrderPhone(orderNumber: Int, phone: String?) async throws {
+    /// Returns the updated rows so callers can patch local state in place
+    /// instead of re-fetching.
+    func updateOrderPhone(orderNumber: Int, phone: String?) async throws -> [Order] {
         struct Patch: Encodable { let phone: String? }
         let body = try JSONEncoder().encode(Patch(phone: (phone?.isEmpty == false) ? phone : nil))
         let req = try makeRequest(
             path: "/rest/v1/orders",
             method: "PATCH",
             query: [.init(name: "orderNumber", value: "eq.\(orderNumber)")],
-            body: body
+            body: body,
+            preferReturn: true
         )
-        try await runVoid(req)
+        return try await run(req, as: [Order].self)
     }
 }
