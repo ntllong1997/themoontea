@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react';
 import { Settings } from 'lucide-react';
 import {
-    clearPrinterHost,
-    getPrinterHost,
+    clearPrinterAddress,
+    diagnosePrinter,
+    getPrinterAddress,
+    isBlockedByMixedContent,
     printTest,
-    savePrinterHost,
+    savePrinterAddress,
 } from '@/lib/printer';
 
 const WIFI_STATUS_LABEL = {
@@ -21,34 +23,66 @@ const SERVER_STATUS_LABEL = {
     disconnected: { text: 'Server offline', className: 'text-gray-400' },
 };
 
+function diagnosisMessage(result, address) {
+    const isHttpsPrinter = address.startsWith('https://');
+    switch (result.reason) {
+        case 'no-address':
+            return 'No printer address saved.';
+        case 'mixed-content':
+            return 'This site is loaded over HTTPS, so the browser blocks the ' +
+                'http:// printer — the request never leaves the browser. Either open ' +
+                'the site via http://, or enable SSL/TLS on the printer (Epson TM ' +
+                'Utility app) and save the address as https://… instead.';
+        case 'timeout':
+            return 'The printer did not answer in time. Check it is powered on and ' +
+                'joined to the same hotspot network as this device.';
+        case 'http-status':
+            return `The device answered but refused ePOS-Print (${result.detail}). ` +
+                'Make sure ePOS-Print is enabled on the printer (Epson TM Utility app).';
+        case 'epos-error':
+            return `The printer was reached but reported a problem (${result.detail}). ` +
+                'Check paper and that the cover is closed.';
+        default: // network
+            return isHttpsPrinter
+                ? 'Could not reach the printer. Its https certificate is self-signed, ' +
+                  'so the browser rejects it until you trust it once: tap "Open printer ' +
+                  'page" below, accept the certificate warning, then check again. Also ' +
+                  'confirm the printer is on the same hotspot network.'
+                : 'Could not reach the printer. Confirm this device and the printer are ' +
+                  'on the same hotspot network and the IP is current (hotspots often ' +
+                  'hand out a new IP when the printer rejoins).';
+    }
+}
+
 // Printer status row + expandable settings to point the site at a WiFi
 // printer (Epson ePOS) instead of the local USB print server.
 export default function PrinterSettings({ status, onChanged }) {
     const [expanded, setExpanded] = useState(false);
-    const [savedHost, setSavedHost] = useState('');
+    const [savedAddress, setSavedAddress] = useState('');
     const [draft, setDraft] = useState('');
     const [message, setMessage] = useState(null); // { text, isError }
-    const [isHttpsPage, setIsHttpsPage] = useState(false);
-    const [isTesting, setIsTesting] = useState(false);
+    const [isMixedContentBlocked, setIsMixedContentBlocked] = useState(false);
+    const [isBusy, setIsBusy] = useState(false);
 
     useEffect(() => {
-        const host = getPrinterHost();
-        setSavedHost(host);
-        setDraft(host);
-        setIsHttpsPage(window.location.protocol === 'https:');
+        const address = getPrinterAddress();
+        setSavedAddress(address);
+        setDraft(address);
+        setIsMixedContentBlocked(isBlockedByMixedContent());
     }, []);
 
-    const isWifiMode = savedHost !== '';
+    const isWifiMode = savedAddress !== '';
     const label = (isWifiMode ? WIFI_STATUS_LABEL : SERVER_STATUS_LABEL)[status]
         ?? SERVER_STATUS_LABEL.disconnected;
 
     const handleSave = () => {
         try {
-            const host = savePrinterHost(draft);
-            setSavedHost(host);
-            setDraft(host);
+            const address = savePrinterAddress(draft);
+            setSavedAddress(address);
+            setDraft(address);
+            setIsMixedContentBlocked(isBlockedByMixedContent());
             setMessage({
-                text: host ? `Saved — connecting to ${host}…` : 'Cleared — using local print server.',
+                text: address ? `Saved — connecting to ${address}…` : 'Cleared — using local print server.',
                 isError: false,
             });
             onChanged?.();
@@ -58,15 +92,30 @@ export default function PrinterSettings({ status, onChanged }) {
     };
 
     const handleClear = () => {
-        clearPrinterHost();
-        setSavedHost('');
+        clearPrinterAddress();
+        setSavedAddress('');
         setDraft('');
+        setIsMixedContentBlocked(false);
         setMessage({ text: 'Cleared — using local print server.', isError: false });
         onChanged?.();
     };
 
+    const handleCheck = async () => {
+        setIsBusy(true);
+        setMessage(null);
+        try {
+            const result = await diagnosePrinter();
+            setMessage(result.ok
+                ? { text: 'Printer reached — ready to print.', isError: false }
+                : { text: diagnosisMessage(result, savedAddress), isError: true });
+        } finally {
+            setIsBusy(false);
+            onChanged?.();
+        }
+    };
+
     const handleTest = async () => {
-        setIsTesting(true);
+        setIsBusy(true);
         setMessage(null);
         try {
             await printTest();
@@ -74,7 +123,7 @@ export default function PrinterSettings({ status, onChanged }) {
         } catch (err) {
             setMessage({ text: `Test print failed: ${err.message}`, isError: true });
         } finally {
-            setIsTesting(false);
+            setIsBusy(false);
         }
     };
 
@@ -95,7 +144,14 @@ export default function PrinterSettings({ status, onChanged }) {
                 </span>
             </div>
 
-            {!expanded && status !== 'connected' && (
+            {isMixedContentBlocked && (
+                <p className='text-xs text-amber-600 mt-1'>
+                    This site is on HTTPS, so the browser blocks the http:// printer.
+                    Open ⚙ settings for fixes.
+                </p>
+            )}
+
+            {!expanded && !isMixedContentBlocked && status !== 'connected' && (
                 <p className='text-xs text-gray-400 mt-1'>
                     {isWifiMode
                         ? 'Check the printer is on and joined to the phone hotspot.'
@@ -119,25 +175,19 @@ export default function PrinterSettings({ status, onChanged }) {
                         className='w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500'
                     />
                     <p className='text-xs text-gray-400'>
-                        Enter the Epson printer&rsquo;s IP on the phone hotspot network.
+                        Enter the Epson printer&rsquo;s IP on the phone hotspot network
+                        (add https:// if the printer has SSL/TLS enabled).
                         Leave empty to use the local USB print server.
                     </p>
 
-                    {isHttpsPage && (
-                        <p className='text-xs text-amber-600'>
-                            This page is loaded over HTTPS — browsers block direct HTTP
-                            printing. Open the site via http:// to print over WiFi.
-                        </p>
-                    )}
-
-                    <div className='flex items-center gap-2'>
+                    <div className='flex items-center gap-2 flex-wrap'>
                         <button
                             onClick={handleSave}
                             className='rounded px-3 py-1.5 text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors'
                         >
                             Save
                         </button>
-                        {savedHost && (
+                        {savedAddress && (
                             <button
                                 onClick={handleClear}
                                 className='rounded px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors'
@@ -145,14 +195,34 @@ export default function PrinterSettings({ status, onChanged }) {
                                 Clear
                             </button>
                         )}
+                        {savedAddress && (
+                            <button
+                                onClick={handleCheck}
+                                disabled={isBusy}
+                                className='rounded px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors disabled:opacity-50'
+                            >
+                                Check connection
+                            </button>
+                        )}
                         <button
                             onClick={handleTest}
-                            disabled={isTesting}
+                            disabled={isBusy}
                             className='ml-auto rounded px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors disabled:opacity-50'
                         >
-                            {isTesting ? 'Printing…' : 'Test print'}
+                            {isBusy ? 'Working…' : 'Test print'}
                         </button>
                     </div>
+
+                    {savedAddress.startsWith('https://') && (
+                        <a
+                            href={savedAddress}
+                            target='_blank'
+                            rel='noreferrer'
+                            className='inline-block text-xs font-medium text-blue-600 hover:underline'
+                        >
+                            Open printer page (accept its certificate once) ↗
+                        </a>
+                    )}
 
                     {message && (
                         <p className={`text-xs font-medium ${message.isError ? 'text-red-600' : 'text-green-700'}`}>
