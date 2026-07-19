@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { createOrder, getOrderHistory, updateOrderPhone } from '@/lib/db';
 import { ORDER_SOURCE, calculateTotalRevenue } from '@/lib/orders/orderModel';
+import { useCart } from '@/lib/orders/useCart';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel, { PRICES, TAX_RATE, HOT_CHEETO_DUST_PRICE } from '@/components/OrderPanel';
@@ -61,24 +62,23 @@ const PANELS = [
     { key: 'boba', label: 'Boba' },
 ];
 
-const HOT_CHEETO_DUST_LABEL = 'Hot Cheeto Dust';
-
-const sameModifiers = (a = [], b = []) =>
-    a.length === b.length && a.every((mod, i) => mod === b[i]);
-
 // The print server prints one line per {name, price}, and modifiers now live
 // in their own field, so fold them back into the name for the receipt.
 const toPrintableItems = (units) =>
     units.map(({ displayName, price }) => ({ name: displayName, price }));
 
 export default function OrderSystem() {
-    const [orders, setOrders] = useState([]);
+    // Cart building is shared with the customer online page (/order/online);
+    // only the `source` each one submits differs.
+    const {
+        cart: orders,
+        changeQuantity: handleQuantityChange,
+        clearCart,
+        totals,
+        orderPanelProps,
+    } = useCart();
+
     const [history, setHistory] = useState([]);
-    const [selectedBoba, setSelectedBoba] = useState('');
-    const [selectedDrink, setSelectedDrink] = useState('');
-    const [selectedCorndogInside, setSelectedCorndogInside] = useState('');
-    const [selectedCorndogOutside, setSelectedCorndogOutside] = useState('');
-    const [selectedCorndogDust, setSelectedCorndogDust] = useState(false);
     const [phone, setPhone] = useState('');
 
     const [bobaStates, setBobaStates] = useState({});
@@ -139,56 +139,6 @@ export default function OrderSystem() {
         }
     }, [mobileTab]);
 
-    // Adds a line to the cart, or bumps the quantity of the matching one.
-    // Lines match only when both the base name and the modifiers agree, so
-    // "Ube" and "Ube (Tapioca)" stay separate lines.
-    const addCartLine = useCallback((line) => {
-        setOrders((prev) => {
-            const idx = prev.findIndex(
-                (i) => i.name === line.name && sameModifiers(i.modifiers, line.modifiers)
-            );
-            if (idx < 0) return [...prev, { ...line, quantity: 1 }];
-            return prev.map((item, i) =>
-                i === idx ? { ...item, quantity: item.quantity + 1 } : item
-            );
-        });
-    }, []);
-
-    const handleAddBoba = useCallback(() => {
-        if (!selectedDrink || !selectedBoba) return;
-        addCartLine({
-            name: selectedDrink,
-            modifiers: [selectedBoba],
-            price: PRICES.Boba,
-            type: 'Boba',
-        });
-        setSelectedDrink('');
-        setSelectedBoba('');
-    }, [selectedDrink, selectedBoba, addCartLine]);
-
-    const handleAddCorndog = useCallback(() => {
-        if (!selectedCorndogInside || !selectedCorndogOutside) return;
-        addCartLine({
-            name: `${selectedCorndogInside} ${selectedCorndogOutside}`,
-            modifiers: selectedCorndogDust ? [HOT_CHEETO_DUST_LABEL] : [],
-            price: PRICES.Corndog + (selectedCorndogDust ? HOT_CHEETO_DUST_PRICE : 0),
-            type: 'Corndog',
-        });
-        setSelectedCorndogInside('');
-        setSelectedCorndogOutside('');
-        setSelectedCorndogDust(false);
-    }, [selectedCorndogInside, selectedCorndogOutside, selectedCorndogDust, addCartLine]);
-
-    const handleQuantityChange = useCallback((index, delta) => {
-        setOrders((prev) =>
-            prev
-                .map((item, i) =>
-                    i === index ? { ...item, quantity: item.quantity + delta } : item
-                )
-                .filter((item) => item.quantity > 0)
-        );
-    }, []);
-
     useEffect(() => {
         const poll = async () => setPrinterStatus(await checkPrinterStatus());
         poll();
@@ -211,7 +161,7 @@ export default function OrderSystem() {
             });
 
             setHistory((prev) => [created, ...prev]);
-            setOrders([]);
+            clearCart();
             setPhone('');
             setMobileTab('history');
             tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -359,28 +309,9 @@ export default function OrderSystem() {
             .filter((o) => o.items.length > 0);
     }, [history, visiblePanels]);
 
-    const subtotal = orders.reduce((acc, item) => acc + item.price * item.quantity, 0);
-    const tax = subtotal * TAX_RATE;
-    const total = (subtotal + tax).toFixed(2);
+    const { subtotal, tax } = totals;
+    const total = totals.total.toFixed(2);
     const totalRevenue = calculateTotalRevenue(history);
-    const selection = {
-        drink: selectedDrink,
-        boba: selectedBoba,
-        corndogInside: selectedCorndogInside,
-        corndogOutside: selectedCorndogOutside,
-        corndogDust: selectedCorndogDust,
-    };
-
-    const orderPanelProps = {
-        selection,
-        onSelectDrink: setSelectedDrink,
-        onSelectBoba: setSelectedBoba,
-        onSelectCorndogInside: setSelectedCorndogInside,
-        onSelectCorndogOutside: setSelectedCorndogOutside,
-        onToggleCorndogDust: () => setSelectedCorndogDust((d) => !d),
-        onAddBoba: handleAddBoba,
-        onAddCorndog: handleAddCorndog,
-    };
 
     const cart = (
         <Card>
