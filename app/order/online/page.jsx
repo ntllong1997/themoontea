@@ -2,16 +2,19 @@
 
 // Customer-facing online ordering.
 //
-// Writes source='online' / print_status='pending' (the default for 'online'),
-// which is exactly what the iPad POS polls for: it claims each pending order
-// atomically and prints it in store. This page therefore does NOT print —
-// contrast /order, the staff till, which prints locally and stores its orders
-// as source='pos' / print_status='printed' so they never enter that queue.
+// Orders land in the same `orders` table the staff till and the iPad app use,
+// sharing one daily order-number sequence, so an online order is numbered and
+// displayed exactly like one rung up in store. This page does NOT print —
+// contrast /order, the staff till, which prints locally at checkout.
+//
+// The table has no source/print_status columns, so an online order is not
+// distinguishable from an in-store one once saved, and there is no auto-print
+// queue for staff to claim: online orders appear in history and must be
+// printed manually from there.
 
 import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { createOrder } from '@/lib/db';
-import { ORDER_SOURCE } from '@/lib/orders/orderModel';
 import { useCart } from '@/lib/orders/useCart';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -40,10 +43,7 @@ export default function OnlineOrderPage() {
         try {
             const created = await createOrder({
                 cartItems: cart,
-                source: ORDER_SOURCE.online,
-                customerName: name,
                 phone,
-                notes,
                 paymentMethod: 'online',
             });
             setPlacedOrder(created);

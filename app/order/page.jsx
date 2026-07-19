@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { createOrder, getOrderHistory, updateOrderPhone } from '@/lib/db';
-import { ORDER_SOURCE, calculateTotalRevenue } from '@/lib/orders/orderModel';
+import { calculateTotalRevenue } from '@/lib/orders/orderModel';
 import { useCart } from '@/lib/orders/useCart';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -150,12 +150,8 @@ export default function OrderSystem() {
         if (orders.length === 0) return;
         setSendError('');
         try {
-            // Rung up in store: the receipt prints here, so the row is stored
-            // as source='pos'/print_status='printed' and the iPad's auto-print
-            // queue never picks it up again.
             const created = await createOrder({
                 cartItems: orders,
-                source: ORDER_SOURCE.pos,
                 phone,
                 paymentMethod: 'cash',
             });
