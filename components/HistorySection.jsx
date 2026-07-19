@@ -130,7 +130,7 @@ export default function HistorySection({
                                                 title={tooltip}
                                                 className={`flex justify-between items-center text-sm px-3 py-2 rounded cursor-pointer transition-colors hover:opacity-80 select-none ${getItemClassName(item, key)}`}
                                             >
-                                                <span>{item.name}</span>
+                                                <span>{item.displayName ?? item.name}</span>
                                                 <span className='flex items-center gap-2'>
                                                     <span className='text-gray-600'>
                                                         ${item.price.toFixed(2)}

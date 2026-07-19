@@ -12,24 +12,13 @@ struct PrinterSettingsView: View {
             // ── Selected printer ──────────────────────────────────────
             Section("Selected printer") {
                 if printer.hasSavedPrinter {
-                    HStack(alignment: .top) {
+                    HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(printer.savedName).font(.body)
-                            if printer.isConnected {
-                                Text(printer.savedTarget)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text("Not connected")
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
-                            }
+                            selectedPrinterStatusLine
                         }
                         Spacer()
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(printer.isConnected ? .green : .secondary)
-                            .padding(.top, 4)
+                        selectedPrinterAccessory
                     }
                     Button("Forget this printer", role: .destructive) {
                         printer.clearSaved()
@@ -96,26 +85,12 @@ struct PrinterSettingsView: View {
                 } else {
                     ForEach(printer.discovered) { dev in
                         Button {
-                            printer.save(dev)
-                            stopScan()          // stop scanning once a printer is chosen
+                            stopCountdown()     // save() stops the scan itself
+                            printer.save(dev)   // persists and connects immediately
                         } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(dev.name).foregroundStyle(.primary)
-                                    Text("\(dev.port.label) · \(dev.target)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if printer.savedTarget == dev.target {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                } else {
-                                    Image(systemName: "chevron.right")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
+                            discoveredRow(dev)
                         }
+                        .disabled(printer.status == .connecting)
                     }
                 }
             }
@@ -136,12 +111,88 @@ struct PrinterSettingsView: View {
         }
         .onAppear {
             if printer.hasSavedPrinter {
-                printer.checkConnection()
+                // Visible connect (spinner + error feedback) rather than the
+                // silent background probe — if the printer is unreachable the
+                // user finds out here, with a hint, not at the next print.
+                printer.connectSaved()
             } else {
                 startScan()
             }
         }
         .onDisappear { stopCountdown() }
+    }
+
+    // MARK: - Selected printer subviews
+
+    @ViewBuilder
+    private var selectedPrinterStatusLine: some View {
+        if printer.status == .connecting {
+            Text("Connecting…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if printer.isConnected {
+            Text("Connected · \(printer.savedTarget)")
+                .font(.caption)
+                .foregroundStyle(.green)
+        } else {
+            Text("Not connected")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder
+    private var selectedPrinterAccessory: some View {
+        if printer.status == .connecting {
+            ProgressView()
+        } else if printer.isConnected {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        } else {
+            // Manual retry so a dropped link can be fixed right here instead
+            // of waiting for the 30s background watchdog.
+            Button("Connect") { printer.connectSaved() }
+                .buttonStyle(.borderless)
+                .font(.system(size: 14, weight: .semibold))
+        }
+    }
+
+    private func discoveredRow(_ dev: EpsonPrinter.Discovered) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: Self.portIcon(dev.port))
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dev.name).foregroundStyle(.primary)
+                Text("\(dev.port.label) · \(dev.target)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if printer.savedTarget == dev.target {
+                if printer.status == .connecting {
+                    ProgressView()
+                } else if printer.isConnected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    Image(systemName: "exclamationmark.circle")
+                        .foregroundStyle(.orange)
+                }
+            } else {
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private static func portIcon(_ port: EpsonPrinter.PortKind) -> String {
+        switch port {
+        case .bluetooth, .ble: "dot.radiowaves.left.and.right"
+        case .tcp:             "wifi"
+        case .usb:             "cable.connector"
+        case .unknown:         "printer"
+        }
     }
 
     // MARK: - Helpers

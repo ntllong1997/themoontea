@@ -3,12 +3,12 @@ import MessageUI
 
 struct HistorySectionView: View {
     @Bindable var vm: OrderViewModel
-    let filter: (Order) -> Bool
+    let filter: (OrderUnit) -> Bool
     var showRevenueTotal: Bool = true
     /// Station mode: large rows optimised for at-a-glance reading from 60cm away.
     var isStation: Bool = false
 
-    @State private var editingPhoneOrder: Int?
+    @State private var editingPhoneOrder: String?
     @State private var draftPhone: String = ""
     @State private var smsTarget: SMSTarget?
     @FocusState private var phoneEditorFocused: Bool
@@ -19,15 +19,17 @@ struct HistorySectionView: View {
     }
 
     private struct SMSTarget: Identifiable {
-        let orderNumber: Int
+        let orderNumber: String
         let phone: String
         let body: String
-        var id: Int { orderNumber }
+        var id: String { orderNumber }
     }
 
-    private var filteredGroups: [(group: OrderGroup, items: [Order])] {
+    // Line items are stored collapsed with a quantity, so filter over the
+    // expanded units — each physical drink still gets its own row and status.
+    private var filteredGroups: [(group: OrderGroup, items: [OrderUnit])] {
         vm.history.compactMap { group in
-            let items = group.items.filter(filter)
+            let items = group.units.filter(filter)
             return items.isEmpty ? nil : (group, items)
         }
     }
@@ -91,7 +93,7 @@ struct HistorySectionView: View {
 
     // MARK: - Order card
 
-    private func orderCard(group: OrderGroup, items: [Order]) -> some View {
+    private func orderCard(group: OrderGroup, items: [OrderUnit]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             orderCardHeader(group: group)
 
@@ -134,7 +136,7 @@ struct HistorySectionView: View {
 
                 actionButton(group: group)
 
-                Text("$\(group.total(taxRate: AppConstants.taxRate).fmt2)")
+                Text("$\(group.total.fmt2)")
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.mutedText)
             }
@@ -146,7 +148,7 @@ struct HistorySectionView: View {
 
     // MARK: - Item row
 
-    private func itemRow(item: Order) -> some View {
+    private func itemRow(item: OrderUnit) -> some View {
         let (bg, fg, badge): (Color, Color, String) = {
             switch item.type {
             case .boba:
@@ -172,9 +174,9 @@ struct HistorySectionView: View {
         .buttonStyle(.plain)
     }
 
-    private func historyItemLabel(item: Order, bg: Color, fg: Color, badge: String) -> some View {
+    private func historyItemLabel(item: OrderUnit, bg: Color, fg: Color, badge: String) -> some View {
         HStack {
-            Text(item.name).font(.system(size: 14))
+            Text(item.displayName).font(.system(size: 14))
             Spacer()
             Text("$\(item.price.fmt2)")
                 .font(.system(size: 13))
@@ -189,7 +191,7 @@ struct HistorySectionView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
-    private func stationItemLabel(item: Order, bg: Color, fg: Color, badge: String) -> some View {
+    private func stationItemLabel(item: OrderUnit, bg: Color, fg: Color, badge: String) -> some View {
         HStack(spacing: 12) {
             // Status badge on the LEFT — first thing the eye lands on
             Text(badge)
@@ -200,7 +202,7 @@ struct HistorySectionView: View {
                 .foregroundStyle(fg)
                 .clipShape(Capsule())
 
-            Text(item.name)
+            Text(item.displayName)
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(fg)
                 .lineLimit(2)
@@ -221,7 +223,7 @@ struct HistorySectionView: View {
     // MARK: - Phone editor
 
     @ViewBuilder
-    private func phoneEditor(orderNumber: Int) -> some View {
+    private func phoneEditor(orderNumber: String) -> some View {
         if editingPhoneOrder == orderNumber {
             TextField("phone", text: $draftPhone)
                 .keyboardType(.phonePad)
@@ -264,7 +266,7 @@ struct HistorySectionView: View {
         }
     }
 
-    private func savePhone(_ orderNumber: Int) {
+    private func savePhone(_ orderNumber: String) {
         let snapshot = draftPhone
         Task { await vm.savePhone(orderNumber: orderNumber, phone: snapshot) }
         editingPhoneOrder = nil

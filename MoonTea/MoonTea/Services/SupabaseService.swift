@@ -71,170 +71,154 @@ actor SupabaseService {
     }
 
     // MARK: - Orders
+    //
+    // `public.orders` holds ONE ROW PER ORDER, with line items collapsed into
+    // an `items` jsonb array. Column names are snake_case and are spelled out
+    // literally in the query filters below — they are NOT run through any
+    // camelCase conversion, so they must match the DB exactly.
 
-    /// Returns today's orders grouped by orderNumber, newest order first.
-    func todaysOrderGroups() async throws -> [OrderGroup] {
+    private static func dayBounds() -> (start: String, end: String) {
         let cal = Calendar.current
         let start = cal.startOfDay(for: Date())
         let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return (iso.string(from: start), iso.string(from: end))
+    }
 
+    /// Today's orders, newest first.
+    func todaysOrderGroups() async throws -> [OrderGroup] {
+        let day = Self.dayBounds()
         let req = try makeRequest(
             path: "/rest/v1/orders",
             method: "GET",
             query: [
                 .init(name: "select", value: "*"),
-                .init(name: "timestamp", value: "gte.\(iso.string(from: start))"),
-                .init(name: "timestamp", value: "lt.\(iso.string(from: end))"),
-                .init(name: "order", value: "orderNumber.desc,timestamp.asc"),
+                .init(name: "created_at", value: "gte.\(day.start)"),
+                .init(name: "created_at", value: "lt.\(day.end)"),
+                .init(name: "order", value: "created_at.desc"),
             ]
         )
-        let rows = try await run(req, as: [Order].self)
-
-        var buckets: [Int: [Order]] = [:]
-        for row in rows { buckets[row.orderNumber, default: []].append(row) }
-        return buckets.keys.sorted(by: >).map { key in
-            OrderGroup(orderNumber: key, items: buckets[key] ?? [])
-        }
+        return try await run(req, as: [OrderGroup].self)
     }
 
-    /// Same grouping as `todaysOrderGroups()` but bounded to the newest
-    /// `limit` order groups via the `recent_order_groups` Postgres function
-    /// — groups (not raw rows) are limited, so a multi-item order is never
-    /// split across the cutoff. Meant for frequent catch-up refreshes
-    /// (safety poll, foreground return) where the full day's payload would
-    /// otherwise grow unbounded through a shift; callers should merge the
-    /// result into existing state rather than replace it, since older
-    /// groups beyond the limit are intentionally omitted, not gone.
+    /// Same as `todaysOrderGroups()` but bounded to the newest `limit` orders,
+    /// for frequent catch-up refreshes (safety poll, foreground return) where
+    /// the full day's payload would otherwise grow unbounded through a shift.
+    ///
+    /// A plain `limit` is now correct: one row *is* one order, so limiting
+    /// rows can no longer split a multi-item order across the cutoff — which
+    /// is exactly what the old `recent_order_groups` RPC existed to prevent.
+    /// Callers should still merge rather than replace, since orders older than
+    /// the limit are intentionally omitted, not gone.
     func recentOrderGroups(limit: Int = 20) async throws -> [OrderGroup] {
-        let cal = Calendar.current
-        let start = cal.startOfDay(for: Date())
-        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        struct Params: Encodable {
-            let range_start: String
-            let range_end: String
-            let group_limit: Int
-        }
-        let body = try JSONEncoder().encode(Params(
-            range_start: iso.string(from: start),
-            range_end: iso.string(from: end),
-            group_limit: limit
-        ))
-        let req = try makeRequest(path: "/rest/v1/rpc/recent_order_groups", method: "POST", body: body)
-        let rows = try await run(req, as: [Order].self)
-
-        var buckets: [Int: [Order]] = [:]
-        for row in rows { buckets[row.orderNumber, default: []].append(row) }
-        return buckets.keys.sorted(by: >).map { key in
-            OrderGroup(orderNumber: key, items: buckets[key] ?? [])
-        }
+        let day = Self.dayBounds()
+        let req = try makeRequest(
+            path: "/rest/v1/orders",
+            method: "GET",
+            query: [
+                .init(name: "select", value: "*"),
+                .init(name: "created_at", value: "gte.\(day.start)"),
+                .init(name: "created_at", value: "lt.\(day.end)"),
+                .init(name: "order", value: "created_at.desc"),
+                .init(name: "limit", value: String(limit)),
+            ]
+        )
+        return try await run(req, as: [OrderGroup].self)
     }
 
     /// Fetch all orders (used by sales summary).
-    func allOrders() async throws -> [Order] {
+    func allOrders() async throws -> [OrderGroup] {
         let req = try makeRequest(
             path: "/rest/v1/orders",
             method: "GET",
             query: [
                 .init(name: "select", value: "*"),
-                .init(name: "order", value: "timestamp.desc"),
+                .init(name: "order", value: "created_at.desc"),
             ]
         )
-        return try await run(req, as: [Order].self)
+        return try await run(req, as: [OrderGroup].self)
     }
 
-    /// Atomically computes the next order number for today via the
-    /// `next_order_number` Postgres function, which serializes concurrent
-    /// callers (any device, web or app) behind an advisory lock scoped to
-    /// the day — collisions are structurally impossible rather than
-    /// avoided by retrying, and it's a single round trip instead of the
-    /// old client-side read-check-retry loop's worst case of 10.
-    func nextOrderNumber() async throws -> Int {
-        let cal = Calendar.current
-        let start = cal.startOfDay(for: Date())
-        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        struct Params: Encodable {
-            let range_start: String
-            let range_end: String
-        }
-        let body = try JSONEncoder().encode(Params(
-            range_start: iso.string(from: start),
-            range_end: iso.string(from: end)
-        ))
-        let req = try makeRequest(path: "/rest/v1/rpc/next_order_number", method: "POST", body: body)
-        return try await run(req, as: Int.self)
+    /// Reserves the next human-facing order code ("P-1043") via the
+    /// `next_order_code` Postgres function. It is backed by one global
+    /// sequence, so nextval() hands every caller — this app or the website —
+    /// a distinct value atomically, in a single round trip. Collisions are
+    /// structurally impossible rather than avoided by retrying.
+    func nextOrderCode(prefix: String = "P") async throws -> String {
+        struct Params: Encodable { let prefix: String }
+        let body = try JSONEncoder().encode(Params(prefix: prefix))
+        let req = try makeRequest(path: "/rest/v1/rpc/next_order_code", method: "POST", body: body)
+        return try await run(req, as: String.self)
     }
 
-    /// Returns the server-confirmed rows (with their real `id`s) so callers can
-    /// use them for optimistic local state that matches what Realtime will echo.
-    func insertOrders(_ orders: [Order]) async throws -> [Order] {
+    /// Inserts one order and returns the server-confirmed row (with its real
+    /// `id`) so callers can seed optimistic local state that matches what
+    /// Realtime will echo back.
+    ///
+    /// In-store orders are stored as source='pos', print_status='printed' —
+    /// they were already printed at the till, so they must never enter the
+    /// pending auto-print queue.
+    func insertOrder(_ order: OrderGroup) async throws -> OrderGroup {
         struct InsertRow: Encodable {
-            let orderNumber: Int
-            let name: String
-            let price: Double
-            let type: String
-            let timestamp: String
-            let phone: String?
-            let paymentMethod: String?
+            let source: String
+            let order_number: String
+            let customer_name: String?
+            let customer_phone: String?
+            let items: [OrderItem]
+            let subtotal: Double
+            let tax: Double
+            let total: Double
+            let payment_method: String?
+            let notes: String?
+            let print_status: String
         }
-        let payload = orders.map {
-            InsertRow(
-                orderNumber: $0.orderNumber,
-                name: $0.name,
-                price: $0.price,
-                type: $0.type.rawValue,
-                timestamp: $0.timestamp,
-                phone: $0.phone,
-                paymentMethod: $0.paymentMethod
-            )
-        }
-        let body = try JSONEncoder().encode(payload)
+        let payload = InsertRow(
+            source: order.source,
+            order_number: order.orderNumber,
+            customer_name: order.customerName,
+            customer_phone: order.customerPhone,
+            items: order.items,
+            subtotal: order.subtotal,
+            tax: order.tax,
+            total: order.total,
+            payment_method: order.paymentMethod,
+            notes: order.notes,
+            print_status: order.printStatus
+        )
+        let body = try JSONEncoder().encode([payload])
         let req = try makeRequest(
             path: "/rest/v1/orders",
             method: "POST",
             body: body,
             preferReturn: true
         )
-        return try await run(req, as: [Order].self)
+        let rows = try await run(req, as: [OrderGroup].self)
+        guard let row = rows.first else {
+            throw SupabaseError.http(0, "insert returned no rows")
+        }
+        return row
     }
 
-    /// Returns the updated rows so callers can patch local state in place
+    /// Returns the updated row so callers can patch local state in place
     /// instead of re-fetching.
     ///
-    /// `orderNumber` resets to 1 each day (see `nextOrderNumber()`), so it's
-    /// only unique *within a day* — without the timestamp bounds this would
-    /// match every past day's order sharing the same number too, both
-    /// overwriting their phone number in the DB and, since callers merge the
-    /// returned rows straight into `history`, briefly flooding today's order
-    /// card with unrelated old items until the next full refresh corrects it.
-    func updateOrderPhone(orderNumber: Int, phone: String?) async throws -> [Order] {
-        struct Patch: Encodable { let phone: String? }
-        let body = try JSONEncoder().encode(Patch(phone: (phone?.isEmpty == false) ? phone : nil))
-
-        let cal = Calendar.current
-        let start = cal.startOfDay(for: Date())
-        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    /// `order_number` now comes from a global sequence and never repeats, so
+    /// this no longer needs the day bounds the old daily-reset numbering
+    /// required to avoid matching past days' orders that shared a number.
+    func updateOrderPhone(orderNumber: String, phone: String?) async throws -> [OrderGroup] {
+        struct Patch: Encodable { let customer_phone: String? }
+        let body = try JSONEncoder().encode(
+            Patch(customer_phone: (phone?.isEmpty == false) ? phone : nil)
+        )
 
         let req = try makeRequest(
             path: "/rest/v1/orders",
             method: "PATCH",
-            query: [
-                .init(name: "orderNumber", value: "eq.\(orderNumber)"),
-                .init(name: "timestamp", value: "gte.\(iso.string(from: start))"),
-                .init(name: "timestamp", value: "lt.\(iso.string(from: end))"),
-            ],
+            query: [.init(name: "order_number", value: "eq.\(orderNumber)")],
             body: body,
             preferReturn: true
         )
-        return try await run(req, as: [Order].self)
+        return try await run(req, as: [OrderGroup].self)
     }
 }

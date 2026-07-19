@@ -32,5 +32,5 @@ enum AppConstants {
         "Golden Taro": "Only Taro",
     ]
 
-    static let defaultCashAppURL = "https://cash.app/$TheMoonTea"
+    static let defaultCashAppURL = "https://cash.app/$ThiLNguyen"
 }

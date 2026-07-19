@@ -245,18 +245,19 @@ struct CartView: View {
 
     private var printerStatusText: String {
         switch printer.status {
-        case .scanning: return "Scanning…"
-        case .printing: return "Printing…"
-        case .error:    return "Error"
-        case .idle:     return printer.hasSavedPrinter ? printer.savedName : "Not set up"
+        case .scanning:   return "Scanning…"
+        case .connecting: return "Connecting…"
+        case .printing:   return "Printing…"
+        case .error:      return "Error"
+        case .idle:       return printer.hasSavedPrinter ? printer.savedName : "Not set up"
         }
     }
 
     private var printerStatusColor: Color {
         switch printer.status {
-        case .scanning, .printing: .orange
-        case .error:               .red
-        case .idle:                printer.hasSavedPrinter ? .green : Theme.mutedText
+        case .scanning, .connecting, .printing: .orange
+        case .error:                            .red
+        case .idle:                             printer.hasSavedPrinter ? .green : Theme.mutedText
         }
     }
 

@@ -4,15 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getOrderHistory, updateOrderPhone } from '@/lib/db';
 import { TAX_RATE } from '@/lib/constants';
+import { calculateTotalRevenue } from '@/lib/orders/orderModel';
 import HistorySection from '@/components/HistorySection';
-
-const calculateTotalRevenue = (history) =>
-    history
-        .reduce((total, orderList) => {
-            const subtotal = orderList.reduce((sum, item) => sum + item.price, 0);
-            return total + subtotal + subtotal * TAX_RATE;
-        }, 0)
-        .toFixed(2);
 
 export default function StationPage({
     title,
@@ -31,8 +24,7 @@ export default function StationPage({
 
     const fetchHistory = useCallback(async () => {
         try {
-            const grouped = await getOrderHistory();
-            setHistory(grouped);
+            setHistory(await getOrderHistory());
         } catch (e) {
             console.error('Failed to fetch history:', e);
         }
@@ -51,7 +43,7 @@ export default function StationPage({
 
     const getOrderPhone = useCallback((orderNumber) => {
         if (phoneOverrides[orderNumber] !== undefined) return phoneOverrides[orderNumber];
-        return history.flat().find((item) => item.orderNumber === orderNumber)?.phone ?? '';
+        return history.find((order) => order.orderNumber === orderNumber)?.phone ?? '';
     }, [phoneOverrides, history]);
 
     const handleSavePhone = useCallback(async (orderNumber, newPhone) => {
@@ -80,8 +72,8 @@ export default function StationPage({
 
         if (!orderPhone) return null;
 
-        const orderItems = history.flat().filter((item) => item.orderNumber === orderNumber);
-        const itemList = orderItems.map((item) => `• ${item.name}`).join('\n');
+        const order = history.find((o) => o.orderNumber === orderNumber);
+        const itemList = (order?.items ?? []).map((item) => `• ${item.displayName}`).join('\n');
         const smsBody = `🌙 The Moon Tea\nOrder #${orderNumber} is ready for pickup! 🎉\n\n${itemList}\n\nSee you soon! 🧡`;
         const smsHref = `sms:${orderPhone}?body=${encodeURIComponent(smsBody)}`;
         return (
@@ -108,10 +100,12 @@ export default function StationPage({
         [itemStates, stateTooltip, initialState]
     );
 
+    // Each order's units are indexed before filtering, so a unit keeps the same
+    // itemIndex (and therefore the same status) whichever station shows it.
     const filteredOrders = history
-        .map((orderList, idx) => ({
-            orderNumber: orderList[0]?.orderNumber ?? idx + 1,
-            items: orderList
+        .map((order) => ({
+            orderNumber: order.orderNumber,
+            items: order.items
                 .map((item, i) => ({ item, itemIndex: i }))
                 .filter(({ item }) => filterItem(item)),
         }))

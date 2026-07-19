@@ -2,12 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import {
-    getNextOrderNumber,
-    getOrderHistory,
-    saveOrderHistory,
-    updateOrderPhone,
-} from '@/lib/db';
+import { createOrder, getOrderHistory, updateOrderPhone } from '@/lib/db';
+import { ORDER_SOURCE, calculateTotalRevenue } from '@/lib/orders/orderModel';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel, { PRICES, TAX_RATE, HOT_CHEETO_DUST_PRICE } from '@/components/OrderPanel';
@@ -65,13 +61,15 @@ const PANELS = [
     { key: 'boba', label: 'Boba' },
 ];
 
-const calculateTotalRevenue = (history) =>
-    history
-        .reduce((total, orderList) => {
-            const subtotal = orderList.reduce((sum, item) => sum + item.price, 0);
-            return total + subtotal + subtotal * TAX_RATE;
-        }, 0)
-        .toFixed(2);
+const HOT_CHEETO_DUST_LABEL = 'Hot Cheeto Dust';
+
+const sameModifiers = (a = [], b = []) =>
+    a.length === b.length && a.every((mod, i) => mod === b[i]);
+
+// The print server prints one line per {name, price}, and modifiers now live
+// in their own field, so fold them back into the name for the receipt.
+const toPrintableItems = (units) =>
+    units.map(({ displayName, price }) => ({ name: displayName, price }));
 
 export default function OrderSystem() {
     const [orders, setOrders] = useState([]);
@@ -141,47 +139,54 @@ export default function OrderSystem() {
         }
     }, [mobileTab]);
 
+    // Adds a line to the cart, or bumps the quantity of the matching one.
+    // Lines match only when both the base name and the modifiers agree, so
+    // "Ube" and "Ube (Tapioca)" stay separate lines.
+    const addCartLine = useCallback((line) => {
+        setOrders((prev) => {
+            const idx = prev.findIndex(
+                (i) => i.name === line.name && sameModifiers(i.modifiers, line.modifiers)
+            );
+            if (idx < 0) return [...prev, { ...line, quantity: 1 }];
+            return prev.map((item, i) =>
+                i === idx ? { ...item, quantity: item.quantity + 1 } : item
+            );
+        });
+    }, []);
+
     const handleAddBoba = useCallback(() => {
         if (!selectedDrink || !selectedBoba) return;
-        const name = `${selectedDrink} (${selectedBoba})`;
-        setOrders((prev) => {
-            const idx = prev.findIndex((i) => i.name === name);
-            if (idx >= 0) {
-                const next = [...prev];
-                next[idx].quantity += 1;
-                return next;
-            }
-            return [...prev, { name, price: PRICES.Boba, type: 'Boba', quantity: 1 }];
+        addCartLine({
+            name: selectedDrink,
+            modifiers: [selectedBoba],
+            price: PRICES.Boba,
+            type: 'Boba',
         });
         setSelectedDrink('');
         setSelectedBoba('');
-    }, [selectedDrink, selectedBoba]);
+    }, [selectedDrink, selectedBoba, addCartLine]);
 
     const handleAddCorndog = useCallback(() => {
         if (!selectedCorndogInside || !selectedCorndogOutside) return;
-        const name = `${selectedCorndogInside} ${selectedCorndogOutside}${selectedCorndogDust ? ' + Hot Cheeto Dust' : ''}`;
-        setOrders((prev) => {
-            const idx = prev.findIndex((i) => i.name === name);
-            if (idx >= 0) {
-                const next = [...prev];
-                next[idx].quantity += 1;
-                return next;
-            }
-            const price = PRICES.Corndog + (selectedCorndogDust ? HOT_CHEETO_DUST_PRICE : 0);
-            return [...prev, { name, price, type: 'Corndog', quantity: 1 }];
+        addCartLine({
+            name: `${selectedCorndogInside} ${selectedCorndogOutside}`,
+            modifiers: selectedCorndogDust ? [HOT_CHEETO_DUST_LABEL] : [],
+            price: PRICES.Corndog + (selectedCorndogDust ? HOT_CHEETO_DUST_PRICE : 0),
+            type: 'Corndog',
         });
         setSelectedCorndogInside('');
         setSelectedCorndogOutside('');
         setSelectedCorndogDust(false);
-    }, [selectedCorndogInside, selectedCorndogOutside, selectedCorndogDust]);
+    }, [selectedCorndogInside, selectedCorndogOutside, selectedCorndogDust, addCartLine]);
 
     const handleQuantityChange = useCallback((index, delta) => {
-        setOrders((prev) => {
-            const next = [...prev];
-            next[index].quantity += delta;
-            if (next[index].quantity <= 0) next.splice(index, 1);
-            return next;
-        });
+        setOrders((prev) =>
+            prev
+                .map((item, i) =>
+                    i === index ? { ...item, quantity: item.quantity + delta } : item
+                )
+                .filter((item) => item.quantity > 0)
+        );
     }, []);
 
     useEffect(() => {
@@ -195,32 +200,28 @@ export default function OrderSystem() {
         if (orders.length === 0) return;
         setSendError('');
         try {
-            const nextOrderNumber = await getNextOrderNumber();
-            const timestamp = new Date().toISOString();
+            // Rung up in store: the receipt prints here, so the row is stored
+            // as source='pos'/print_status='printed' and the iPad's auto-print
+            // queue never picks it up again.
+            const created = await createOrder({
+                cartItems: orders,
+                source: ORDER_SOURCE.pos,
+                phone,
+                paymentMethod: 'cash',
+            });
 
-            const enrichedOrders = orders.flatMap((item) =>
-                Array.from({ length: item.quantity }).map(() => ({
-                    orderNumber: nextOrderNumber,
-                    name: item.name,
-                    price: item.price,
-                    type: item.type,
-                    timestamp,
-                    phone: phone.trim() || null,
-                }))
-            );
-
-            await saveOrderHistory(enrichedOrders);
-            setHistory((prev) => [enrichedOrders, ...prev]);
+            setHistory((prev) => [created, ...prev]);
             setOrders([]);
             setPhone('');
             setMobileTab('history');
             tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-            console.log('[print] printerStatus =', printerStatus);
             if (printerStatus === 'connected') {
                 try {
-                    console.log('[print] calling eposPrint…');
-                    await eposPrint({ orderNumber: nextOrderNumber, items: enrichedOrders, taxRate: TAX_RATE });
-                    console.log('[print] done');
+                    await eposPrint({
+                        orderNumber: created.orderNumber,
+                        items: toPrintableItems(created.items),
+                        taxRate: TAX_RATE,
+                    });
                 } catch (printErr) {
                     console.error('[print] failed:', printErr);
                 }
@@ -243,8 +244,8 @@ export default function OrderSystem() {
 
     // Unified click — dispatches by item type
     const handleItemClick = useCallback((orderNumber, itemIndex) => {
-        const orderGroup = history.find((g) => g[0]?.orderNumber === orderNumber);
-        const item = orderGroup?.[itemIndex];
+        const order = history.find((o) => o.orderNumber === orderNumber);
+        const item = order?.items[itemIndex];
         if (!item) return;
         if (item.type === 'Boba') handleBobaItemClick(orderNumber, itemIndex);
         else handleCorndogItemClick(orderNumber, itemIndex);
@@ -260,7 +261,7 @@ export default function OrderSystem() {
 
     const getOrderPhone = useCallback((orderNumber) => {
         if (phoneOverrides[orderNumber] !== undefined) return phoneOverrides[orderNumber];
-        return history.flat().find((item) => item.orderNumber === orderNumber)?.phone ?? '';
+        return history.find((order) => order.orderNumber === orderNumber)?.phone ?? '';
     }, [phoneOverrides, history]);
 
     const handleSavePhone = useCallback(async (orderNumber, newPhone) => {
@@ -272,7 +273,7 @@ export default function OrderSystem() {
         try {
             await eposPrint({
                 orderNumber,
-                items: items.map(({ item }) => item),
+                items: toPrintableItems(items.map(({ item }) => item)),
                 taxRate: TAX_RATE,
             });
         } catch (err) {
@@ -307,8 +308,8 @@ export default function OrderSystem() {
 
             if (!orderPhone) return printBtn;
 
-            const orderItems = history.flat().filter((item) => item.orderNumber === orderNumber);
-            const itemList = orderItems.map((item) => `• ${item.name}`).join('\n');
+            const order = history.find((o) => o.orderNumber === orderNumber);
+            const itemList = (order?.items ?? []).map((item) => `• ${item.displayName}`).join('\n');
             const smsBody = `🌙 The Moon Tea\nOrder #${orderNumber} is ready for pickup! 🎉\n\n${itemList}\n\nSee you soon! 🧡`;
             const smsHref = `sms:${orderPhone}?body=${encodeURIComponent(smsBody)}`;
             return (
@@ -346,16 +347,15 @@ export default function OrderSystem() {
     // Orders filtered by visible panels — combined into one list per order number
     const displayOrders = useMemo(() => {
         return history
-            .map((orderList, idx) => {
-                const orderNumber = orderList[0]?.orderNumber ?? idx + 1;
-                const items = orderList
+            .map((order) => ({
+                orderNumber: order.orderNumber,
+                items: order.items
                     .map((item, i) => ({ item, itemIndex: i }))
                     .filter(({ item }) =>
                         (item.type === 'Boba' && visiblePanels.has('boba')) ||
                         (item.type !== 'Boba' && visiblePanels.has('corndog'))
-                    );
-                return { orderNumber, items };
-            })
+                    ),
+            }))
             .filter((o) => o.items.length > 0);
     }, [history, visiblePanels]);
 

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SummaryView: View {
-    @State private var allOrders: [Order] = []
+    @State private var allOrders: [OrderGroup] = []
     @State private var dateFilter: DateFilter = .today
     @State private var typeFilter: TypeFilter = .all
     @State private var loadError: Bool = false
@@ -21,29 +21,36 @@ struct SummaryView: View {
         var id: Self { self }
     }
 
-    private var filteredItems: [Order] {
+    /// The date now lives on the order rather than on each line item, so
+    /// orders are filtered by date first, then expanded to one entry per
+    /// physical unit and filtered by type.
+    private var filteredItems: [OrderUnit] {
         let cal = Calendar.current
         let now = Date()
         let weekAgo = cal.date(byAdding: .day, value: -6, to: cal.startOfDay(for: now)) ?? now
-        return allOrders.filter { item in
-            // If we can't parse the timestamp, keep the item visible only for
-            // "All Time" — better to show suspicious data than hide it silently.
-            let parsed = TimestampParser.parse(item.timestamp)
-            let matchDate: Bool = switch dateFilter {
-            case .all:   true
-            case .today: parsed.map { cal.isDateInToday($0) } ?? false
-            case .week:  parsed.map { $0 >= weekAgo } ?? false
+        return allOrders
+            .filter { order in
+                // If we can't parse the timestamp, keep the order visible only
+                // for "All Time" — better to show suspicious data than hide it
+                // silently.
+                let parsed = TimestampParser.parse(order.createdAt)
+                return switch dateFilter {
+                case .all:   true
+                case .today: parsed.map { cal.isDateInToday($0) } ?? false
+                case .week:  parsed.map { $0 >= weekAgo } ?? false
+                }
             }
-            // Discount rows are kept only for the "All" type filter (the only
-            // place we can attribute them accurately — they're applied at the
-            // order level, not per item).
-            let matchType: Bool = switch typeFilter {
-            case .all:     true
-            case .boba:    item.type == .boba
-            case .corndog: item.type == .corndog
+            .flatMap(\.units)
+            .filter { unit in
+                // Discount lines are kept only for the "All" type filter (the
+                // only place we can attribute them accurately — they're applied
+                // at the order level, not per item).
+                switch typeFilter {
+                case .all:     true
+                case .boba:    unit.type == .boba
+                case .corndog: unit.type == .corndog
+                }
             }
-            return matchDate && matchType
-        }
     }
 
     private struct Summary: Hashable {
@@ -55,10 +62,10 @@ struct SummaryView: View {
     private var itemSummary: [Summary] {
         var buckets: [String: (count: Int, revenue: Double)] = [:]
         for item in filteredItems where item.type != .discount {
-            var entry = buckets[item.name] ?? (0, 0)
+            var entry = buckets[item.displayName] ?? (0, 0)
             entry.count += 1
             entry.revenue += item.price * (1 + AppConstants.taxRate)
-            buckets[item.name] = entry
+            buckets[item.displayName] = entry
         }
         return buckets
             .map { Summary(name: $0.key, count: $0.value.count, revenue: $0.value.revenue) }

@@ -22,13 +22,15 @@ final class OrderViewModel {
     // History
     var history: [OrderGroup] = []
 
-    // Item state keyed by the item's stable row id
-    var bobaStates: [Order.ID: BobaState] = [:]
-    var corndogStates: [Order.ID: CorndogState] = [:]
+    // Item state keyed by the unit's stable id ("<orderID>-<line>-<unit>").
+    // Line items are stored collapsed with a quantity, so status is tracked
+    // per expanded unit rather than per row.
+    var bobaStates: [OrderUnit.ID: BobaState] = [:]
+    var corndogStates: [OrderUnit.ID: CorndogState] = [:]
 
-    // Notify tracking + per-order phone overrides
-    var notifiedOrders: Set<Int> = []
-    var phoneOverrides: [Int: String] = [:]
+    // Notify tracking + per-order phone overrides, keyed by order code.
+    var notifiedOrders: Set<String> = []
+    var phoneOverrides: [String: String] = [:]
 
     var sendError: String = ""
     var isSending: Bool = false
@@ -46,8 +48,10 @@ final class OrderViewModel {
     var tax: Double { subtotal * AppConstants.taxRate }
     var total: Double { subtotal + tax }
 
+    // Totals are stored on the row now, so revenue is a plain sum rather than
+    // a client-side re-derivation from line items.
     var totalRevenueToday: Double {
-        history.reduce(0) { $0 + $1.total(taxRate: AppConstants.taxRate) }
+        history.reduce(0) { $0 + $1.total }
     }
 
     var customizationLabel: String? {
@@ -211,9 +215,7 @@ final class OrderViewModel {
             recentRefreshRequested = false
             do {
                 let groups = try await SupabaseService.shared.recentOrderGroups(limit: Self.recentHistoryLimit)
-                for group in groups {
-                    for item in group.items { mergeUpdate(item) }
-                }
+                for group in groups { mergeOrder(group) }
             } catch {
                 print("[order] recent refresh failed: \(error)")
             }
@@ -228,52 +230,33 @@ final class OrderViewModel {
     // same merge functions, deduped by `id`, so whichever arrives second is
     // just a no-op.
 
-    private func mergeInsert(orderNumber: Int, rows: [Order]) {
-        guard !rows.isEmpty else { return }
-        if let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) {
-            let existingIDs = Set(history[idx].items.map(\.id))
-            let newItems = rows.filter { !existingIDs.contains($0.id) }
-            guard !newItems.isEmpty else { return }
-            history[idx] = OrderGroup(orderNumber: orderNumber, items: history[idx].items + newItems)
+    /// Upserts a whole order by `id`. One row is one order now, so INSERT and
+    /// UPDATE collapse into the same operation — there is no longer a
+    /// partially-arrived order to reconcile item by item.
+    private func mergeOrder(_ order: OrderGroup) {
+        if let idx = history.firstIndex(where: { $0.id == order.id }) {
+            history[idx] = order
         } else {
-            let insertAt = history.firstIndex(where: { $0.orderNumber < orderNumber }) ?? history.count
-            history.insert(OrderGroup(orderNumber: orderNumber, items: rows), at: insertAt)
+            // Keep newest-first, matching the server's created_at.desc order.
+            let insertAt = history.firstIndex(where: { $0.createdAt < order.createdAt }) ?? history.count
+            history.insert(order, at: insertAt)
         }
     }
 
-    private func mergeUpdate(_ order: Order) {
-        guard let groupIdx = history.firstIndex(where: { $0.orderNumber == order.orderNumber }),
-              let itemIdx = history[groupIdx].items.firstIndex(where: { $0.id == order.id }) else {
-            // We missed the INSERT somehow — heal by inserting instead.
-            mergeInsert(orderNumber: order.orderNumber, rows: [order])
-            return
+    private func mergeDelete(id: OrderGroup.ID) {
+        guard let idx = history.firstIndex(where: { $0.id == id }) else { return }
+        for unit in history[idx].units {
+            bobaStates.removeValue(forKey: unit.id)
+            corndogStates.removeValue(forKey: unit.id)
         }
-        var items = history[groupIdx].items
-        items[itemIdx] = order
-        history[groupIdx] = OrderGroup(orderNumber: order.orderNumber, items: items)
-    }
-
-    private func mergeDelete(id: Order.ID) {
-        guard let groupIdx = history.firstIndex(where: { $0.items.contains(where: { $0.id == id }) }) else { return }
-        var items = history[groupIdx].items
-        items.removeAll { $0.id == id }
-        bobaStates.removeValue(forKey: id)
-        corndogStates.removeValue(forKey: id)
-        if items.isEmpty {
-            history.remove(at: groupIdx)
-        } else {
-            history[groupIdx] = OrderGroup(orderNumber: history[groupIdx].orderNumber, items: items)
-        }
+        history.remove(at: idx)
     }
 
     private func applyPostgresChange(type: String, record: [String: Any]?, oldRecord: [String: Any]?) {
         switch type {
-        case "INSERT":
+        case "INSERT", "UPDATE":
             guard let record, let order = Self.decodeOrder(record) else { return }
-            mergeInsert(orderNumber: order.orderNumber, rows: [order])
-        case "UPDATE":
-            guard let record, let order = Self.decodeOrder(record) else { return }
-            mergeUpdate(order)
+            mergeOrder(order)
         case "DELETE":
             guard let oldRecord, let idString = oldRecord["id"] as? String, let id = UUID(uuidString: idString) else { return }
             mergeDelete(id: id)
@@ -282,10 +265,10 @@ final class OrderViewModel {
         }
     }
 
-    private static func decodeOrder(_ dict: [String: Any]) -> Order? {
+    private static func decodeOrder(_ dict: [String: Any]) -> OrderGroup? {
         guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return nil }
         do {
-            return try JSONDecoder().decode(Order.self, from: data)
+            return try JSONDecoder().decode(OrderGroup.self, from: data)
         } catch {
             print("[realtime] decode failed: \(error)")
             return nil
@@ -301,88 +284,87 @@ final class OrderViewModel {
         defer { isSending = false }
 
         do {
-            let orderNumber = try await SupabaseService.shared.nextOrderNumber()
+            let orderCode = try await SupabaseService.shared.nextOrderCode()
             let iso = ISO8601DateFormatter()
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let timestamp = iso.string(from: Date())
             let phoneClean = phone.trimmingCharacters(in: .whitespaces)
             let phoneValue: String? = phoneClean.isEmpty ? nil : phoneClean
 
-            let methodStr = paymentMethod.rawValue
-            var rows: [Order] = []
-            for item in cart {
-                for _ in 0..<item.quantity {
-                    rows.append(.init(
-                        orderNumber: orderNumber,
-                        name: item.name,
-                        price: item.price,
-                        type: item.type,
-                        timestamp: timestamp,
-                        phone: phoneValue,
-                        paymentMethod: methodStr,
-                        quantity: nil
-                    ))
-                }
+            // Cart lines map straight onto `items` — the quantity stays on the
+            // line instead of being exploded into one row per unit.
+            var items = cart.map {
+                OrderItem(name: $0.name, unitPrice: $0.price, quantity: $0.quantity, type: $0.type)
             }
             if couponApplied && cartSubtotal > 0 {
-                rows.append(.init(
-                    orderNumber: orderNumber,
+                // A negative-priced line, so the stored subtotal/total and the
+                // printed receipt stay consistent with each other.
+                items.append(OrderItem(
                     name: CouponConstants.fourOffLabel,
-                    price: -discount,
-                    type: .discount,
-                    timestamp: timestamp,
-                    phone: phoneValue,
-                    paymentMethod: methodStr,
-                    quantity: nil
+                    unitPrice: -discount,
+                    quantity: 1,
+                    type: .discount
                 ))
             }
-            let inserted = try await SupabaseService.shared.insertOrders(rows)
 
-            // Optimistically apply using the server-confirmed rows (real ids) —
-            // other devices' postgres_changes echo of this same insert will
-            // carry the same ids, so it'll just no-op when it arrives.
-            mergeInsert(orderNumber: orderNumber, rows: inserted)
+            // Read the cart-derived totals before the cart is cleared below.
+            let draft = OrderGroup(
+                source: OrderSource.pos,
+                orderNumber: orderCode,
+                createdAt: iso.string(from: Date()),
+                customerPhone: phoneValue,
+                items: items,
+                subtotal: subtotal,
+                tax: tax,
+                total: total,
+                paymentMethod: paymentMethod.rawValue,
+                printStatus: PrintStatus.printed
+            )
+            let inserted = try await SupabaseService.shared.insertOrder(draft)
+
+            // Optimistically apply the server-confirmed row (real id) — other
+            // devices' postgres_changes echo of this same insert carries the
+            // same id, so it just no-ops when it arrives.
+            mergeOrder(inserted)
             cart.removeAll()
             phone = ""
             couponApplied = false
             paymentMethod = .cash
 
             // Best-effort print
-            await tryPrint(orderNumber: orderNumber, items: inserted)
+            await tryPrint(inserted)
         } catch {
             sendError = (error as? LocalizedError)?.errorDescription ?? "Order failed to save."
         }
     }
 
-    func reprint(orderNumber: Int) async {
+    func reprint(orderNumber: String) async {
         guard let group = history.first(where: { $0.orderNumber == orderNumber }) else { return }
-        await tryPrint(orderNumber: orderNumber, items: group.items)
+        await tryPrint(group)
     }
 
-    private func tryPrint(orderNumber: Int, items: [Order]) async {
-        // Split: real items get grouped + summed; discount rows treated separately.
-        let productItems = items.filter { $0.type != .discount }
-        let discountRows = items.filter { $0.type == .discount }
+    private func tryPrint(_ order: OrderGroup) async {
+        // Line items already carry their quantity, so the old client-side
+        // grouping pass (which existed only to re-collapse the exploded rows)
+        // is gone.
+        let productItems = order.items.filter { $0.type != .discount }
+        let discountItems = order.items.filter { $0.type == .discount }
 
-        struct Bucket { let name: String; let price: Double; var qty: Int }
-        var grouped: [String: Bucket] = [:]
-        for item in productItems {
-            if var b = grouped[item.name] {
-                b.qty += 1
-                grouped[item.name] = b
-            } else {
-                grouped[item.name] = .init(name: item.name, price: item.price, qty: 1)
+        let lines = productItems
+            .sorted { $0.displayName < $1.displayName }
+            .map {
+                EpsonPrinter.ReceiptPayload.LineItem(
+                    name: $0.displayName,
+                    qty: $0.quantity,
+                    price: $0.unitPrice
+                )
             }
-        }
-        let lines = grouped.values
-            .sorted { $0.name < $1.name }
-            .map { EpsonPrinter.ReceiptPayload.LineItem(name: $0.name, qty: $0.qty, price: $0.price) }
 
-        let cartSubtotal = productItems.reduce(0) { $0 + $1.price }
-        let discountAmount = -discountRows.reduce(0) { $0 + $1.price }   // stored negative → positive amount
-        let adjustedSubtotal = max(0, cartSubtotal - discountAmount)
-        let tax = adjustedSubtotal * AppConstants.taxRate
-        let total = adjustedSubtotal + tax
+        let cartSubtotal = productItems.reduce(0) { $0 + $1.lineTotal }
+        let discountAmount = -discountItems.reduce(0) { $0 + $1.lineTotal } // stored negative → positive amount
+        // Totals come off the row so the receipt always matches what was saved.
+        let adjustedSubtotal = order.subtotal
+        let tax = order.tax
+        let total = order.total
 
         let df = DateFormatter()
         df.locale = Locale(identifier: "en_US")
@@ -391,10 +373,10 @@ final class OrderViewModel {
         let url = CashAppStore.shared.activeURL
         let tag = url.replacingOccurrences(of: "https://cash.app/", with: "")
 
-        let methodLabel = items.first?.paymentMethod ?? PaymentMethod.cash.rawValue
+        let methodLabel = order.paymentMethod ?? PaymentMethod.cash.rawValue
 
         let payload = EpsonPrinter.ReceiptPayload(
-            orderNumber: orderNumber,
+            orderNumber: order.orderNumber,
             lines: lines,
             cartSubtotal: cartSubtotal,
             discountAmount: discountAmount,
@@ -407,15 +389,14 @@ final class OrderViewModel {
             cashTag: tag
         )
 
-        do { try await EpsonPrinter.shared.print(payload) }
-        catch { print("[print] \(error.localizedDescription)") }
+        await EpsonPrinter.shared.print(payload)
     }
 
     // MARK: state machines
 
-    func cycleItem(_ id: Order.ID) {
-        guard let item = history.lazy.flatMap(\.items).first(where: { $0.id == id }) else { return }
-        switch item.type {
+    func cycleItem(_ id: OrderUnit.ID) {
+        guard let unit = history.lazy.flatMap(\.units).first(where: { $0.id == id }) else { return }
+        switch unit.type {
         case .boba:
             bobaStates[id] = (bobaStates[id] ?? .new).next
         case .corndog:
@@ -427,12 +408,12 @@ final class OrderViewModel {
 
     // MARK: phone editing
 
-    func phone(for orderNumber: Int) -> String {
+    func phone(for orderNumber: String) -> String {
         if let override = phoneOverrides[orderNumber] { return override }
         return history.first(where: { $0.orderNumber == orderNumber })?.phone ?? ""
     }
 
-    func savePhone(orderNumber: Int, phone: String) async {
+    func savePhone(orderNumber: String, phone: String) async {
         phoneError = ""
         phoneOverrides[orderNumber] = phone  // optimistic: show immediately
         do {
@@ -440,7 +421,7 @@ final class OrderViewModel {
             // devices' postgres_changes echo of this same update will apply
             // the same values again, harmlessly (last-write-wins, idempotent).
             let updated = try await SupabaseService.shared.updateOrderPhone(orderNumber: orderNumber, phone: phone)
-            for row in updated { mergeUpdate(row) }
+            for row in updated { mergeOrder(row) }
             phoneOverrides.removeValue(forKey: orderNumber)
         } catch {
             // Keep the optimistic override so the phone stays visible this session.
@@ -450,13 +431,13 @@ final class OrderViewModel {
         }
     }
 
-    func markNotified(_ orderNumber: Int) {
+    func markNotified(_ orderNumber: String) {
         notifiedOrders.insert(orderNumber)
     }
 
-    func smsBody(for orderNumber: Int) -> String {
+    func smsBody(for orderNumber: String) -> String {
         guard let group = history.first(where: { $0.orderNumber == orderNumber }) else { return "" }
-        let list = group.items.filter { $0.type != .discount }.map { "• \($0.name)" }.joined(separator: "\n")
+        let list = group.units.filter { $0.type != .discount }.map { "• \($0.displayName)" }.joined(separator: "\n")
         return "🌙 The Moon Tea\nOrder #\(orderNumber) is ready for pickup! 🎉\n\n\(list)\n\nSee you soon! 🧡"
     }
 }

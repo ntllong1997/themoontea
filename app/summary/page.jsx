@@ -54,14 +54,22 @@ export default function SummaryPage() {
         fetchHistory();
     }, [fetchHistory]);
 
-    const flatOrders = useMemo(() => history.flat(), [history]);
+    // One entry per physical unit, carrying its order's timestamp — the date
+    // now lives on the order row rather than on each line item.
+    const flatOrders = useMemo(
+        () =>
+            history.flatMap((order) =>
+                order.items.map((item) => ({ ...item, createdAt: order.createdAt }))
+            ),
+        [history]
+    );
 
     const filtered = useMemo(() => {
         return flatOrders.filter((item) => {
             const matchDate =
                 dateFilter === 'all' ? true :
-                dateFilter === 'today' ? isToday(item.timestamp) :
-                isThisWeek(item.timestamp);
+                dateFilter === 'today' ? isToday(item.createdAt) :
+                isThisWeek(item.createdAt);
             const matchType =
                 typeFilter === 'all' ? true : item.type === typeFilter;
             return matchDate && matchType;
@@ -71,9 +79,12 @@ export default function SummaryPage() {
     const itemSummary = useMemo(() => {
         const counts = {};
         filtered.forEach((item) => {
-            if (!counts[item.name]) counts[item.name] = { name: item.name, type: item.type, count: 0, revenue: 0 };
-            counts[item.name].count += 1;
-            counts[item.name].revenue += item.price * (1 + TAX_RATE);
+            // Group by the modifier-inclusive name so "Ube (Tapioca)" and
+            // "Ube (Jelly)" are counted as the distinct products they are.
+            const label = item.displayName ?? item.name;
+            if (!counts[label]) counts[label] = { name: label, type: item.type, count: 0, revenue: 0 };
+            counts[label].count += 1;
+            counts[label].revenue += item.price * (1 + TAX_RATE);
         });
         return Object.values(counts).sort((a, b) => b.count - a.count);
     }, [filtered]);
