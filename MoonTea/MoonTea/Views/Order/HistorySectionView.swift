@@ -11,6 +11,7 @@ struct HistorySectionView: View {
     @State private var editingPhoneOrder: Int?
     @State private var draftPhone: String = ""
     @State private var smsTarget: SMSTarget?
+    @State private var editTarget: EditTarget?
     @FocusState private var phoneEditorFocused: Bool
 
     private var draftPhoneIsValid: Bool {
@@ -22,6 +23,11 @@ struct HistorySectionView: View {
         let orderNumber: Int
         let phone: String
         let body: String
+        var id: Int { orderNumber }
+    }
+
+    private struct EditTarget: Identifiable {
+        let orderNumber: Int
         var id: Int { orderNumber }
     }
 
@@ -72,6 +78,12 @@ struct HistorySectionView: View {
                 }
                 .padding()
             }
+        }
+        // onDismiss covers swipe-to-dismiss, which bypasses the Cancel button.
+        // Without it a stale `editingOrderNumber` would keep routing new items
+        // from the counter's builders into the abandoned edit draft.
+        .sheet(item: $editTarget, onDismiss: { vm.cancelEdit() }) { target in
+            EditOrderSheet(vm: vm, orderNumber: target.orderNumber)
         }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -275,6 +287,20 @@ struct HistorySectionView: View {
     @ViewBuilder
     private func actionButton(group: OrderGroup) -> some View {
         HStack(spacing: 6) {
+            // Station boards are read-only for the people making drinks —
+            // corrections happen at the counter.
+            if !isStation {
+                Button {
+                    vm.beginEdit(orderNumber: group.orderNumber)
+                    editTarget = EditTarget(orderNumber: group.orderNumber)
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.mutedText)
+                }
+                .buttonStyle(.plain)
+            }
+
             if EpsonPrinter.shared.hasSavedPrinter {
                 Button {
                     Task { await vm.reprint(orderNumber: group.orderNumber) }

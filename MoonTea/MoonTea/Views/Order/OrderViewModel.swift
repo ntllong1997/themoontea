@@ -34,6 +34,21 @@ final class OrderViewModel {
     var isSending: Bool = false
     var phoneError: String = ""
 
+    // Editing an already-submitted order. Kept in its own draft state rather
+    // than reusing `cart` so an in-progress order at the counter is never
+    // clobbered by opening a past order to correct it.
+    var editingOrderNumber: Int?
+    var editCart: [CartItem] = []
+    var editPaymentMethod: PaymentMethod = .cash
+    var editError: String = ""
+    var isSavingEdit: Bool = false
+    /// Discount rows carried through an edit untouched — the coupon is
+    /// deliberately not editable here, but the rows still have to be
+    /// re-inserted or the replace would drop them.
+    private var editPreservedRows: [Order] = []
+    private var editTimestamp: String = ""
+    private var editPhone: String?
+
     private let realtime = SupabaseRealtime(channelName: "orders", table: "orders")
     private var safetyPollTask: Task<Void, Never>?
     private var foregroundObserver: (any NSObjectProtocol)?
@@ -62,11 +77,7 @@ final class OrderViewModel {
         if drinkCustomization, let label = customizationLabel {
             name += " [\(label)]"
         }
-        if let idx = cart.firstIndex(where: { $0.name == name }) {
-            cart[idx].quantity += 1
-        } else {
-            cart.append(.init(name: name, price: AppConstants.bobaPrice, type: .boba, quantity: 1))
-        }
+        addItem(name: name, price: AppConstants.bobaPrice, type: .boba)
         selectedDrink = ""
         selectedBoba = ""
         drinkCustomization = false
@@ -78,20 +89,49 @@ final class OrderViewModel {
         let dustSuffix = dustApplies ? " + Hot Cheeto Dust" : ""
         let name = "\(selectedCorndogInside) \(selectedCorndogOutside)\(dustSuffix)"
         let price = AppConstants.corndogPrice + (dustApplies ? AppConstants.hotCheetoDustPrice : 0)
-        if let idx = cart.firstIndex(where: { $0.name == name }) {
-            cart[idx].quantity += 1
-        } else {
-            cart.append(.init(name: name, price: price, type: .corndog, quantity: 1))
-        }
+        addItem(name: name, price: price, type: .corndog)
         selectedCorndogInside = ""
         selectedCorndogOutside = ""
         selectedCorndogDust = false
+    }
+
+    /// Routes to the edit draft when an order is open for editing, so the same
+    /// boba/corndog builders serve both the counter and the edit sheet.
+    private func addItem(name: String, price: Double, type: OrderItemType) {
+        if editingOrderNumber != nil {
+            if let idx = editCart.firstIndex(where: { $0.name == name }) {
+                editCart[idx].quantity += 1
+            } else {
+                editCart.append(.init(name: name, price: price, type: type, quantity: 1))
+            }
+        } else {
+            if let idx = cart.firstIndex(where: { $0.name == name }) {
+                cart[idx].quantity += 1
+            } else {
+                cart.append(.init(name: name, price: price, type: type, quantity: 1))
+            }
+        }
     }
 
     func changeQuantity(at index: Int, by delta: Int) {
         guard cart.indices.contains(index) else { return }
         cart[index].quantity += delta
         if cart[index].quantity <= 0 { cart.remove(at: index) }
+    }
+
+    func changeEditQuantity(at index: Int, by delta: Int) {
+        guard editCart.indices.contains(index) else { return }
+        editCart[index].quantity += delta
+        if editCart[index].quantity <= 0 { editCart.remove(at: index) }
+    }
+
+    private func clearBuilderSelections() {
+        selectedDrink = ""
+        selectedBoba = ""
+        drinkCustomization = false
+        selectedCorndogInside = ""
+        selectedCorndogOutside = ""
+        selectedCorndogDust = false
     }
 
     // MARK: history (realtime)
@@ -359,22 +399,134 @@ final class OrderViewModel {
         await tryPrint(orderNumber: orderNumber, items: group.items)
     }
 
+    // MARK: edit a submitted order
+
+    var isEditing: Bool { editingOrderNumber != nil }
+
+    /// The coupon isn't editable mid-edit, so the discount is read off the
+    /// preserved rows (stored negative) rather than the `couponApplied` flag.
+    var editDiscount: Double { -editPreservedRows.reduce(0) { $0 + $1.price } }
+    var editCartSubtotal: Double { editCart.reduce(0) { $0 + $1.lineTotal } }
+    var editSubtotal: Double { max(0, editCartSubtotal - editDiscount) }
+    var editTax: Double { editSubtotal * AppConstants.taxRate }
+    var editTotal: Double { editSubtotal + editTax }
+
+    /// Collapses one-row-per-unit rows back into line items with quantities —
+    /// the inverse of the expansion in `sendOrder()`. Grouped on name + price +
+    /// type so two same-named items at different prices never merge.
+    /// First-seen order is preserved so the sheet doesn't reshuffle as it's edited.
+    static func collapseToLineItems(_ rows: [Order]) -> [(name: String, price: Double, type: OrderItemType, qty: Int)] {
+        var keyOrder: [String] = []
+        var buckets: [String: (name: String, price: Double, type: OrderItemType, qty: Int)] = [:]
+        for row in rows {
+            let key = "\(row.name)|\(row.price)|\(row.type.rawValue)"
+            if var bucket = buckets[key] {
+                bucket.qty += 1
+                buckets[key] = bucket
+            } else {
+                buckets[key] = (row.name, row.price, row.type, 1)
+                keyOrder.append(key)
+            }
+        }
+        return keyOrder.compactMap { buckets[$0] }
+    }
+
+    func beginEdit(orderNumber: Int) {
+        guard let group = history.first(where: { $0.orderNumber == orderNumber }) else { return }
+        editError = ""
+        editPreservedRows = group.items.filter { $0.type == .discount }
+        editTimestamp = group.items.first?.timestamp ?? ""
+        editPhone = group.items.first?.phone
+        editPaymentMethod = PaymentMethod(rawValue: group.items.first?.paymentMethod ?? "") ?? .cash
+        editCart = Self.collapseToLineItems(group.items.filter { $0.type != .discount })
+            .map { CartItem(name: $0.name, price: $0.price, type: $0.type, quantity: $0.qty) }
+        clearBuilderSelections()
+        editingOrderNumber = orderNumber
+    }
+
+    func cancelEdit() {
+        editingOrderNumber = nil
+        editCart = []
+        editPreservedRows = []
+        editTimestamp = ""
+        editPhone = nil
+        editError = ""
+        clearBuilderSelections()
+    }
+
+    /// Rewrites the order's rows in one transaction. The original timestamp is
+    /// reused so the edited order keeps its place in the day's ordering and
+    /// stays inside the day bounds the replace is scoped to.
+    func saveEdit() async {
+        guard let orderNumber = editingOrderNumber, !editCart.isEmpty else { return }
+        isSavingEdit = true
+        editError = ""
+        defer { isSavingEdit = false }
+
+        let methodStr = editPaymentMethod.rawValue
+        var rows: [Order] = []
+        for item in editCart {
+            for _ in 0..<item.quantity {
+                rows.append(.init(
+                    orderNumber: orderNumber,
+                    name: item.name,
+                    price: item.price,
+                    type: item.type,
+                    timestamp: editTimestamp,
+                    phone: editPhone,
+                    paymentMethod: methodStr,
+                    quantity: nil
+                ))
+            }
+        }
+        // Carry the discount rows through, re-stamped with the (possibly
+        // changed) payment method so the whole order stays internally consistent.
+        for row in editPreservedRows {
+            rows.append(.init(
+                orderNumber: orderNumber,
+                name: row.name,
+                price: row.price,
+                type: row.type,
+                timestamp: editTimestamp,
+                phone: editPhone,
+                paymentMethod: methodStr,
+                quantity: row.quantity
+            ))
+        }
+
+        do {
+            let replaced = try await SupabaseService.shared.replaceOrderItems(orderNumber: orderNumber, rows: rows)
+            replaceGroup(orderNumber: orderNumber, with: replaced)
+            cancelEdit()
+        } catch {
+            editError = (error as? LocalizedError)?.errorDescription ?? "Couldn't save changes."
+            print("[order] edit save failed: \(error)")
+        }
+    }
+
+    /// Swaps a group's rows wholesale. The replacement rows carry fresh ids, so
+    /// the old ids' station state is dropped rather than left to leak — the
+    /// order's progress restarts, which is the accepted cost of a full replace.
+    /// Realtime's DELETE/INSERT echo of this same write is a no-op afterwards:
+    /// the old ids are already gone and the new ones already present.
+    private func replaceGroup(orderNumber: Int, with rows: [Order]) {
+        guard let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) else {
+            mergeInsert(orderNumber: orderNumber, rows: rows)
+            return
+        }
+        for old in history[idx].items {
+            bobaStates.removeValue(forKey: old.id)
+            corndogStates.removeValue(forKey: old.id)
+        }
+        history[idx] = OrderGroup(orderNumber: orderNumber, items: rows)
+    }
+
     private func tryPrint(orderNumber: Int, items: [Order]) async {
         // Split: real items get grouped + summed; discount rows treated separately.
         let productItems = items.filter { $0.type != .discount }
         let discountRows = items.filter { $0.type == .discount }
 
-        struct Bucket { let name: String; let price: Double; var qty: Int }
-        var grouped: [String: Bucket] = [:]
-        for item in productItems {
-            if var b = grouped[item.name] {
-                b.qty += 1
-                grouped[item.name] = b
-            } else {
-                grouped[item.name] = .init(name: item.name, price: item.price, qty: 1)
-            }
-        }
-        let lines = grouped.values
+        let lines = Self.collapseToLineItems(productItems)
             .sorted { $0.name < $1.name }
             .map { EpsonPrinter.ReceiptPayload.LineItem(name: $0.name, qty: $0.qty, price: $0.price) }
 
@@ -394,7 +546,7 @@ final class OrderViewModel {
         let methodLabel = items.first?.paymentMethod ?? PaymentMethod.cash.rawValue
 
         let payload = EpsonPrinter.ReceiptPayload(
-            orderNumber: orderNumber,
+            orderNumber: String(orderNumber),
             lines: lines,
             cartSubtotal: cartSubtotal,
             discountAmount: discountAmount,

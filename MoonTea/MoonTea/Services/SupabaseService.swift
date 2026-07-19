@@ -72,21 +72,55 @@ actor SupabaseService {
 
     // MARK: - Orders
 
-    /// Returns today's orders grouped by orderNumber, newest order first.
-    func todaysOrderGroups() async throws -> [OrderGroup] {
+    /// One line-item row as the `orders` table expects it. Shared by
+    /// `insertOrders` and `replaceOrderItems` so the column list lives in
+    /// exactly one place.
+    private struct InsertRow: Encodable {
+        let orderNumber: Int
+        let name: String
+        let price: Double
+        let type: String
+        let timestamp: String
+        let phone: String?
+        let paymentMethod: String?
+        let quantity: Int?
+
+        init(_ order: Order) {
+            orderNumber = order.orderNumber
+            name = order.name
+            price = order.price
+            type = order.type.rawValue
+            timestamp = order.timestamp
+            phone = order.phone
+            paymentMethod = order.paymentMethod
+            quantity = order.quantity
+        }
+    }
+
+    /// `[start, end)` bounds for today as ISO8601 strings.
+    ///
+    /// Every order query is day-scoped because `orderNumber` resets to 1 each
+    /// day (see `nextOrderNumber()`), so a number alone never identifies a
+    /// single order.
+    private func todayBounds() -> (start: String, end: String) {
         let cal = Calendar.current
         let start = cal.startOfDay(for: Date())
         let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return (iso.string(from: start), iso.string(from: end))
+    }
 
+    /// Returns today's orders grouped by orderNumber, newest order first.
+    func todaysOrderGroups() async throws -> [OrderGroup] {
+        let bounds = todayBounds()
         let req = try makeRequest(
             path: "/rest/v1/orders",
             method: "GET",
             query: [
                 .init(name: "select", value: "*"),
-                .init(name: "timestamp", value: "gte.\(iso.string(from: start))"),
-                .init(name: "timestamp", value: "lt.\(iso.string(from: end))"),
+                .init(name: "timestamp", value: "gte.\(bounds.start)"),
+                .init(name: "timestamp", value: "lt.\(bounds.end)"),
                 .init(name: "order", value: "orderNumber.desc,timestamp.asc"),
             ]
         )
@@ -108,20 +142,15 @@ actor SupabaseService {
     /// result into existing state rather than replace it, since older
     /// groups beyond the limit are intentionally omitted, not gone.
     func recentOrderGroups(limit: Int = 20) async throws -> [OrderGroup] {
-        let cal = Calendar.current
-        let start = cal.startOfDay(for: Date())
-        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
+        let bounds = todayBounds()
         struct Params: Encodable {
             let range_start: String
             let range_end: String
             let group_limit: Int
         }
         let body = try JSONEncoder().encode(Params(
-            range_start: iso.string(from: start),
-            range_end: iso.string(from: end),
+            range_start: bounds.start,
+            range_end: bounds.end,
             group_limit: limit
         ))
         let req = try makeRequest(path: "/rest/v1/rpc/recent_order_groups", method: "POST", body: body)
@@ -154,19 +183,14 @@ actor SupabaseService {
     /// avoided by retrying, and it's a single round trip instead of the
     /// old client-side read-check-retry loop's worst case of 10.
     func nextOrderNumber() async throws -> Int {
-        let cal = Calendar.current
-        let start = cal.startOfDay(for: Date())
-        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
+        let bounds = todayBounds()
         struct Params: Encodable {
             let range_start: String
             let range_end: String
         }
         let body = try JSONEncoder().encode(Params(
-            range_start: iso.string(from: start),
-            range_end: iso.string(from: end)
+            range_start: bounds.start,
+            range_end: bounds.end
         ))
         let req = try makeRequest(path: "/rest/v1/rpc/next_order_number", method: "POST", body: body)
         return try await run(req, as: Int.self)
@@ -175,26 +199,7 @@ actor SupabaseService {
     /// Returns the server-confirmed rows (with their real `id`s) so callers can
     /// use them for optimistic local state that matches what Realtime will echo.
     func insertOrders(_ orders: [Order]) async throws -> [Order] {
-        struct InsertRow: Encodable {
-            let orderNumber: Int
-            let name: String
-            let price: Double
-            let type: String
-            let timestamp: String
-            let phone: String?
-            let paymentMethod: String?
-        }
-        let payload = orders.map {
-            InsertRow(
-                orderNumber: $0.orderNumber,
-                name: $0.name,
-                price: $0.price,
-                type: $0.type.rawValue,
-                timestamp: $0.timestamp,
-                phone: $0.phone,
-                paymentMethod: $0.paymentMethod
-            )
-        }
+        let payload = orders.map(InsertRow.init)
         let body = try JSONEncoder().encode(payload)
         let req = try makeRequest(
             path: "/rest/v1/orders",
@@ -218,23 +223,55 @@ actor SupabaseService {
         struct Patch: Encodable { let phone: String? }
         let body = try JSONEncoder().encode(Patch(phone: (phone?.isEmpty == false) ? phone : nil))
 
-        let cal = Calendar.current
-        let start = cal.startOfDay(for: Date())
-        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
+        let bounds = todayBounds()
         let req = try makeRequest(
             path: "/rest/v1/orders",
             method: "PATCH",
             query: [
                 .init(name: "orderNumber", value: "eq.\(orderNumber)"),
-                .init(name: "timestamp", value: "gte.\(iso.string(from: start))"),
-                .init(name: "timestamp", value: "lt.\(iso.string(from: end))"),
+                .init(name: "timestamp", value: "gte.\(bounds.start)"),
+                .init(name: "timestamp", value: "lt.\(bounds.end)"),
             ],
             body: body,
             preferReturn: true
         )
+        return try await run(req, as: [Order].self)
+    }
+
+    /// Replaces every line-item row of `orderNumber` with `rows`, atomically,
+    /// via the `replace_order_items` Postgres function.
+    ///
+    /// Editing a submitted order means changing which rows exist, not patching
+    /// them in place — quantities map to row *counts* in this schema. Doing
+    /// that as a client-side DELETE-then-INSERT would destroy a paid order
+    /// outright if the app died between the two calls, so both happen inside a
+    /// single transaction: either the whole edit lands or none of it does.
+    ///
+    /// The function is SECURITY DEFINER because RLS grants anon no DELETE on
+    /// `orders`; that keeps the narrow "replace one order" capability without
+    /// opening blanket deletes to every device holding the anon key.
+    ///
+    /// Returns the server-confirmed replacement rows, which carry fresh `id`s —
+    /// callers must rebuild local state from these rather than assuming the old
+    /// ids survived.
+    func replaceOrderItems(orderNumber: Int, rows: [Order]) async throws -> [Order] {
+        guard !rows.isEmpty else {
+            throw SupabaseError.http(400, "Refusing to replace order #\(orderNumber) with no items.")
+        }
+        let bounds = todayBounds()
+        struct Params: Encodable {
+            let target_order_number: Int
+            let range_start: String
+            let range_end: String
+            let new_rows: [InsertRow]
+        }
+        let body = try JSONEncoder().encode(Params(
+            target_order_number: orderNumber,
+            range_start: bounds.start,
+            range_end: bounds.end,
+            new_rows: rows.map(InsertRow.init)
+        ))
+        let req = try makeRequest(path: "/rest/v1/rpc/replace_order_items", method: "POST", body: body)
         return try await run(req, as: [Order].self)
     }
 }

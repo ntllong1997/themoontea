@@ -124,61 +124,25 @@ struct CartView: View {
     // MARK: - Cart rows
 
     private func cartRow(idx: Int, item: CartItem) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.name).font(.system(size: 14, weight: .medium))
-                Text("$\(item.price.fmt2) × \(item.quantity) = $\(item.lineTotal.fmt2)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.mutedText)
-            }
-            Spacer()
-            HStack(spacing: 4) {
-                stepperButton("−") { vm.changeQuantity(at: idx, by: -1) }
-                stepperButton("+") { vm.changeQuantity(at: idx, by: 1) }
-                Button { vm.changeQuantity(at: idx, by: -item.quantity) } label: {
-                    Text("✕")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 40, height: 40)
-                        .foregroundStyle(.white)
-                        .background(Color.red)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.vertical, 6)
-        .overlay(alignment: .bottom) {
-            Rectangle().frame(height: 0.5).foregroundStyle(Theme.cardBorder)
-        }
-    }
-
-    private func stepperButton(_ text: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(text)
-                .font(.system(size: 16, weight: .semibold))
-                .frame(width: 40, height: 40)
-                .background(Color(.secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Theme.cardBorder, lineWidth: 0.5)
-                )
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Theme.strongText)
+        CartLineItemRow(
+            item: item,
+            onDecrement: { vm.changeQuantity(at: idx, by: -1) },
+            onIncrement: { vm.changeQuantity(at: idx, by: 1) },
+            onRemove:    { vm.changeQuantity(at: idx, by: -item.quantity) }
+        )
     }
 
     // MARK: - Controls
 
     private var totalsRows: some View {
         VStack(spacing: 4) {
-            row("Subtotal", "$\(vm.cartSubtotal.fmt2)")
+            TotalsRow(left: "Subtotal", right: "$\(vm.cartSubtotal.fmt2)")
             if vm.couponApplied && vm.discount > 0 {
-                row("Coupon", "-$\(vm.discount.fmt2)", muted: true)
-                row("Adjusted Subtotal", "$\(vm.subtotal.fmt2)")
+                TotalsRow(left: "Coupon", right: "-$\(vm.discount.fmt2)", muted: true)
+                TotalsRow(left: "Adjusted Subtotal", right: "$\(vm.subtotal.fmt2)")
             }
-            row("Tax (\(Int(AppConstants.taxRate * 100))%)", "$\(vm.tax.fmt2)", muted: true)
-            row("Total", "$\(vm.total.fmt2)", bold: true)
+            TotalsRow(left: "Tax (\(Int(AppConstants.taxRate * 100))%)", right: "$\(vm.tax.fmt2)", muted: true)
+            TotalsRow(left: "Total", right: "$\(vm.total.fmt2)", bold: true)
         }
     }
 
@@ -194,34 +158,7 @@ struct CartView: View {
     }
 
     private var paymentPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("PAYMENT")
-                .font(.system(size: 11, weight: .medium))
-                .tracking(0.5)
-                .foregroundStyle(Theme.mutedText)
-            HStack(spacing: 6) {
-                ForEach(PaymentMethod.allCases) { method in
-                    let active = vm.paymentMethod == method
-                    Button { vm.paymentMethod = method } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: method.icon).font(.system(size: 18))
-                            Text(method.displayName).font(.system(size: 12, weight: .medium))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(active ? Color.black : Color(.secondarySystemBackground))
-                        .foregroundStyle(active ? .white : Theme.strongText)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Theme.cardBorder, lineWidth: active ? 0 : 0.5)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(.vertical, 4)
+        PaymentMethodPicker(selection: $vm.paymentMethod)
     }
 
     private var printerRow: some View {
@@ -261,15 +198,6 @@ struct CartView: View {
         }
     }
 
-    private func row(_ left: String, _ right: String, muted: Bool = false, bold: Bool = false) -> some View {
-        HStack {
-            Text(left)
-            Spacer()
-            Text(right)
-        }
-        .font(.system(size: bold ? 16 : 14, weight: bold ? .bold : .regular))
-        .foregroundStyle(muted ? Theme.mutedText : Theme.strongText)
-    }
 }
 
 // MARK: - Card payment sheet
