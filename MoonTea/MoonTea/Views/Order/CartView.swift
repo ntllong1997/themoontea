@@ -337,6 +337,10 @@ private struct PaymentConfirmationSheet: View {
     private func charge() async {
         isCharging = true
         chargeError = ""
+        // Warm the printer link while the card is being processed — the charge
+        // takes a few seconds, which is more than enough to absorb a reconnect
+        // handshake, so the receipt can fire the instant payment succeeds.
+        EpsonPrinter.shared.checkConnection()
         let amountCents = Int((vm.total * 100).rounded())
         let result = await square.charge(amountCents: amountCents)
         isCharging = false

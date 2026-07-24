@@ -340,6 +340,12 @@ final class OrderViewModel {
         sendError = ""
         defer { isSending = false }
 
+        // The customer has already paid, so the receipt is what we optimise
+        // for. Warm the printer link now, in parallel with the order-number
+        // round trip below, so a reconnect handshake (if the link went idle)
+        // overlaps the network call instead of adding to the time-to-print.
+        EpsonPrinter.shared.checkConnection()
+
         do {
             let orderNumber = try await SupabaseService.shared.nextOrderNumber()
             let iso = ISO8601DateFormatter()
@@ -376,20 +382,32 @@ final class OrderViewModel {
                     quantity: nil
                 ))
             }
+
+            // Print straight from the local rows, before persisting. The
+            // receipt needs only the order number and the line items — never
+            // the DB write — so enqueuing it here takes the entire insert round
+            // trip off the critical path between payment and paper. `tryPrint`
+            // only queues (it returns instantly); the actual printing runs in
+            // the background, concurrently with the insert below.
+            await tryPrint(orderNumber: orderNumber, items: rows)
+
             let inserted = try await SupabaseService.shared.insertOrders(rows)
 
-            // Optimistically apply using the server-confirmed rows (real ids) —
-            // other devices' postgres_changes echo of this same insert will
-            // carry the same ids, so it'll just no-op when it arrives.
+            // Merge with the server-confirmed rows (real ids), not the local
+            // ones: other devices' postgres_changes echo of this insert carries
+            // those same server ids, so the merge dedups instead of duplicating
+            // the order. (Merging the local rows here would leave the echo
+            // unmatched and double the order in history.)
             mergeInsert(orderNumber: orderNumber, rows: inserted)
             cart.removeAll()
             phone = ""
             couponApplied = false
             paymentMethod = .cash
-
-            // Best-effort print
-            await tryPrint(orderNumber: orderNumber, items: inserted)
         } catch {
+            // If the failure came after the receipt was queued, the customer
+            // still gets their receipt; the message says the save is what
+            // failed so staff know to re-ring rather than assume nothing
+            // happened.
             sendError = (error as? LocalizedError)?.errorDescription ?? "Order failed to save."
         }
     }
