@@ -1,9 +1,29 @@
 import Foundation
 
-enum OrderItemType: String, Codable, Sendable {
-    case boba = "Boba"
-    case corndog = "Corndog"
-    case discount = "Discount"
+/// The category a line belongs to, matching a `MenuCatalog` entry's `key`.
+///
+/// Deliberately NOT a closed enum. The website and a newer iPad build can write
+/// a category this build has never heard of; as an enum that made `Order`'s
+/// decoder throw, which silently dropped the whole order — it never appeared in
+/// history and never printed. As an open raw value the row still decodes, and
+/// `MenuCatalog` falls back to the neutral flow for anything it cannot place.
+struct OrderItemType: RawRepresentable, Codable, Hashable, Sendable {
+    let rawValue: String
+
+    init(rawValue: String) { self.rawValue = rawValue }
+
+    init(from decoder: Decoder) throws {
+        rawValue = try decoder.singleValueContainer().decode(String.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    static let boba = OrderItemType(rawValue: "Boba")
+    static let corndog = OrderItemType(rawValue: "Corndog")
+    static let discount = OrderItemType(rawValue: "Discount")
 }
 
 struct Order: Codable, Hashable, Identifiable, Sendable {

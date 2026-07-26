@@ -3,64 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { createOrder, getOrderHistory, updateOrderPhone } from '@/lib/db';
-import { calculateTotalRevenue } from '@/lib/orders/orderModel';
+import { calculateTotalRevenue, formatItemName } from '@/lib/orders/orderModel';
 import { useCart } from '@/lib/orders/useCart';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import OrderPanel, { PRICES, TAX_RATE, HOT_CHEETO_DUST_PRICE } from '@/components/OrderPanel';
+import OrderPanel from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
 import { checkPrinterStatus, printReceipt as eposPrint } from '@/lib/printer';
 import { Printer } from 'lucide-react';
-
-const CORNDOG_STATES = { received: 'received', making: 'making', ready: 'ready', pickedup: 'pickedup' };
-const CORNDOG_NEXT = { received: 'making', making: 'ready', ready: 'pickedup', pickedup: 'received' };
-
-const CORNDOG_STATE_CLASS = {
-    received: 'bg-red-50 text-red-900',
-    making: 'bg-red-100 text-red-900',
-    ready: 'bg-red-300 text-red-900',
-    pickedup: 'bg-red-500 text-white',
-};
-
-const CORNDOG_STATE_BADGE = {
-    received: 'New',
-    making: 'Making…',
-    ready: 'Ready ✓',
-    pickedup: 'Picked Up ✓',
-};
-
-const CORNDOG_STATE_TOOLTIP = {
-    received: 'Click to mark as Making',
-    making: 'Click to mark as Ready',
-    ready: 'Click to mark as Picked Up',
-    pickedup: 'Click to reset',
-};
-
-const BOBA_STATES = { new: 'new', ready: 'ready', pickedup: 'pickedup' };
-const BOBA_NEXT = { new: 'ready', ready: 'pickedup', pickedup: 'new' };
-
-const BOBA_STATE_CLASS = {
-    new: 'bg-blue-100 text-blue-900',
-    ready: 'bg-blue-300 text-blue-900',
-    pickedup: 'bg-blue-500 text-white',
-};
-
-const BOBA_STATE_BADGE = {
-    new: 'New',
-    ready: 'Ready ✓',
-    pickedup: 'Picked Up ✓',
-};
-
-const BOBA_STATE_TOOLTIP = {
-    new: 'Click to mark as Ready',
-    ready: 'Click to mark as Picked Up',
-    pickedup: 'Click to reset',
-};
-
-const PANELS = [
-    { key: 'corndog', label: 'Corndog' },
-    { key: 'boba', label: 'Boba' },
-];
+import {
+    CATEGORIES,
+    CATEGORY_KEYS,
+    STATION_CATEGORIES,
+    TAX_RATE,
+    flowStateFor,
+    initialStateFor,
+    nextStateFor,
+} from '@/lib/menu/catalog';
 
 // The print server prints one line per {name, price}, and modifiers now live
 // in their own field, so fold them back into the name for the receipt.
@@ -81,8 +40,9 @@ export default function OrderSystem() {
     const [history, setHistory] = useState([]);
     const [phone, setPhone] = useState('');
 
-    const [bobaStates, setBobaStates] = useState({});
-    const [corndogStates, setCorndogStates] = useState({});
+    // One map for every category — the state names differ per category, so the
+    // value is resolved against the item's own flow when it is read.
+    const [itemStates, setItemStates] = useState({});
     const [notifiedOrders, setNotifiedOrders] = useState(new Set());
     const [phoneOverrides, setPhoneOverrides] = useState({});
     const [mobileTab, setMobileTab] = useState('order');
@@ -96,8 +56,8 @@ export default function OrderSystem() {
     const mobileHistoryRef = useRef(null);
     const tabletHistoryRef = useRef(null);
 
-    // Panel visibility
-    const [visiblePanels, setVisiblePanels] = useState(new Set(['corndog', 'boba']));
+    // Panel visibility, keyed by category key
+    const [visiblePanels, setVisiblePanels] = useState(() => new Set(CATEGORY_KEYS));
     const [showAddMenu, setShowAddMenu] = useState(false);
 
     const togglePanel = useCallback((key) => {
@@ -109,7 +69,7 @@ export default function OrderSystem() {
         });
     }, []);
 
-    const hiddenPanels = PANELS.filter((p) => !visiblePanels.has(p.key));
+    const hiddenPanels = CATEGORIES.filter((c) => !visiblePanels.has(c.key));
 
     const onDragMove = useCallback((clientX) => {
         if (!isDragging.current || !containerRef.current) return;
@@ -178,24 +138,19 @@ export default function OrderSystem() {
         }
     }, [orders, phone, printerStatus]);
 
-    const handleBobaItemClick = useCallback((orderNumber, itemIndex) => {
-        const key = `${orderNumber}-${itemIndex}`;
-        setBobaStates((prev) => ({ ...prev, [key]: BOBA_NEXT[prev[key] || BOBA_STATES.new] }));
-    }, []);
-
-    const handleCorndogItemClick = useCallback((orderNumber, itemIndex) => {
-        const key = `${orderNumber}-${itemIndex}`;
-        setCorndogStates((prev) => ({ ...prev, [key]: CORNDOG_NEXT[prev[key] || CORNDOG_STATES.received] }));
-    }, []);
-
-    // Unified click — dispatches by item type
+    // Advances a unit through its own category's cycle. An item whose type this
+    // build does not recognise still advances, on the catalog's neutral flow.
     const handleItemClick = useCallback((orderNumber, itemIndex) => {
         const order = history.find((o) => o.orderNumber === orderNumber);
         const item = order?.items[itemIndex];
         if (!item) return;
-        if (item.type === 'Boba') handleBobaItemClick(orderNumber, itemIndex);
-        else handleCorndogItemClick(orderNumber, itemIndex);
-    }, [history, handleBobaItemClick, handleCorndogItemClick]);
+
+        const key = `${orderNumber}-${itemIndex}`;
+        setItemStates((prev) => ({
+            ...prev,
+            [key]: nextStateFor(item.type, prev[key] ?? initialStateFor(item.type)),
+        }));
+    }, [history]);
 
     const markNotified = useCallback((orderNumber) => {
         setNotifiedOrders((prev) => {
@@ -274,21 +229,15 @@ export default function OrderSystem() {
         [getOrderPhone, history, notifiedOrders, markNotified, printerStatus, handleReprintOrder]
     );
 
-    // Unified item styling — dispatches by item type
-    const getItemClassName = useCallback((item, key) => {
-        if (item.type === 'Boba') return BOBA_STATE_CLASS[bobaStates[key] || BOBA_STATES.new];
-        return CORNDOG_STATE_CLASS[corndogStates[key] || CORNDOG_STATES.received];
-    }, [bobaStates, corndogStates]);
+    // Item styling, resolved against the item's own category flow.
+    const stateFor = useCallback(
+        (key, item) => flowStateFor(item?.type, itemStates[key] ?? initialStateFor(item?.type)),
+        [itemStates]
+    );
 
-    const getItemBadge = useCallback((key, item) => {
-        if (item?.type === 'Boba') return BOBA_STATE_BADGE[bobaStates[key] || BOBA_STATES.new];
-        return CORNDOG_STATE_BADGE[corndogStates[key] || CORNDOG_STATES.received];
-    }, [bobaStates, corndogStates]);
-
-    const getItemTooltip = useCallback((key, item) => {
-        if (item?.type === 'Boba') return BOBA_STATE_TOOLTIP[bobaStates[key] || BOBA_STATES.new];
-        return CORNDOG_STATE_TOOLTIP[corndogStates[key] || CORNDOG_STATES.received];
-    }, [bobaStates, corndogStates]);
+    const getItemClassName = useCallback((item, key) => stateFor(key, item).className, [stateFor]);
+    const getItemBadge = useCallback((key, item) => stateFor(key, item).badge, [stateFor]);
+    const getItemTooltip = useCallback((key, item) => stateFor(key, item).tooltip, [stateFor]);
 
     // Orders filtered by visible panels — combined into one list per order number
     const displayOrders = useMemo(() => {
@@ -297,10 +246,7 @@ export default function OrderSystem() {
                 orderNumber: order.orderNumber,
                 items: order.items
                     .map((item, i) => ({ item, itemIndex: i }))
-                    .filter(({ item }) =>
-                        (item.type === 'Boba' && visiblePanels.has('boba')) ||
-                        (item.type !== 'Boba' && visiblePanels.has('corndog'))
-                    ),
+                    .filter(({ item }) => visiblePanels.has(item.type)),
             }))
             .filter((o) => o.items.length > 0);
     }, [history, visiblePanels]);
@@ -333,11 +279,13 @@ export default function OrderSystem() {
                     <div className='space-y-3'>
                         {orders.map((item, index) => (
                             <div
-                                key={`${item.type}-${item.name}`}
+                                key={`${item.type}-${item.name}-${item.modifiers.join(',')}`}
                                 className='flex justify-between items-start gap-2 pb-2 border-b last:border-0'
                             >
                                 <div className='flex-1 min-w-0'>
-                                    <p className='text-sm font-medium leading-snug'>{item.name}</p>
+                                    <p className='text-sm font-medium leading-snug'>
+                                        {formatItemName(item)}
+                                    </p>
                                     <p className='text-xs text-gray-500'>
                                         ${item.price.toFixed(2)} × {item.quantity} = ${(item.price * item.quantity).toFixed(2)}
                                     </p>
@@ -462,14 +410,14 @@ export default function OrderSystem() {
                     <div className='flex items-center gap-2 mb-1 flex-wrap'>
                         <span className='text-sm font-semibold text-gray-500'>History</span>
 
-                        {PANELS.filter((p) => visiblePanels.has(p.key)).map((p) => (
+                        {CATEGORIES.filter((c) => visiblePanels.has(c.key)).map((c) => (
                             <span
-                                key={p.key}
+                                key={c.key}
                                 className='inline-flex items-center gap-1 bg-gray-100 rounded-full px-2.5 py-0.5 text-xs font-medium'
                             >
-                                {p.label}
+                                {c.label}
                                 <button
-                                    onClick={() => togglePanel(p.key)}
+                                    onClick={() => togglePanel(c.key)}
                                     className='text-gray-400 hover:text-gray-700 leading-none'
                                 >
                                     ×
@@ -487,13 +435,13 @@ export default function OrderSystem() {
                                 </button>
                                 {showAddMenu && (
                                     <div className='absolute left-0 top-8 z-10 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[120px]'>
-                                        {hiddenPanels.map((p) => (
+                                        {hiddenPanels.map((c) => (
                                             <button
-                                                key={p.key}
-                                                onClick={() => { togglePanel(p.key); setShowAddMenu(false); }}
+                                                key={c.key}
+                                                onClick={() => { togglePanel(c.key); setShowAddMenu(false); }}
                                                 className='w-full text-left px-3 py-2 text-sm hover:bg-gray-50'
                                             >
-                                                {p.label} History
+                                                {c.label} History
                                             </button>
                                         ))}
                                     </div>
@@ -503,8 +451,15 @@ export default function OrderSystem() {
 
                         <div className='ml-auto flex items-center gap-2'>
                             <span className='text-xs text-gray-400'>Station:</span>
-                            <Link href='/order/corndog' className='text-xs font-medium text-orange-600 hover:underline'>Corndog</Link>
-                            <Link href='/order/drink' className='text-xs font-medium text-blue-600 hover:underline'>Drink</Link>
+                            {STATION_CATEGORIES.map(({ key, label, station }) => (
+                                <Link
+                                    key={key}
+                                    href={`/order/${station.slug}`}
+                                    className={`text-xs font-medium hover:underline ${station.accentClass}`}
+                                >
+                                    {label}
+                                </Link>
+                            ))}
                         </div>
                     </div>
 

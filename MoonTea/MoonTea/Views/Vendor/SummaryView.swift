@@ -14,11 +14,19 @@ struct SummaryView: View {
         var id: Self { self }
     }
 
-    enum TypeFilter: String, CaseIterable, Identifiable {
-        case all = "All"
-        case boba = "Boba"
-        case corndog = "Corndog"
-        var id: Self { self }
+    /// Derived from the catalog, so a new category gets a filter pill for free.
+    struct TypeFilter: Identifiable, Hashable {
+        /// Empty matches every type.
+        let key: String
+        /// The pill label.
+        let rawValue: String
+
+        var id: String { rawValue }
+
+        static let all = TypeFilter(key: "", rawValue: "All")
+
+        static let allCases: [TypeFilter] =
+            [all] + MenuCatalog.orderable.map { TypeFilter(key: $0.key, rawValue: $0.label) }
     }
 
     private var filteredItems: [Order] {
@@ -37,11 +45,7 @@ struct SummaryView: View {
             // Discount rows are kept only for the "All" type filter (the only
             // place we can attribute them accurately — they're applied at the
             // order level, not per item).
-            let matchType: Bool = switch typeFilter {
-            case .all:     true
-            case .boba:    item.type == .boba
-            case .corndog: item.type == .corndog
-            }
+            let matchType = typeFilter.key.isEmpty || item.type.rawValue == typeFilter.key
             return matchDate && matchType
         }
     }
@@ -53,16 +57,25 @@ struct SummaryView: View {
     }
 
     private var itemSummary: [Summary] {
-        var buckets: [String: (count: Int, revenue: Double)] = [:]
+        // Bucketed by category as well as name: the catalog keeps product names
+        // distinct today, but two categories sharing a name must never silently
+        // merge their counts and revenue.
+        var buckets: [BucketKey: (count: Int, revenue: Double)] = [:]
         for item in filteredItems where item.type != .discount {
-            var entry = buckets[item.name] ?? (0, 0)
+            let key = BucketKey(type: item.type, name: item.name)
+            var entry = buckets[key] ?? (0, 0)
             entry.count += 1
             entry.revenue += item.price * (1 + AppConstants.taxRate)
-            buckets[item.name] = entry
+            buckets[key] = entry
         }
         return buckets
-            .map { Summary(name: $0.key, count: $0.value.count, revenue: $0.value.revenue) }
+            .map { Summary(name: $0.key.name, count: $0.value.count, revenue: $0.value.revenue) }
             .sorted { $0.count > $1.count }
+    }
+
+    private struct BucketKey: Hashable {
+        let type: OrderItemType
+        let name: String
     }
 
     private var totalItems: Int { filteredItems.filter { $0.type != .discount }.count }

@@ -7,16 +7,13 @@ import { TAX_RATE } from '@/lib/constants';
 import { calculateTotalRevenue } from '@/lib/orders/orderModel';
 import HistorySection from '@/components/HistorySection';
 
-export default function StationPage({
-    title,
-    sectionKey,
-    filterItem,
-    initialState,
-    stateNext,
-    stateClass,
-    stateBadge,
-    stateTooltip,
-}) {
+// One prep screen, driven entirely by a catalog category. Which items it shows,
+// what the per-unit statuses are called and how they are coloured all come from
+// `category.flow`, so a new station is a catalog entry plus nothing else.
+export default function StationPage({ category }) {
+    const { flow, key: categoryKey, station } = category;
+    const initialState = flow.initial;
+
     const [history, setHistory] = useState([]);
     const [itemStates, setItemStates] = useState({});
     const [notifiedOrders, setNotifiedOrders] = useState(new Set());
@@ -38,8 +35,11 @@ export default function StationPage({
 
     const handleItemClick = useCallback((orderNumber, itemIndex) => {
         const key = `${orderNumber}-${itemIndex}`;
-        setItemStates((prev) => ({ ...prev, [key]: stateNext[prev[key] || initialState] }));
-    }, [stateNext, initialState]);
+        setItemStates((prev) => ({
+            ...prev,
+            [key]: flow.states[prev[key] || initialState].next,
+        }));
+    }, [flow, initialState]);
 
     const getOrderPhone = useCallback((orderNumber) => {
         if (phoneOverrides[orderNumber] !== undefined) return phoneOverrides[orderNumber];
@@ -87,18 +87,14 @@ export default function StationPage({
         );
     }, [getOrderPhone, history, notifiedOrders, markNotified]);
 
-    const getItemClassName = useCallback(
-        (_item, key) => stateClass[itemStates[key] || initialState],
-        [itemStates, stateClass, initialState]
+    const stateFor = useCallback(
+        (key) => flow.states[itemStates[key] || initialState],
+        [flow, itemStates, initialState]
     );
-    const getItemBadge = useCallback(
-        (key) => stateBadge[itemStates[key] || initialState],
-        [itemStates, stateBadge, initialState]
-    );
-    const getItemTooltip = useCallback(
-        (key) => stateTooltip[itemStates[key] || initialState],
-        [itemStates, stateTooltip, initialState]
-    );
+
+    const getItemClassName = useCallback((_item, key) => stateFor(key).className, [stateFor]);
+    const getItemBadge = useCallback((key) => stateFor(key).badge, [stateFor]);
+    const getItemTooltip = useCallback((key) => stateFor(key).tooltip, [stateFor]);
 
     // Each order's units are indexed before filtering, so a unit keeps the same
     // itemIndex (and therefore the same status) whichever station shows it.
@@ -107,7 +103,7 @@ export default function StationPage({
             orderNumber: order.orderNumber,
             items: order.items
                 .map((item, i) => ({ item, itemIndex: i }))
-                .filter(({ item }) => filterItem(item)),
+                .filter(({ item }) => item.type === categoryKey),
         }))
         .filter((o) => o.items.length > 0);
 
@@ -117,7 +113,7 @@ export default function StationPage({
         <div className='min-h-screen bg-gray-50'>
             <div className='sticky top-0 z-10 bg-white border-b px-4 py-3 flex items-center gap-3'>
                 <Link href='/order' className='text-gray-400 hover:text-gray-600 text-sm'>← Back</Link>
-                <h1 className='text-lg font-bold'>{title}</h1>
+                <h1 className='text-lg font-bold'>{station.title}</h1>
                 <span className='text-sm text-gray-400 ml-auto'>
                     {filteredOrders.length} order{filteredOrders.length !== 1 ? 's' : ''}
                 </span>
@@ -125,7 +121,7 @@ export default function StationPage({
             <div className='p-4'>
                 <HistorySection
                     title=''
-                    sectionKey={sectionKey}
+                    sectionKey={`${station.slug}-station`}
                     orders={filteredOrders}
                     taxRate={TAX_RATE}
                     totalRevenue={totalRevenue}

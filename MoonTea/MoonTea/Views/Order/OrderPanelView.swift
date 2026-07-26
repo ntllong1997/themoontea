@@ -1,5 +1,9 @@
 import SwiftUI
 
+// Renders the whole order panel from MenuCatalog. There is no per-category
+// markup here — a new category appears automatically once it is added to
+// `MenuCatalog.categories` with `orderable: true`.
+
 struct OrderPanelView: View {
     @Bindable var vm: OrderViewModel
 
@@ -9,107 +13,83 @@ struct OrderPanelView: View {
                 Text("Order Panel")
                     .font(.system(size: 20, weight: .bold))
 
-                corndogSection
-                bobaSection
+                ForEach(MenuCatalog.orderable) { category in
+                    categorySection(category)
+                }
             }
         }
     }
 
-    // MARK: Corndog
+    // MARK: Category
 
-    private var corndogSection: some View {
+    @ViewBuilder
+    private func categorySection(_ category: MenuCategory) -> some View {
+        let selection = vm.selection(for: category)
+        // Only add-ons whose condition currently holds are offered — and the
+        // same check gates their price, so what is shown is what is charged.
+        let addOns = MenuCatalog.activeAddOns(category, selection)
+
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("Corndog — $8.00")
+            sectionHeader("\(category.label) — $\(String(format: "%.2f", category.price))")
 
-            label("Inside")
-            HStack(spacing: 8) {
-                ForEach(AppConstants.corndogInsideOptions, id: \.self) { opt in
-                    SelectButton(text: opt,
-                                 selected: vm.selectedCorndogInside == opt) {
-                        vm.selectedCorndogInside = opt
+            if category.layout == .columns {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(category.optionGroups) { group in
+                        VStack(alignment: .leading, spacing: 6) {
+                            label(group.label)
+                            ForEach(group.options, id: \.self) { option in
+                                optionButton(category, group, option, selection, compact: true)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            } else {
+                ForEach(category.optionGroups) { group in
+                    label(group.label)
+                    HStack(spacing: 8) {
+                        ForEach(group.options, id: \.self) { option in
+                            optionButton(category, group, option, selection, compact: false)
+                        }
                     }
                 }
             }
 
-            label("Outside")
-            HStack(spacing: 8) {
-                ForEach(AppConstants.corndogOutsideOptions, id: \.self) { opt in
-                    SelectButton(text: opt,
-                                 selected: vm.selectedCorndogOutside == opt) {
-                        vm.selectedCorndogOutside = opt
+            if !addOns.isEmpty {
+                label("Extras")
+                ForEach(addOns) { addOn in
+                    let isOn = vm.isAddOnOn(category, key: addOn.key)
+                    let suffix = addOn.price > 0 ? " +$\(String(format: "%.2f", addOn.price))" : ""
+                    SelectButton(text: (isOn ? "✓ \(addOn.label)" : addOn.label) + suffix,
+                                 selected: isOn,
+                                 compact: true) {
+                        vm.toggleAddOn(category, key: addOn.key)
                     }
                 }
             }
 
-            if vm.selectedCorndogOutside == "Potato" {
-                Toggle(isOn: $vm.selectedCorndogDust) {
-                    Text("+ Hot Cheeto Dust")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.red)
-                }
-                .tint(.red)
-            }
-
-            Button(action: vm.addCorndog) {
-                Text("+ Add Corndog")
+            Button { vm.add(category) } label: {
+                Text("+ Add \(category.label)")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
             .tint(.black)
-            .disabled(vm.selectedCorndogInside.isEmpty || vm.selectedCorndogOutside.isEmpty)
+            .disabled(!vm.canAdd(category))
         }
     }
 
-    // MARK: Boba
-
-    private var bobaSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("Boba — $8.00")
-
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    label("Drink")
-                    ForEach(AppConstants.drinkOptions, id: \.self) { drink in
-                        SelectButton(text: drink,
-                                     selected: vm.selectedDrink == drink,
-                                     compact: true) {
-                            vm.selectedDrink = drink
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    label("Boba")
-                    ForEach(AppConstants.bobaOptions, id: \.self) { boba in
-                        SelectButton(text: boba,
-                                     selected: vm.selectedBoba == boba,
-                                     compact: true) {
-                            vm.selectedBoba = boba
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-
-            if let custom = vm.customizationLabel {
-                label("Customization")
-                SelectButton(text: vm.drinkCustomization ? "✓ \(custom)" : custom,
-                             selected: vm.drinkCustomization,
-                             compact: true) {
-                    vm.drinkCustomization.toggle()
-                }
-            }
-
-            Button(action: vm.addBoba) {
-                Text("+ Add Boba")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.black)
-            .disabled(vm.selectedDrink.isEmpty || vm.selectedBoba.isEmpty)
+    private func optionButton(
+        _ category: MenuCategory,
+        _ group: MenuOptionGroup,
+        _ option: String,
+        _ selection: MenuSelection,
+        compact: Bool
+    ) -> some View {
+        SelectButton(text: option,
+                     selected: selection.options[group.key] == option,
+                     compact: compact) {
+            vm.select(category, group: group.key, option: option)
         }
     }
 

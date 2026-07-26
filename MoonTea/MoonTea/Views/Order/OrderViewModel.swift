@@ -9,22 +9,16 @@ final class OrderViewModel {
     var paymentMethod: PaymentMethod = .cash
     var couponApplied: Bool = false
 
-    // Boba builder
-    var selectedDrink: String = ""
-    var selectedBoba: String = ""
-    var drinkCustomization: Bool = false
-
-    // Corndog builder
-    var selectedCorndogInside: String = ""
-    var selectedCorndogOutside: String = ""
-    var selectedCorndogDust: Bool = false
+    // Builder selection per orderable category, keyed by category key. Nothing
+    // here names a corndog or a boba — MenuCatalog decides what can be built.
+    var selections: [String: MenuSelection] = MenuCatalog.freshSelections()
 
     // History
     var history: [OrderGroup] = []
 
-    // Item state keyed by the item's stable row id
-    var bobaStates: [Order.ID: BobaState] = [:]
-    var corndogStates: [Order.ID: CorndogState] = [:]
+    // Per-unit prep status, keyed by the item's stable row id. The value names
+    // a state in that item's own category flow.
+    var itemStates: [Order.ID: String] = [:]
 
     // Notify tracking + per-order phone overrides
     var notifiedOrders: Set<Int> = []
@@ -65,50 +59,56 @@ final class OrderViewModel {
         history.reduce(0) { $0 + $1.total(taxRate: AppConstants.taxRate) }
     }
 
-    var customizationLabel: String? {
-        AppConstants.drinkCustomizations[selectedDrink]
+    // MARK: builder
+
+    func selection(for category: MenuCategory) -> MenuSelection {
+        selections[category.key] ?? MenuSelection()
+    }
+
+    func select(_ category: MenuCategory, group: String, option: String) {
+        var updated = selection(for: category)
+        updated.options[group] = option
+        selections[category.key] = updated
+    }
+
+    func toggleAddOn(_ category: MenuCategory, key: String) {
+        var updated = selection(for: category)
+        updated.addOns[key] = !(updated.addOns[key] ?? false)
+        selections[category.key] = updated
+    }
+
+    func isAddOnOn(_ category: MenuCategory, key: String) -> Bool {
+        selection(for: category).addOns[key] ?? false
+    }
+
+    func canAdd(_ category: MenuCategory) -> Bool {
+        MenuCatalog.isComplete(category, selection(for: category))
+    }
+
+    /// Builds the line through the catalog, which drops any add-on whose
+    /// condition no longer holds — so a stale toggle is never charged.
+    func add(_ category: MenuCategory) {
+        guard let item = MenuCatalog.cartItem(category, selection(for: category)) else { return }
+        addItem(item)
+        selections[category.key] = MenuSelection()
     }
 
     // MARK: cart actions
 
-    func addBoba() {
-        guard !selectedDrink.isEmpty, !selectedBoba.isEmpty else { return }
-        var name = "\(selectedDrink) (\(selectedBoba))"
-        if drinkCustomization, let label = customizationLabel {
-            name += " [\(label)]"
-        }
-        addItem(name: name, price: AppConstants.bobaPrice, type: .boba)
-        selectedDrink = ""
-        selectedBoba = ""
-        drinkCustomization = false
-    }
-
-    func addCorndog() {
-        guard !selectedCorndogInside.isEmpty, !selectedCorndogOutside.isEmpty else { return }
-        let dustApplies = selectedCorndogDust && selectedCorndogOutside == "Potato"
-        let dustSuffix = dustApplies ? " + Hot Cheeto Dust" : ""
-        let name = "\(selectedCorndogInside) \(selectedCorndogOutside)\(dustSuffix)"
-        let price = AppConstants.corndogPrice + (dustApplies ? AppConstants.hotCheetoDustPrice : 0)
-        addItem(name: name, price: price, type: .corndog)
-        selectedCorndogInside = ""
-        selectedCorndogOutside = ""
-        selectedCorndogDust = false
-    }
-
     /// Routes to the edit draft when an order is open for editing, so the same
-    /// boba/corndog builders serve both the counter and the edit sheet.
-    private func addItem(name: String, price: Double, type: OrderItemType) {
+    /// builders serve both the counter and the edit sheet.
+    private func addItem(_ item: CartItem) {
         if editingOrderNumber != nil {
-            if let idx = editCart.firstIndex(where: { $0.name == name }) {
+            if let idx = editCart.firstIndex(where: { $0.name == item.name }) {
                 editCart[idx].quantity += 1
             } else {
-                editCart.append(.init(name: name, price: price, type: type, quantity: 1))
+                editCart.append(item)
             }
         } else {
-            if let idx = cart.firstIndex(where: { $0.name == name }) {
+            if let idx = cart.firstIndex(where: { $0.name == item.name }) {
                 cart[idx].quantity += 1
             } else {
-                cart.append(.init(name: name, price: price, type: type, quantity: 1))
+                cart.append(item)
             }
         }
     }
@@ -126,12 +126,7 @@ final class OrderViewModel {
     }
 
     private func clearBuilderSelections() {
-        selectedDrink = ""
-        selectedBoba = ""
-        drinkCustomization = false
-        selectedCorndogInside = ""
-        selectedCorndogOutside = ""
-        selectedCorndogDust = false
+        selections = MenuCatalog.freshSelections()
     }
 
     // MARK: history (realtime)
@@ -297,8 +292,7 @@ final class OrderViewModel {
         guard let groupIdx = history.firstIndex(where: { $0.items.contains(where: { $0.id == id }) }) else { return }
         var items = history[groupIdx].items
         items.removeAll { $0.id == id }
-        bobaStates.removeValue(forKey: id)
-        corndogStates.removeValue(forKey: id)
+        itemStates.removeValue(forKey: id)
         if items.isEmpty {
             history.remove(at: groupIdx)
         } else {
@@ -533,8 +527,7 @@ final class OrderViewModel {
             return
         }
         for old in history[idx].items {
-            bobaStates.removeValue(forKey: old.id)
-            corndogStates.removeValue(forKey: old.id)
+            itemStates.removeValue(forKey: old.id)
         }
         history[idx] = OrderGroup(orderNumber: orderNumber, items: rows)
     }
@@ -583,16 +576,12 @@ final class OrderViewModel {
 
     // MARK: state machines
 
+    /// Advances a unit through its own category's cycle. A type this build does
+    /// not recognise advances on the catalog's neutral flow rather than being
+    /// ignored, and a Discount's single state makes the tap a no-op.
     func cycleItem(_ id: Order.ID) {
         guard let item = history.lazy.flatMap(\.items).first(where: { $0.id == id }) else { return }
-        switch item.type {
-        case .boba:
-            bobaStates[id] = (bobaStates[id] ?? .new).next
-        case .corndog:
-            corndogStates[id] = (corndogStates[id] ?? .received).next
-        case .discount:
-            break
-        }
+        itemStates[id] = MenuCatalog.flow(for: item.type).next(after: itemStates[id])
     }
 
     // MARK: phone editing

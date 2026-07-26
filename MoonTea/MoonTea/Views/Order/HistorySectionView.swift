@@ -159,18 +159,11 @@ struct HistorySectionView: View {
     // MARK: - Item row
 
     private func itemRow(item: Order) -> some View {
-        let (bg, fg, badge): (Color, Color, String) = {
-            switch item.type {
-            case .boba:
-                let s = vm.bobaStates[item.id] ?? .new
-                return (s.background, s.foreground, s.badge)
-            case .corndog:
-                let s = vm.corndogStates[item.id] ?? .received
-                return (s.background, s.foreground, s.badge)
-            case .discount:
-                return (Color.green.opacity(0.10), .green, "Coupon")
-            }
-        }()
+        // Colour and badge come from the item's own category flow, so a type
+        // this build predates still renders — on the catalog's neutral flow —
+        // instead of being mis-styled or crashing.
+        let state = MenuCatalog.flow(for: item.type).state(vm.itemStates[item.id])
+        let (bg, fg, badge) = (state.background, state.foreground, state.badge)
 
         return Button {
             vm.cycleItem(item.id)

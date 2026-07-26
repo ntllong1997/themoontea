@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getOrderHistory } from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/Card';
-import { TAX_RATE } from '@/components/OrderPanel';
+import { CATEGORIES, TAX_RATE } from '@/lib/menu/catalog';
 import Link from 'next/link';
 
 const DATE_FILTERS = [
@@ -12,10 +12,10 @@ const DATE_FILTERS = [
     { key: 'all', label: 'All Time' },
 ];
 
+// Derived from the catalog, so a new category gets a filter tab for free.
 const TYPE_FILTERS = [
     { key: 'all', label: 'All' },
-    { key: 'Boba', label: 'Boba' },
-    { key: 'Corndog', label: 'Corndog' },
+    ...CATEGORIES.map(({ key, label }) => ({ key, label })),
 ];
 
 const isToday = (isoString) => {
@@ -82,9 +82,13 @@ export default function SummaryPage() {
             // Group by the modifier-inclusive name so "Ube (Tapioca)" and
             // "Ube (Jelly)" are counted as the distinct products they are.
             const label = item.displayName ?? item.name;
-            if (!counts[label]) counts[label] = { name: label, type: item.type, count: 0, revenue: 0 };
-            counts[label].count += 1;
-            counts[label].revenue += item.price * (1 + TAX_RATE);
+            // Keyed by category as well as name: the catalog keeps product
+            // names distinct today, but two categories sharing a name must
+            // never silently merge their counts and revenue.
+            const key = `${item.type}|${label}`;
+            if (!counts[key]) counts[key] = { key, name: label, type: item.type, count: 0, revenue: 0 };
+            counts[key].count += 1;
+            counts[key].revenue += item.price * (1 + TAX_RATE);
         });
         return Object.values(counts).sort((a, b) => b.count - a.count);
     }, [filtered]);
@@ -142,8 +146,8 @@ export default function SummaryPage() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {itemSummary.map(({ name, count, revenue }) => (
-                                        <tr key={name} className='border-b last:border-0'>
+                                    {itemSummary.map(({ key, name, count, revenue }) => (
+                                        <tr key={key} className='border-b last:border-0'>
                                             <td className='py-2 pr-2'>{name}</td>
                                             <td className='py-2 text-right font-semibold'>{count}</td>
                                             <td className='py-2 text-right text-gray-600'>${revenue.toFixed(2)}</td>
