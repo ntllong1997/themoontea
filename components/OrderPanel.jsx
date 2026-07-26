@@ -4,7 +4,13 @@
 
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { activeAddOns, isSelectionComplete } from '@/lib/menu/catalog';
+import {
+    activeAddOns,
+    isSelectionComplete,
+    optionPrice,
+    optionValue,
+    priceLabelFor,
+} from '@/lib/menu/catalog';
 
 export default function OrderPanel({
     categories,
@@ -49,7 +55,7 @@ function CategorySection({ category, selection, onSelectOption, onToggleAddOn, o
     return (
         <div>
             <p className='font-semibold mb-3 text-blue-700 border-b pb-1'>
-                {category.label} — ${category.price.toFixed(2)}
+                {category.label} — {priceLabelFor(category)}
             </p>
 
             <div className={isColumns ? 'grid grid-cols-2 gap-2 mb-3' : ''}>
@@ -59,20 +65,26 @@ function CategorySection({ category, selection, onSelectOption, onToggleAddOn, o
                             {group.label}
                         </p>
                         <div className={isColumns ? '' : 'flex gap-2'}>
-                            {group.options.map((option) => (
-                                <Button
-                                    key={option}
-                                    variant={selection[group.key] === option ? 'default' : 'outline'}
-                                    className={
-                                        isColumns
-                                            ? 'w-full mb-1 text-xs sm:text-sm leading-tight'
-                                            : 'flex-1 text-sm'
-                                    }
-                                    onClick={() => onSelectOption(category.key, group.key, option)}
-                                >
-                                    {option}
-                                </Button>
-                            ))}
+                            {group.options.map((option) => {
+                                const value = optionValue(option);
+                                const price = optionPrice(option);
+                                return (
+                                    <Button
+                                        key={value}
+                                        variant={selection[group.key] === value ? 'default' : 'outline'}
+                                        className={
+                                            isColumns
+                                                ? 'w-full mb-1 text-xs sm:text-sm leading-tight'
+                                                : 'flex-1 text-sm'
+                                        }
+                                        onClick={() => onSelectOption(category.key, group.key, value)}
+                                    >
+                                        {/* Sides price the option, not the category, so the
+                                            cost has to be visible on the button itself. */}
+                                        {price > 0 ? `${value} $${price.toFixed(2)}` : value}
+                                    </Button>
+                                );
+                            })}
                         </div>
                     </div>
                 ))}

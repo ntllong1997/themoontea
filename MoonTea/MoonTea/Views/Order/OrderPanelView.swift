@@ -30,14 +30,14 @@ struct OrderPanelView: View {
         let addOns = MenuCatalog.activeAddOns(category, selection)
 
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("\(category.label) — $\(String(format: "%.2f", category.price))")
+            sectionHeader("\(category.label) — \(MenuCatalog.priceLabel(for: category))")
 
             if category.layout == .columns {
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(category.optionGroups) { group in
                         VStack(alignment: .leading, spacing: 6) {
                             label(group.label)
-                            ForEach(group.options, id: \.self) { option in
+                            ForEach(group.options) { option in
                                 optionButton(category, group, option, selection, compact: true)
                             }
                         }
@@ -48,7 +48,7 @@ struct OrderPanelView: View {
                 ForEach(category.optionGroups) { group in
                     label(group.label)
                     HStack(spacing: 8) {
-                        ForEach(group.options, id: \.self) { option in
+                        ForEach(group.options) { option in
                             optionButton(category, group, option, selection, compact: false)
                         }
                     }
@@ -82,14 +82,20 @@ struct OrderPanelView: View {
     private func optionButton(
         _ category: MenuCategory,
         _ group: MenuOptionGroup,
-        _ option: String,
+        _ option: MenuOption,
         _ selection: MenuSelection,
         compact: Bool
     ) -> some View {
-        SelectButton(text: option,
-                     selected: selection.options[group.key] == option,
-                     compact: compact) {
-            vm.select(category, group: group.key, option: option)
+        // Sides price the option, not the category, so the cost has to be
+        // visible on the button itself.
+        let text = option.price > 0
+            ? "\(option.value) \(String(format: "$%.2f", option.price))"
+            : option.value
+
+        return SelectButton(text: text,
+                            selected: selection.options[group.key] == option.value,
+                            compact: compact) {
+            vm.select(category, group: group.key, option: option.value)
         }
     }
 

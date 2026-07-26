@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getOrderHistory } from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/Card';
-import { CATEGORIES, TAX_RATE } from '@/lib/menu/catalog';
+import { CATEGORIES, TAX_RATE, categoryFor } from '@/lib/menu/catalog';
+import { PAYMENT_BUCKETS, summarizeByCategoryAndPayment } from '@/lib/orders/paymentMethods';
 import Link from 'next/link';
 
 const DATE_FILTERS = [
@@ -59,7 +60,13 @@ export default function SummaryPage() {
     const flatOrders = useMemo(
         () =>
             history.flatMap((order) =>
-                order.items.map((item) => ({ ...item, createdAt: order.createdAt }))
+                order.items.map((item) => ({
+                    ...item,
+                    createdAt: order.createdAt,
+                    // Payment is recorded per order, not per line, so it is
+                    // carried down onto each unit for the breakdown below.
+                    paymentMethod: order.paymentMethod,
+                }))
             ),
         [history]
     );
@@ -92,6 +99,40 @@ export default function SummaryPage() {
         });
         return Object.values(counts).sort((a, b) => b.count - a.count);
     }, [filtered]);
+
+    // Revenue per category split by how it was paid. Follows the same date and
+    // type filters as the item table above it, so the two always agree.
+    const paymentSummary = useMemo(() => {
+        const rows = summarizeByCategoryAndPayment(filtered, (price) => price * (1 + TAX_RATE));
+
+        // Catalog order first, so the table reads like the menu; anything with
+        // a type the catalog no longer knows still gets a row at the end.
+        const ordered = [
+            ...CATEGORIES.map((c) => c.key).filter((key) => rows.has(key)),
+            ...[...rows.keys()].filter((key) => !categoryFor(key)),
+        ];
+
+        return ordered.map((key) => ({
+            key,
+            label: categoryFor(key)?.label ?? key,
+            ...rows.get(key),
+        }));
+    }, [filtered]);
+
+    const paymentTotals = useMemo(() => {
+        const totals = Object.fromEntries(PAYMENT_BUCKETS.map((b) => [b.key, 0]));
+        let grand = 0;
+        for (const row of paymentSummary) {
+            for (const bucket of PAYMENT_BUCKETS) totals[bucket.key] += row.byMethod[bucket.key];
+            grand += row.total;
+        }
+        return { totals, grand };
+    }, [paymentSummary]);
+
+    // A column with nothing in it is noise — most days there is no "Other".
+    const visibleBuckets = PAYMENT_BUCKETS.filter(
+        (bucket) => paymentTotals.totals[bucket.key] !== 0
+    );
 
     const totalItems = filtered.length;
     const totalRevenue = filtered.reduce((sum, item) => sum + item.price * (1 + TAX_RATE), 0);
@@ -129,6 +170,70 @@ export default function SummaryPage() {
                         </div>
                     </CardContent>
                 </Card>
+
+                {!fetchError && paymentSummary.length > 0 && (
+                    <Card className='mb-4'>
+                        <CardContent>
+                            <h2 className='text-sm font-semibold mb-3'>By category &amp; payment</h2>
+                            <div className='overflow-x-auto'>
+                                <table className='w-full text-sm min-w-[380px]'>
+                                    <thead>
+                                        <tr className='text-xs uppercase tracking-wide text-gray-400 border-b'>
+                                            <th className='text-left py-2 font-medium'>Category</th>
+                                            {visibleBuckets.map((bucket) => (
+                                                <th key={bucket.key} className='text-right py-2 font-medium'>
+                                                    {bucket.label}
+                                                </th>
+                                            ))}
+                                            <th className='text-right py-2 font-medium'>Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {paymentSummary.map((row) => (
+                                            <tr key={row.key} className='border-b last:border-0'>
+                                                <td className='py-2 pr-2'>{row.label}</td>
+                                                {visibleBuckets.map((bucket) => (
+                                                    <td
+                                                        key={bucket.key}
+                                                        className={`py-2 text-right ${
+                                                            row.byMethod[bucket.key] === 0
+                                                                ? 'text-gray-300'
+                                                                : 'text-gray-600'
+                                                        }`}
+                                                    >
+                                                        ${row.byMethod[bucket.key].toFixed(2)}
+                                                    </td>
+                                                ))}
+                                                <td className='py-2 text-right font-semibold'>
+                                                    ${row.total.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr className='font-bold'>
+                                            <td className='pt-2'>All</td>
+                                            {visibleBuckets.map((bucket) => (
+                                                <td key={bucket.key} className='pt-2 text-right'>
+                                                    ${paymentTotals.totals[bucket.key].toFixed(2)}
+                                                </td>
+                                            ))}
+                                            <td className='pt-2 text-right'>
+                                                ${paymentTotals.grand.toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                            {paymentTotals.totals.Other !== 0 && (
+                                <p className='text-xs text-gray-400 mt-2'>
+                                    “Other” is revenue with no payment method recorded on the
+                                    order — older rows and website orders, which take no payment.
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+                )}
 
                 <Card>
                     <CardContent>

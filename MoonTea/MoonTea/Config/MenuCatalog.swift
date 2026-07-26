@@ -18,6 +18,24 @@ struct MenuSelection: Equatable, Sendable {
 
 // MARK: - Catalog types
 
+/// One choice within an option group. `price` is non-zero only when the choice
+/// itself carries the cost — sides, where a water is $1 and a soda is $2 under
+/// one category. `ExpressibleByStringLiteral` keeps flat-priced groups written
+/// as plain string arrays.
+struct MenuOption: Identifiable, Hashable, Sendable, ExpressibleByStringLiteral {
+    let value: String
+    let price: Double
+
+    init(_ value: String, price: Double = 0) {
+        self.value = value
+        self.price = price
+    }
+
+    init(stringLiteral value: String) { self.init(value) }
+
+    var id: String { value }
+}
+
 struct MenuOptionGroup: Identifiable, Sendable {
     /// Where the chosen value lands on the cart line.
     enum Role: Sendable {
@@ -29,10 +47,15 @@ struct MenuOptionGroup: Identifiable, Sendable {
 
     let key: String
     let label: String
-    let options: [String]
+    let options: [MenuOption]
     let role: Role
 
     var id: String { key }
+
+    func option(_ value: String?) -> MenuOption? {
+        guard let value else { return nil }
+        return options.first { $0.value == value }
+    }
 }
 
 /// An optional extra. `appliesWhen` gates both whether the toggle is offered
@@ -164,6 +187,7 @@ let simpleMenuFlow = twoStepFlow(.orange, text: neutralAmber)
 private let cookieFlow = twoStepFlow(.orange, text: neutralAmber)
 private let lemonadeFlow = twoStepFlow(.yellow, text: Color(red: 0.40, green: 0.33, blue: 0.0))
 private let eggRollFlow = twoStepFlow(.purple, text: Color(red: 0.30, green: 0.10, blue: 0.45))
+private let sideFlow = twoStepFlow(.pink, text: Color(red: 0.45, green: 0.10, blue: 0.28))
 
 /// Drinks that offer a "hold the other flavour" tweak, and what to call it.
 private let drinkCustomizations: [String: String] = [
@@ -282,6 +306,24 @@ enum MenuCatalog {
             flow: eggRollFlow,
             station: nil
         ),
+        // The only category whose price lives on the options rather than on the
+        // category: a water is $1 and a soda is $2. "Side (Soda)" stays distinct
+        // from the Lemonade flavour "Lemonade (Soda)".
+        MenuCategory(
+            key: "Side",
+            label: "Side",
+            orderable: true,
+            price: 0,
+            layout: .rows,
+            optionGroups: [
+                .init(key: "item", label: "Side",
+                      options: [.init("Water", price: 1.0), .init("Soda", price: 2.0)],
+                      role: .modifier),
+            ],
+            addOns: [],
+            flow: sideFlow,
+            station: nil
+        ),
         // Coupon lines written by the till. Shown in history and the summary,
         // but never orderable from the panel.
         MenuCategory(
@@ -359,10 +401,39 @@ enum MenuCatalog {
         let checked = activeAddOns(category, selection)
             .filter { selection.addOns[$0.key] == true }
 
+        // A chosen option can carry its own price; for a flat-priced category
+        // every option adds 0.
+        let optionsTotal = category.optionGroups.reduce(0.0) { sum, group in
+            sum + (group.option(selection.options[group.key])?.price ?? 0)
+        }
+        let addOnsTotal = checked.reduce(0.0) { $0 + $1.price }
+
         let modifiers = optionModifiers + checked.map(\.label)
         let name = modifiers.isEmpty ? base : "\(base) (\(modifiers.joined(separator: ", ")))"
-        let price = category.price + checked.reduce(0) { $0 + $1.price }
 
-        return CartItem(name: name, price: price, type: category.type, quantity: 1)
+        return CartItem(
+            name: name,
+            price: category.price + optionsTotal + addOnsTotal,
+            type: category.type,
+            quantity: 1
+        )
+    }
+
+    /// What to show in the panel header. A category whose options carry their
+    /// own prices shows the range they span rather than a misleading $0.00.
+    static func priceLabel(for category: MenuCategory) -> String {
+        func money(_ value: Double) -> String { String(format: "$%.2f", value) }
+
+        // An option group is required, so its cheapest option is the floor.
+        let bounds = category.optionGroups.reduce((min: category.price, max: category.price)) {
+            acc, group in
+            guard !group.options.isEmpty else { return acc }
+            let prices = group.options.map(\.price)
+            return (acc.min + (prices.min() ?? 0), acc.max + (prices.max() ?? 0))
+        }
+
+        return bounds.min == bounds.max
+            ? money(bounds.min)
+            : "\(money(bounds.min)) – \(money(bounds.max))"
     }
 }
