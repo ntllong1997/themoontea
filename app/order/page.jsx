@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/Button';
 import OrderPanel from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
 import { checkPrinterStatus, printReceipt as eposPrint } from '@/lib/printer';
-import { Printer } from 'lucide-react';
+import { Banknote, CreditCard, DollarSign, Printer } from 'lucide-react';
+import { DEFAULT_PAYMENT_METHOD, PAYMENT_METHODS } from '@/lib/orders/paymentMethods';
 import {
     CATEGORIES,
     CATEGORY_KEYS,
@@ -20,6 +21,13 @@ import {
     initialStateFor,
     nextStateFor,
 } from '@/lib/menu/catalog';
+
+// Mirrors the iPad's payment icons (banknote / creditcard / dollarsign.circle).
+const PAYMENT_ICONS = {
+    Cash: Banknote,
+    Card: CreditCard,
+    CashApp: DollarSign,
+};
 
 // The print server prints one line per {name, price}, and modifiers now live
 // in their own field, so fold them back into the name for the receipt.
@@ -39,6 +47,10 @@ export default function OrderSystem() {
 
     const [history, setHistory] = useState([]);
     const [phone, setPhone] = useState('');
+    // Recorded, not charged — the till takes no payment, this only attributes
+    // the sale so the summary is accurate. Mirrors the iPad's picker, and
+    // writes the same casing the iPad does.
+    const [paymentMethod, setPaymentMethod] = useState(DEFAULT_PAYMENT_METHOD);
 
     // One map for every category — the state names differ per category, so the
     // value is resolved against the item's own flow when it is read.
@@ -113,12 +125,14 @@ export default function OrderSystem() {
             const created = await createOrder({
                 cartItems: orders,
                 phone,
-                paymentMethod: 'cash',
+                paymentMethod,
             });
 
             setHistory((prev) => [created, ...prev]);
             clearCart();
             setPhone('');
+            // Back to the default for the next customer, as the iPad does.
+            setPaymentMethod(DEFAULT_PAYMENT_METHOD);
             setMobileTab('history');
             tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
             if (printerStatus === 'connected') {
@@ -136,7 +150,7 @@ export default function OrderSystem() {
             console.error('Send order failed:', err);
             setSendError('Order failed to save — please try again.');
         }
-    }, [orders, phone, printerStatus]);
+    }, [orders, phone, paymentMethod, printerStatus]);
 
     // Advances a unit through its own category's cycle. An item whose type this
     // build does not recognise still advances, on the catalog's neutral flow.
@@ -271,6 +285,37 @@ export default function OrderSystem() {
                         placeholder='(555) 000-0000'
                         className='w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500'
                     />
+                </div>
+
+                <div className='mb-4'>
+                    <label className='block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1'>
+                        Payment
+                    </label>
+                    <div className='flex gap-2'>
+                        {PAYMENT_METHODS.map(({ key, label }) => {
+                            const Icon = PAYMENT_ICONS[key];
+                            const isActive = paymentMethod === key;
+                            return (
+                                <button
+                                    key={key}
+                                    type='button'
+                                    onClick={() => setPaymentMethod(key)}
+                                    aria-pressed={isActive}
+                                    className={`flex-1 flex items-center justify-center gap-1.5 rounded border px-2 py-2 text-xs font-medium transition-colors ${
+                                        isActive
+                                            ? 'bg-black text-white border-black'
+                                            : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    <Icon size={14} />
+                                    {label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <p className='text-xs text-gray-400 mt-1'>
+                        Recorded for the sales summary — no payment is taken here.
+                    </p>
                 </div>
 
                 {orders.length === 0 ? (
