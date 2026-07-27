@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getOrderHistory } from '@/lib/db';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getOrdersInRange } from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/Card';
 import { CATEGORIES, TAX_RATE, categoryFor } from '@/lib/menu/catalog';
 import { PAYMENT_BUCKETS, summarizeByCategoryAndPayment } from '@/lib/orders/paymentMethods';
@@ -32,16 +32,32 @@ export default function SummaryPage() {
     const [typeFilter, setTypeFilter] = useState('all');
     const [fetchError, setFetchError] = useState(false);
 
+    // Every pill, preset or hand-picked, becomes one [from, to) window. It
+    // scopes the query as well as the filtering below, so a range reaching
+    // back weeks reads exactly the rows it needs and no more.
+    const dateWindow = useMemo(
+        () => windowFor(dateFilter, customRange),
+        [dateFilter, customRange]
+    );
+
+    // Adjusting a date fires a request per change, and they can come back out
+    // of order. Only the newest one may write to the screen — otherwise a slow
+    // reply for an old range quietly overwrites the figures being read.
+    const latestRequest = useRef(0);
+
     const fetchHistory = useCallback(async () => {
+        const requestId = ++latestRequest.current;
         try {
-            const grouped = await getOrderHistory();
+            const grouped = await getOrdersInRange(dateWindow.from, dateWindow.to);
+            if (requestId !== latestRequest.current) return;
             setHistory(grouped);
             setFetchError(false);
         } catch (e) {
+            if (requestId !== latestRequest.current) return;
             console.error('Failed to fetch history:', e);
             setFetchError(true);
         }
-    }, []);
+    }, [dateWindow]);
 
     useEffect(() => {
         fetchHistory();
@@ -63,14 +79,11 @@ export default function SummaryPage() {
         [history]
     );
 
-    // Every pill, preset or hand-picked, becomes one [from, to) window.
-    const dateWindow = useMemo(
-        () => windowFor(dateFilter, customRange),
-        [dateFilter, customRange]
-    );
-
     const filtered = useMemo(() => {
         return flatOrders.filter((item) => {
+            // Belt and braces: the query is already scoped to the window, but
+            // filtering here too keeps the totals honest if a row ever slips
+            // through on a boundary.
             const matchDate = isWithinWindow(item.createdAt, dateWindow);
             const matchType =
                 typeFilter === 'all' ? true : item.type === typeFilter;
