@@ -1,0 +1,626 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3650F6B72FD2862900EEC267 /* libepos2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3650F6912FD2861D00EEC267 /* libepos2.xcframework */; };
+		3650F6B82FD2862900EEC267 /* libepos2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3650F6912FD2861D00EEC267 /* libepos2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		3650F7242FD51BF100EEC267 /* MockReaderUI in Frameworks */ = {isa = PBXBuildFile; productRef = 3650F7232FD51BF100EEC267 /* MockReaderUI */; };
+		3650F7262FD51BF100EEC267 /* SquareMobilePaymentsSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 3650F7252FD51BF100EEC267 /* SquareMobilePaymentsSDK */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		3650F6B92FD2862900EEC267 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				3650F6B82FD2862900EEC267 /* libepos2.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		3650F1572FD1521400EEC267 /* MoonTea.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MoonTea.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3650F68E2FD2861D00EEC267 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
+		3650F68F2FD2861D00EEC267 /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
+		3650F6912FD2861D00EEC267 /* libepos2.xcframework */ = {isa = PBXFileReference; expectedSignature = "AppleDeveloperProgram:TXAEAV5RN4:Seiko Epson Corporation"; lastKnownFileType = wrapper.xcframework; path = libepos2.xcframework; sourceTree = "<group>"; };
+		3650F6932FD2861D00EEC267 /* CartItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CartItem.swift; sourceTree = "<group>"; };
+		3650F6942FD2861D00EEC267 /* ItemState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemState.swift; sourceTree = "<group>"; };
+		3650F6952FD2861D00EEC267 /* Order.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Order.swift; sourceTree = "<group>"; };
+		3650F6972FD2861D00EEC267 /* BluetoothPrinter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothPrinter.swift; sourceTree = "<group>"; };
+		3650F6982FD2861D00EEC267 /* CashAppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CashAppStore.swift; sourceTree = "<group>"; };
+		3650F6992FD2861D00EEC267 /* ESCPOSBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESCPOSBuilder.swift; sourceTree = "<group>"; };
+		3650F69A2FD2861D00EEC267 /* SupabaseRealtime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseRealtime.swift; sourceTree = "<group>"; };
+		3650F69B2FD2861D00EEC267 /* SupabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseService.swift; sourceTree = "<group>"; };
+		3650F69D2FD2861D00EEC267 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		3650F6A02FD2861D00EEC267 /* CartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CartView.swift; sourceTree = "<group>"; };
+		3650F6A12FD2861D00EEC267 /* HistorySectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySectionView.swift; sourceTree = "<group>"; };
+		3650F6A22FD2861D00EEC267 /* OrderPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderPanelView.swift; sourceTree = "<group>"; };
+		3650F6A32FD2861D00EEC267 /* OrderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderView.swift; sourceTree = "<group>"; };
+		3650F6A42FD2861D00EEC267 /* OrderViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderViewModel.swift; sourceTree = "<group>"; };
+		3650F6A62FD2861D00EEC267 /* PrinterSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrinterSettingsView.swift; sourceTree = "<group>"; };
+		3650F6A82FD2861D00EEC267 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		3650F6AA2FD2861D00EEC267 /* MessageComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageComposer.swift; sourceTree = "<group>"; };
+		3650F6AC2FD2861D00EEC267 /* CorndogStationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorndogStationView.swift; sourceTree = "<group>"; };
+		3650F6AD2FD2861D00EEC267 /* DrinkStationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrinkStationView.swift; sourceTree = "<group>"; };
+		3650F6AF2FD2861D00EEC267 /* CashAppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CashAppView.swift; sourceTree = "<group>"; };
+		3650F6B02FD2861D00EEC267 /* SummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryView.swift; sourceTree = "<group>"; };
+		3650F6B12FD2861D00EEC267 /* VendorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VendorView.swift; sourceTree = "<group>"; };
+		3650F6B42FD2861D00EEC267 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3650F6B52FD2861D00EEC267 /* MoonTeaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoonTeaApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		3650F6BB2FD2880A00EEC267 /* Exceptions for "MoonTea" folder in "MoonTea" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3650F1562FD1521400EEC267 /* MoonTea */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		3650F1592FD1521400EEC267 /* MoonTea */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				3650F6BB2FD2880A00EEC267 /* Exceptions for "MoonTea" folder in "MoonTea" target */,
+			);
+			path = MoonTea;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3650F1542FD1521400EEC267 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3650F6B72FD2862900EEC267 /* libepos2.xcframework in Frameworks */,
+				3650F7242FD51BF100EEC267 /* MockReaderUI in Frameworks */,
+				3650F7262FD51BF100EEC267 /* SquareMobilePaymentsSDK in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		3650F14E2FD1521400EEC267 = {
+			isa = PBXGroup;
+			children = (
+				3650F1592FD1521400EEC267 /* MoonTea */,
+				3650F68D2FD2861C00EEC267 /* Frameworks */,
+				3650F1582FD1521400EEC267 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		3650F1582FD1521400EEC267 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3650F1572FD1521400EEC267 /* MoonTea.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		3650F68D2FD2861C00EEC267 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6B62FD2861D00EEC267 /* MoonTea */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		3650F6902FD2861D00EEC267 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				3650F68E2FD2861D00EEC267 /* Constants.swift */,
+				3650F68F2FD2861D00EEC267 /* Secrets.swift */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		3650F6922FD2861D00EEC267 /* ePOS_SDK_iOS_v2.37.0 */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6912FD2861D00EEC267 /* libepos2.xcframework */,
+			);
+			path = ePOS_SDK_iOS_v2.37.0;
+			sourceTree = "<group>";
+		};
+		3650F6962FD2861D00EEC267 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6932FD2861D00EEC267 /* CartItem.swift */,
+				3650F6942FD2861D00EEC267 /* ItemState.swift */,
+				3650F6952FD2861D00EEC267 /* Order.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		3650F69C2FD2861D00EEC267 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6972FD2861D00EEC267 /* BluetoothPrinter.swift */,
+				3650F6982FD2861D00EEC267 /* CashAppStore.swift */,
+				3650F6992FD2861D00EEC267 /* ESCPOSBuilder.swift */,
+				3650F69A2FD2861D00EEC267 /* SupabaseRealtime.swift */,
+				3650F69B2FD2861D00EEC267 /* SupabaseService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		3650F69E2FD2861D00EEC267 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				3650F69D2FD2861D00EEC267 /* Theme.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		3650F69F2FD2861D00EEC267 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		3650F6A52FD2861D00EEC267 /* Order */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6A02FD2861D00EEC267 /* CartView.swift */,
+				3650F6A12FD2861D00EEC267 /* HistorySectionView.swift */,
+				3650F6A22FD2861D00EEC267 /* OrderPanelView.swift */,
+				3650F6A32FD2861D00EEC267 /* OrderView.swift */,
+				3650F6A42FD2861D00EEC267 /* OrderViewModel.swift */,
+			);
+			path = Order;
+			sourceTree = "<group>";
+		};
+		3650F6A72FD2861D00EEC267 /* Printer */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6A62FD2861D00EEC267 /* PrinterSettingsView.swift */,
+			);
+			path = Printer;
+			sourceTree = "<group>";
+		};
+		3650F6A92FD2861D00EEC267 /* Root */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6A82FD2861D00EEC267 /* RootView.swift */,
+			);
+			path = Root;
+			sourceTree = "<group>";
+		};
+		3650F6AB2FD2861D00EEC267 /* SMS */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6AA2FD2861D00EEC267 /* MessageComposer.swift */,
+			);
+			path = SMS;
+			sourceTree = "<group>";
+		};
+		3650F6AE2FD2861D00EEC267 /* Station */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6AC2FD2861D00EEC267 /* CorndogStationView.swift */,
+				3650F6AD2FD2861D00EEC267 /* DrinkStationView.swift */,
+			);
+			path = Station;
+			sourceTree = "<group>";
+		};
+		3650F6B22FD2861D00EEC267 /* Vendor */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6AF2FD2861D00EEC267 /* CashAppView.swift */,
+				3650F6B02FD2861D00EEC267 /* SummaryView.swift */,
+				3650F6B12FD2861D00EEC267 /* VendorView.swift */,
+			);
+			path = Vendor;
+			sourceTree = "<group>";
+		};
+		3650F6B32FD2861D00EEC267 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				3650F69F2FD2861D00EEC267 /* Components */,
+				3650F6A52FD2861D00EEC267 /* Order */,
+				3650F6A72FD2861D00EEC267 /* Printer */,
+				3650F6A92FD2861D00EEC267 /* Root */,
+				3650F6AB2FD2861D00EEC267 /* SMS */,
+				3650F6AE2FD2861D00EEC267 /* Station */,
+				3650F6B22FD2861D00EEC267 /* Vendor */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		3650F6B62FD2861D00EEC267 /* MoonTea */ = {
+			isa = PBXGroup;
+			children = (
+				3650F6902FD2861D00EEC267 /* Config */,
+				3650F6922FD2861D00EEC267 /* ePOS_SDK_iOS_v2.37.0 */,
+				3650F6962FD2861D00EEC267 /* Models */,
+				3650F69C2FD2861D00EEC267 /* Services */,
+				3650F69E2FD2861D00EEC267 /* Theme */,
+				3650F6B32FD2861D00EEC267 /* Views */,
+				3650F6B42FD2861D00EEC267 /* Assets.xcassets */,
+				3650F6B52FD2861D00EEC267 /* MoonTeaApp.swift */,
+			);
+			path = MoonTea;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3650F1562FD1521400EEC267 /* MoonTea */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3650F1622FD1521500EEC267 /* Build configuration list for PBXNativeTarget "MoonTea" */;
+			buildPhases = (
+				3650F1532FD1521400EEC267 /* Sources */,
+				3650F1542FD1521400EEC267 /* Frameworks */,
+				3650F1552FD1521400EEC267 /* Resources */,
+				3650F6B92FD2862900EEC267 /* Embed Frameworks */,
+				3650F7272FD51BF100EEC267 /* Setup SquareMobilePaymentsSDK */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				3650F1592FD1521400EEC267 /* MoonTea */,
+			);
+			name = MoonTea;
+			packageProductDependencies = (
+				3650F7232FD51BF100EEC267 /* MockReaderUI */,
+				3650F7252FD51BF100EEC267 /* SquareMobilePaymentsSDK */,
+			);
+			productName = MoonTea;
+			productReference = 3650F1572FD1521400EEC267 /* MoonTea.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3650F14F2FD1521400EEC267 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					3650F1562FD1521400EEC267 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+				};
+			};
+			buildConfigurationList = 3650F1522FD1521400EEC267 /* Build configuration list for PBXProject "MoonTea" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 3650F14E2FD1521400EEC267;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				3650F7222FD51BF100EEC267 /* XCRemoteSwiftPackageReference "mobile-payments-sdk-ios" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 3650F1582FD1521400EEC267 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3650F1562FD1521400EEC267 /* MoonTea */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		3650F1552FD1521400EEC267 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		3650F7272FD51BF100EEC267 /* Setup SquareMobilePaymentsSDK */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Setup SquareMobilePaymentsSDK";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "SETUP_SCRIPT=${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}\"/SquareMobilePaymentsSDK.framework/setup\"\nif [ -f \"$SETUP_SCRIPT\" ]; then\n  \"$SETUP_SCRIPT\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3650F1532FD1521400EEC267 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3650F1602FD1521500EEC267 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 72SUFN94L2;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		3650F1612FD1521500EEC267 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 72SUFN94L2;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		3650F1632FD1521500EEC267 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 72SUFN94L2;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MoonTea/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "MoonTea uses Bluetooth to connect to your receipt printer.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "MoonTea connects to your Epson receipt printer over the local network. ";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/Frameworks/SquareMobilePaymentsSDK.framework/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MoonTea/ePOS_SDK_iOS_v2.37.0/DeviceControlProgram_Sample/Sample01Project/Lib/Debug",
+					"$(PROJECT_DIR)/MoonTea/ePOS_SDK_iOS_v2.37.0/DeviceControlProgram_Sample/Sample01Project/Lib/Release",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ntl.MoonTea;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		3650F1642FD1521500EEC267 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 72SUFN94L2;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MoonTea/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "MoonTea uses Bluetooth to connect to your receipt printer.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "MoonTea connects to your Epson receipt printer over the local network. ";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/Frameworks/SquareMobilePaymentsSDK.framework/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MoonTea/ePOS_SDK_iOS_v2.37.0/DeviceControlProgram_Sample/Sample01Project/Lib/Debug",
+					"$(PROJECT_DIR)/MoonTea/ePOS_SDK_iOS_v2.37.0/DeviceControlProgram_Sample/Sample01Project/Lib/Release",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ntl.MoonTea;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3650F1522FD1521400EEC267 /* Build configuration list for PBXProject "MoonTea" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3650F1602FD1521500EEC267 /* Debug */,
+				3650F1612FD1521500EEC267 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3650F1622FD1521500EEC267 /* Build configuration list for PBXNativeTarget "MoonTea" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3650F1632FD1521500EEC267 /* Debug */,
+				3650F1642FD1521500EEC267 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		3650F7222FD51BF100EEC267 /* XCRemoteSwiftPackageReference "mobile-payments-sdk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/square/mobile-payments-sdk-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3650F7232FD51BF100EEC267 /* MockReaderUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3650F7222FD51BF100EEC267 /* XCRemoteSwiftPackageReference "mobile-payments-sdk-ios" */;
+			productName = MockReaderUI;
+		};
+		3650F7252FD51BF100EEC267 /* SquareMobilePaymentsSDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3650F7222FD51BF100EEC267 /* XCRemoteSwiftPackageReference "mobile-payments-sdk-ios" */;
+			productName = SquareMobilePaymentsSDK;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 3650F14F2FD1521400EEC267 /* Project object */;
+}
