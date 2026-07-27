@@ -1,17 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getOrderHistory } from '@/lib/db';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getOrdersInRange } from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/Card';
 import { CATEGORIES, TAX_RATE, categoryFor } from '@/lib/menu/catalog';
 import { PAYMENT_BUCKETS, summarizeByCategoryAndPayment } from '@/lib/orders/paymentMethods';
+import {
+    DATE_FILTERS,
+    formatRangeLabel,
+    isWithinWindow,
+    toDateInput,
+    windowFor,
+} from '@/lib/orders/dateRange';
 import Link from 'next/link';
-
-const DATE_FILTERS = [
-    { key: 'today', label: 'Today' },
-    { key: 'week', label: 'This Week' },
-    { key: 'all', label: 'All Time' },
-];
 
 // Derived from the catalog, so a new category gets a filter tab for free.
 const TYPE_FILTERS = [
@@ -19,37 +20,44 @@ const TYPE_FILTERS = [
     ...CATEGORIES.map(({ key, label }) => ({ key, label })),
 ];
 
-const isToday = (isoString) => {
-    const d = new Date(isoString);
-    const now = new Date();
-    return d.getFullYear() === now.getFullYear() &&
-        d.getMonth() === now.getMonth() &&
-        d.getDate() === now.getDate();
-};
-
-const isThisWeek = (isoString) => {
-    const d = new Date(isoString);
-    const weekAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
-    weekAgo.setHours(0, 0, 0, 0);
-    return d >= weekAgo;
-};
-
 export default function SummaryPage() {
     const [history, setHistory] = useState([]);
     const [dateFilter, setDateFilter] = useState('today');
+    // Seeded to today, so picking "Custom Range" starts somewhere meaningful
+    // rather than silently showing every order ever taken.
+    const [customRange, setCustomRange] = useState(() => {
+        const today = toDateInput(new Date());
+        return { start: today, end: today };
+    });
     const [typeFilter, setTypeFilter] = useState('all');
     const [fetchError, setFetchError] = useState(false);
 
+    // Every pill, preset or hand-picked, becomes one [from, to) window. It
+    // scopes the query as well as the filtering below, so a range reaching
+    // back weeks reads exactly the rows it needs and no more.
+    const dateWindow = useMemo(
+        () => windowFor(dateFilter, customRange),
+        [dateFilter, customRange]
+    );
+
+    // Adjusting a date fires a request per change, and they can come back out
+    // of order. Only the newest one may write to the screen — otherwise a slow
+    // reply for an old range quietly overwrites the figures being read.
+    const latestRequest = useRef(0);
+
     const fetchHistory = useCallback(async () => {
+        const requestId = ++latestRequest.current;
         try {
-            const grouped = await getOrderHistory();
+            const grouped = await getOrdersInRange(dateWindow.from, dateWindow.to);
+            if (requestId !== latestRequest.current) return;
             setHistory(grouped);
             setFetchError(false);
         } catch (e) {
+            if (requestId !== latestRequest.current) return;
             console.error('Failed to fetch history:', e);
             setFetchError(true);
         }
-    }, []);
+    }, [dateWindow]);
 
     useEffect(() => {
         fetchHistory();
@@ -73,15 +81,15 @@ export default function SummaryPage() {
 
     const filtered = useMemo(() => {
         return flatOrders.filter((item) => {
-            const matchDate =
-                dateFilter === 'all' ? true :
-                dateFilter === 'today' ? isToday(item.createdAt) :
-                isThisWeek(item.createdAt);
+            // Belt and braces: the query is already scoped to the window, but
+            // filtering here too keeps the totals honest if a row ever slips
+            // through on a boundary.
+            const matchDate = isWithinWindow(item.createdAt, dateWindow);
             const matchType =
                 typeFilter === 'all' ? true : item.type === typeFilter;
             return matchDate && matchType;
         });
-    }, [flatOrders, dateFilter, typeFilter]);
+    }, [flatOrders, dateWindow, typeFilter]);
 
     const itemSummary = useMemo(() => {
         const counts = {};
@@ -137,10 +145,16 @@ export default function SummaryPage() {
     const totalItems = filtered.length;
     const totalRevenue = filtered.reduce((sum, item) => sum + item.price * (1 + TAX_RATE), 0);
 
+    const setRangeBound = (bound) => (event) =>
+        setCustomRange((current) => ({ ...current, [bound]: event.target.value }));
+
     const pillClass = (active) =>
         `px-3 py-1 rounded-full text-sm font-medium transition-colors cursor-pointer select-none ${
             active ? 'bg-black text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
         }`;
+
+    const dateInputClass =
+        'border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-700 bg-white';
 
     return (
         <div className='min-h-screen bg-gray-50 p-4'>
@@ -161,6 +175,30 @@ export default function SummaryPage() {
                                 </button>
                             ))}
                         </div>
+                        {dateFilter === 'custom' && (
+                            <div className='flex flex-wrap items-center gap-2 mb-3'>
+                                <label htmlFor='range-start' className='text-xs text-gray-500'>
+                                    From
+                                </label>
+                                <input
+                                    id='range-start'
+                                    type='date'
+                                    value={customRange.start}
+                                    onChange={setRangeBound('start')}
+                                    className={dateInputClass}
+                                />
+                                <label htmlFor='range-end' className='text-xs text-gray-500'>
+                                    To
+                                </label>
+                                <input
+                                    id='range-end'
+                                    type='date'
+                                    value={customRange.end}
+                                    onChange={setRangeBound('end')}
+                                    className={dateInputClass}
+                                />
+                            </div>
+                        )}
                         <div className='flex flex-wrap gap-2'>
                             {TYPE_FILTERS.map(({ key, label }) => (
                                 <button key={key} onClick={() => setTypeFilter(key)} className={pillClass(typeFilter === key)}>
@@ -168,6 +206,11 @@ export default function SummaryPage() {
                                 </button>
                             ))}
                         </div>
+                        {/* Says which days the figures below actually cover, so a
+                            screenshot of this page is not ambiguous. */}
+                        <p className='text-xs text-gray-400 mt-3'>
+                            Showing {formatRangeLabel(dateWindow)}
+                        </p>
                     </CardContent>
                 </Card>
 

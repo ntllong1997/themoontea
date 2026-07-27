@@ -3,14 +3,22 @@ import SwiftUI
 struct SummaryView: View {
     @State private var allOrders: [Order] = []
     @State private var dateFilter: DateFilter = .today
+    // Seeded to today, so picking "Custom Range" starts somewhere meaningful
+    // rather than silently showing every order ever taken.
+    @State private var rangeStart: Date = Calendar.current.startOfDay(for: Date())
+    @State private var rangeEnd: Date = Calendar.current.startOfDay(for: Date())
     @State private var typeFilter: TypeFilter = .all
     @State private var loadError: Bool = false
     @State private var isLoading: Bool = true
+
+    /// How far back "This Week" reaches, counting today.
+    private static let weekLengthDays = 7
 
     enum DateFilter: String, CaseIterable, Identifiable {
         case today = "Today"
         case week = "This Week"
         case all = "All Time"
+        case custom = "Custom Range"
         var id: Self { self }
     }
 
@@ -29,24 +37,26 @@ struct SummaryView: View {
             [all] + MenuCatalog.orderable.map { TypeFilter(key: $0.key, rawValue: $0.label) }
     }
 
+    /// Every pill, preset or hand-picked, becomes one `[from, to)` window — so
+    /// there is a single rule for "is this order in the period?".
+    private var dateWindow: DateWindow {
+        switch dateFilter {
+        case .all:    .unbounded
+        case .today:  .day(containing: Date())
+        case .week:   .trailingDays(Self.weekLengthDays, endingOn: Date())
+        case .custom: .range(from: rangeStart, through: rangeEnd)
+        }
+    }
+
     private var filteredItems: [Order] {
-        let cal = Calendar.current
-        let now = Date()
-        let weekAgo = cal.date(byAdding: .day, value: -6, to: cal.startOfDay(for: now)) ?? now
+        // Hoisted out of the closure: the window is the same for every row.
+        let window = dateWindow
         return allOrders.filter { item in
-            // If we can't parse the timestamp, keep the item visible only for
-            // "All Time" — better to show suspicious data than hide it silently.
-            let parsed = TimestampParser.parse(item.timestamp)
-            let matchDate: Bool = switch dateFilter {
-            case .all:   true
-            case .today: parsed.map { cal.isDateInToday($0) } ?? false
-            case .week:  parsed.map { $0 >= weekAgo } ?? false
-            }
             // Discount rows are kept only for the "All" type filter (the only
             // place we can attribute them accurately — they're applied at the
             // order level, not per item).
             let matchType = typeFilter.key.isEmpty || item.type.rawValue == typeFilter.key
-            return matchDate && matchType
+            return window.contains(timestamp: item.timestamp) && matchType
         }
     }
 
@@ -90,7 +100,15 @@ struct SummaryView: View {
                 Card {
                     VStack(alignment: .leading, spacing: 10) {
                         pillGroup(DateFilter.allCases, selection: $dateFilter) { $0.rawValue }
+                        if dateFilter == .custom {
+                            rangePickers
+                        }
                         pillGroup(TypeFilter.allCases, selection: $typeFilter) { $0.rawValue }
+                        // Says which days the figures below actually cover, so a
+                        // screenshot of this page is not ambiguous.
+                        Text("Showing \(dateWindow.label)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.mutedText)
                     }
                 }
                 Card {
@@ -162,6 +180,24 @@ struct SummaryView: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+
+    /// Only the picked calendar days matter — `DateWindow` rounds each end out
+    /// to cover its whole day, so the time of day here is irrelevant.
+    private var rangePickers: some View {
+        HStack(spacing: 8) {
+            Text("From")
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.mutedText)
+            DatePicker("From", selection: $rangeStart, displayedComponents: .date)
+                .labelsHidden()
+            Text("To")
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.mutedText)
+            DatePicker("To", selection: $rangeEnd, displayedComponents: .date)
+                .labelsHidden()
+            Spacer()
         }
     }
 
