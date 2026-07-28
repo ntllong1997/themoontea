@@ -1,0 +1,4 @@
+{
+  "//": "Scopes ESM to lib/ only. Every module here already uses import/export, while print-server.js at the repo root is CommonJS — so this cannot be declared in the root package.json. It lets `node --test` run lib/orders/*.test.js directly.",
+  "type": "module"
+}

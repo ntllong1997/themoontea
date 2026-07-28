@@ -1,179 +1,125 @@
+// Renders the whole order panel from lib/menu/catalog.js. There is no
+// per-category markup here — a new category appears automatically once it is
+// added to CATEGORIES.
+
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { TAX_RATE, PRICES, HOT_CHEETO_DUST_PRICE } from '@/lib/constants';
-
-export { TAX_RATE, PRICES, HOT_CHEETO_DUST_PRICE };
-
-export const DRINK_CUSTOMIZATIONS = {
-    'Matcha Strawberry': 'Only Matcha',
-    'Golden Taro':       'Only Taro',
-};
-
-const DRINK_OPTIONS = [
-    'Brown Sugar',
-    'Matcha Brown Sugar',
-    'Golden Taro',
-    'Korean Strawberry',
-    'Tropical',
-    'Strawberry',
-    'Cafe',
-    'Matcha Strawberry',
-];
-
-const BOBA_OPTIONS = [
-    'Tapioca',
-    'Mango Popping',
-    'Strawberry Popping',
-    'Nothing',
-];
-
-const CORNDOG_INSIDE = ['Cheese', 'Half-Half'];
-const CORNDOG_OUTSIDE = ['Potato', 'Hot Cheeto', 'Original'];
+import {
+    activeAddOns,
+    isSelectionComplete,
+    optionPrice,
+    optionValue,
+    priceLabelFor,
+} from '@/lib/menu/catalog';
 
 export default function OrderPanel({
-    selection,
-    onSelectDrink,
-    onSelectBoba,
-    onSelectCorndogInside,
-    onSelectCorndogOutside,
-    onToggleCorndogDust,
-    onAddBoba,
-    onAddCorndog,
-    drinkCustomization,
-    onToggleDrinkCustomization,
+    categories,
+    selections,
+    onSelectOption,
+    onToggleAddOn,
+    onAdd,
 }) {
-    const customizationLabel = DRINK_CUSTOMIZATIONS[selection.drink];
-
     return (
         <Card>
             <CardContent>
                 <h2 className='text-xl font-bold mb-4'>Order Panel</h2>
 
                 <div className='flex flex-col gap-6'>
-                    {/* ── Corndog ── */}
-                    <div>
-                        <p className='font-semibold mb-3 text-blue-700 border-b pb-1'>
-                            Corndog — $8.00
-                        </p>
-
-                        <p className='text-xs font-medium uppercase tracking-wide text-gray-500 mb-2'>
-                            Inside
-                        </p>
-                        <div className='flex gap-2 mb-3'>
-                            {CORNDOG_INSIDE.map((opt) => (
-                                <Button
-                                    key={opt}
-                                    variant={selection.corndogInside === opt ? 'default' : 'outline'}
-                                    className='flex-1 text-sm'
-                                    onClick={() => onSelectCorndogInside(opt)}
-                                >
-                                    {opt}
-                                </Button>
-                            ))}
-                        </div>
-
-                        <p className='text-xs font-medium uppercase tracking-wide text-gray-500 mb-2'>
-                            Outside
-                        </p>
-                        <div className='flex gap-2 mb-3'>
-                            {CORNDOG_OUTSIDE.map((opt) => (
-                                <Button
-                                    key={opt}
-                                    variant={selection.corndogOutside === opt ? 'default' : 'outline'}
-                                    className='flex-1 text-sm'
-                                    onClick={() => onSelectCorndogOutside(opt)}
-                                >
-                                    {opt}
-                                </Button>
-                            ))}
-                        </div>
-
-                        {selection.corndogOutside === 'Potato' && (
-                            <label className='flex items-center gap-2 mb-3 cursor-pointer select-none'>
-                                <input
-                                    type='checkbox'
-                                    checked={selection.corndogDust}
-                                    onChange={onToggleCorndogDust}
-                                    className='w-4 h-4 accent-red-500'
-                                />
-                                <span className='text-sm text-red-600 font-medium'>
-                                    + Hot Cheeto Dust
-                                </span>
-                            </label>
-                        )}
-
-                        <Button
-                            onClick={onAddCorndog}
-                            className='w-full'
-                            disabled={!selection.corndogInside || !selection.corndogOutside}
-                        >
-                            + Add Corndog
-                        </Button>
-                    </div>
-
-                    {/* ── Boba ── */}
-                    <div>
-                        <p className='font-semibold mb-3 text-blue-700 border-b pb-1'>
-                            Boba — $8.00
-                        </p>
-                        <div className='grid grid-cols-2 gap-2 mb-3'>
-                            <div>
-                                <p className='text-xs font-medium uppercase tracking-wide text-gray-500 mb-2'>
-                                    Drink
-                                </p>
-                                {DRINK_OPTIONS.map((drink) => (
-                                    <Button
-                                        key={drink}
-                                        variant={selection.drink === drink ? 'default' : 'outline'}
-                                        className='w-full mb-1 text-xs sm:text-sm leading-tight'
-                                        onClick={() => onSelectDrink(drink)}
-                                    >
-                                        {drink}
-                                    </Button>
-                                ))}
-                            </div>
-                            <div>
-                                <p className='text-xs font-medium uppercase tracking-wide text-gray-500 mb-2'>
-                                    Boba
-                                </p>
-                                {BOBA_OPTIONS.map((boba) => (
-                                    <Button
-                                        key={boba}
-                                        variant={selection.boba === boba ? 'default' : 'outline'}
-                                        className='w-full mb-1 text-xs sm:text-sm leading-tight'
-                                        onClick={() => onSelectBoba(boba)}
-                                    >
-                                        {boba}
-                                    </Button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {customizationLabel && (
-                            <div className='mb-3'>
-                                <p className='text-xs font-medium uppercase tracking-wide text-gray-500 mb-1'>
-                                    Customization
-                                </p>
-                                <Button
-                                    variant={drinkCustomization ? 'default' : 'outline'}
-                                    className='w-full text-xs sm:text-sm'
-                                    onClick={onToggleDrinkCustomization}
-                                >
-                                    {drinkCustomization ? `✓ ${customizationLabel}` : customizationLabel}
-                                </Button>
-                            </div>
-                        )}
-
-                        <Button
-                            onClick={onAddBoba}
-                            className='w-full'
-                            disabled={!selection.drink || !selection.boba}
-                        >
-                            + Add Boba
-                        </Button>
-                    </div>
+                    {categories.map((category) => (
+                        <CategorySection
+                            key={category.key}
+                            category={category}
+                            selection={selections[category.key]}
+                            onSelectOption={onSelectOption}
+                            onToggleAddOn={onToggleAddOn}
+                            onAdd={onAdd}
+                        />
+                    ))}
                 </div>
             </CardContent>
         </Card>
+    );
+}
+
+/**
+ * One category's builder. `layout: 'columns'` puts the option groups side by
+ * side with their choices stacked (long drink lists); anything else lays each
+ * group out as a row of choices (short corndog lists).
+ */
+function CategorySection({ category, selection, onSelectOption, onToggleAddOn, onAdd }) {
+    const isColumns = category.layout === 'columns';
+    // Only add-ons whose condition currently holds are offered — and the same
+    // check gates their price, so what is shown is exactly what is charged.
+    const addOns = activeAddOns(category, selection);
+
+    return (
+        <div>
+            <p className='font-semibold mb-3 text-blue-700 border-b pb-1'>
+                {category.label} — {priceLabelFor(category)}
+            </p>
+
+            <div className={isColumns ? 'grid grid-cols-2 gap-2 mb-3' : ''}>
+                {category.optionGroups.map((group) => (
+                    <div key={group.key} className={isColumns ? '' : 'mb-3'}>
+                        <p className='text-xs font-medium uppercase tracking-wide text-gray-500 mb-2'>
+                            {group.label}
+                        </p>
+                        <div className={isColumns ? '' : 'flex gap-2'}>
+                            {group.options.map((option) => {
+                                const value = optionValue(option);
+                                const price = optionPrice(option);
+                                return (
+                                    <Button
+                                        key={value}
+                                        variant={selection[group.key] === value ? 'default' : 'outline'}
+                                        className={
+                                            isColumns
+                                                ? 'w-full mb-1 text-xs sm:text-sm leading-tight'
+                                                : 'flex-1 text-sm'
+                                        }
+                                        onClick={() => onSelectOption(category.key, group.key, value)}
+                                    >
+                                        {/* Sides price the option, not the category, so the
+                                            cost has to be visible on the button itself. */}
+                                        {price > 0 ? `${value} $${price.toFixed(2)}` : value}
+                                    </Button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {addOns.length > 0 && (
+                <div className='mb-3'>
+                    <p className='text-xs font-medium uppercase tracking-wide text-gray-500 mb-2'>
+                        Extras
+                    </p>
+                    {addOns.map((addOn) => {
+                        const isChecked = selection.addOns[addOn.key];
+                        const priceSuffix = addOn.price > 0 ? ` +$${addOn.price.toFixed(2)}` : '';
+                        return (
+                            <Button
+                                key={addOn.key}
+                                variant={isChecked ? 'default' : 'outline'}
+                                className='w-full mb-1 text-xs sm:text-sm'
+                                onClick={() => onToggleAddOn(category.key, addOn.key)}
+                            >
+                                {isChecked ? `✓ ${addOn.resolvedLabel}` : addOn.resolvedLabel}
+                                {priceSuffix}
+                            </Button>
+                        );
+                    })}
+                </div>
+            )}
+
+            <Button
+                onClick={() => onAdd(category.key)}
+                className='w-full'
+                disabled={!isSelectionComplete(category, selection)}
+            >
+                + Add {category.label}
+            </Button>
+        </div>
     );
 }
