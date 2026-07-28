@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
+import PrinterSettings from '@/components/PrinterSettings';
 import { checkPrinterStatus, printReceipt as eposPrint } from '@/lib/printer';
 import { Banknote, CreditCard, DollarSign, Printer } from 'lucide-react';
 import { DEFAULT_PAYMENT_METHOD, PAYMENT_METHODS } from '@/lib/orders/paymentMethods';
@@ -111,12 +112,18 @@ export default function OrderSystem() {
         }
     }, [mobileTab]);
 
-    useEffect(() => {
-        const poll = async () => setPrinterStatus(await checkPrinterStatus());
-        poll();
-        const id = setInterval(poll, 5000);
-        return () => clearInterval(id);
+    // Hoisted out of the effect below so the printer settings panel can force a
+    // re-check the moment a WiFi address is saved, rather than leaving the
+    // operator staring at a stale status until the next poll tick.
+    const refreshPrinterStatus = useCallback(async () => {
+        setPrinterStatus(await checkPrinterStatus());
     }, []);
+
+    useEffect(() => {
+        refreshPrinterStatus();
+        const id = setInterval(refreshPrinterStatus, 5000);
+        return () => clearInterval(id);
+    }, [refreshPrinterStatus]);
 
     const handleSendOrder = useCallback(async () => {
         if (orders.length === 0) return;
@@ -351,22 +358,7 @@ export default function OrderSystem() {
                     <div className='flex justify-between font-bold text-base pt-1'><span>Total</span><span>${total}</span></div>
                 </div>
 
-                {/* Printer */}
-                <div className='mt-4 border-t pt-3 flex items-center justify-between'>
-                    <span className='text-sm font-medium'>Printer</span>
-                    <span className={`text-xs font-semibold ${
-                        printerStatus === 'connected'    ? 'text-green-600' :
-                        printerStatus === 'error'        ? 'text-red-500'   : 'text-gray-400'
-                    }`}>
-                        {printerStatus === 'connected' ? 'Ready' :
-                         printerStatus === 'error'     ? 'No printer' : 'Server offline'}
-                    </span>
-                </div>
-                {printerStatus !== 'connected' && (
-                    <p className='text-xs text-gray-400 mt-1'>
-                        Run <span className='font-mono bg-gray-100 px-1 rounded'>npm run print-server</span> in a terminal to enable printing.
-                    </p>
-                )}
+                <PrinterSettings status={printerStatus} onChanged={refreshPrinterStatus} />
 
                 {sendError && (
                     <p className='mt-2 text-xs text-red-600 font-medium text-center'>{sendError}</p>
