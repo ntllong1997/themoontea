@@ -274,4 +274,140 @@ actor SupabaseService {
         let req = try makeRequest(path: "/rest/v1/rpc/replace_order_items", method: "POST", body: body)
         return try await run(req, as: [Order].self)
     }
+
+    // MARK: - Print jobs
+    //
+    // The web till enqueues a row per order; this device claims it, prints it,
+    // and flips it to 'printed'. Lives here rather than in its own service
+    // because `makeRequest`/`run` are file-private — one auth path, not two.
+
+    private static let printJobsPath = "/rest/v1/print_jobs"
+
+    private static func isoNow(_ date: Date = Date()) -> String {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return iso.string(from: date)
+    }
+
+    /// Oldest-first so receipts print in the order they were taken.
+    func pendingPrintJobs(limit: Int = 20) async throws -> [PrintJobRow] {
+        let req = try makeRequest(
+            path: Self.printJobsPath,
+            method: "GET",
+            query: [
+                URLQueryItem(name: "status", value: "eq.pending"),
+                URLQueryItem(name: "order", value: "created_at.asc"),
+                URLQueryItem(name: "limit", value: String(limit)),
+            ]
+        )
+        return try await run(req, as: [PrintJobRow].self)
+    }
+
+    /// Claimed jobs whose owner went away mid-print, so they can be reset.
+    func stalePrintJobs(olderThan cutoff: Date) async throws -> [PrintJobRow] {
+        let req = try makeRequest(
+            path: Self.printJobsPath,
+            method: "GET",
+            query: [
+                URLQueryItem(name: "status", value: "eq.claimed"),
+                URLQueryItem(name: "claimed_at", value: "lt.\(Self.isoNow(cutoff))"),
+            ]
+        )
+        return try await run(req, as: [PrintJobRow].self)
+    }
+
+    /// Atomically takes ownership of a pending job.
+    ///
+    /// The `status=eq.pending` filter is the whole mechanism: PostgREST turns
+    /// it into a conditional UPDATE, so exactly one device can win. An empty
+    /// array back means another device claimed it first — not an error.
+    ///
+    /// - Returns: `true` if this device won the job.
+    func claimPrintJob(id: String, deviceName: String) async throws -> Bool {
+        struct Patch: Encodable {
+            let status: String
+            let claimed_by: String
+            let claimed_at: String
+        }
+        let body = try JSONEncoder().encode(Patch(
+            status: "claimed",
+            claimed_by: deviceName.isEmpty ? "unknown" : deviceName,
+            claimed_at: Self.isoNow()
+        ))
+        let req = try makeRequest(
+            path: Self.printJobsPath,
+            method: "PATCH",
+            query: [
+                URLQueryItem(name: "id", value: "eq.\(id)"),
+                URLQueryItem(name: "status", value: "eq.pending"),
+            ],
+            body: body,
+            preferReturn: true
+        )
+        return try await run(req, as: [PrintJobRow].self).isEmpty == false
+    }
+
+    /// Called only after the printer transport confirms. Marking at enqueue
+    /// time would let an app reinstall drop a receipt the table calls printed.
+    func markPrintJobPrinted(id: String) async throws {
+        struct Patch: Encodable {
+            let status: String
+            let printed_at: String
+            let last_error: String?
+        }
+        let body = try JSONEncoder().encode(Patch(
+            status: "printed",
+            printed_at: Self.isoNow(),
+            last_error: nil
+        ))
+        let req = try makeRequest(
+            path: Self.printJobsPath,
+            method: "PATCH",
+            query: [URLQueryItem(name: "id", value: "eq.\(id)")],
+            body: body,
+            preferReturn: true
+        )
+        _ = try await run(req, as: [PrintJobRow].self)
+    }
+
+    /// Releases a job back to the queue, or retires it once `attempts` hits
+    /// the ceiling so one bad job cannot cycle forever.
+    func releasePrintJob(id: String, attempts: Int, message: String?, retire: Bool) async throws {
+        struct Patch: Encodable {
+            let status: String
+            let attempts: Int
+            let last_error: String?
+            let claimed_by: String?
+            let claimed_at: String?
+        }
+        let body = try JSONEncoder().encode(Patch(
+            status: retire ? "failed" : "pending",
+            attempts: attempts,
+            last_error: message,
+            claimed_by: nil,
+            claimed_at: nil
+        ))
+        let req = try makeRequest(
+            path: Self.printJobsPath,
+            method: "PATCH",
+            query: [URLQueryItem(name: "id", value: "eq.\(id)")],
+            body: body,
+            preferReturn: true
+        )
+        _ = try await run(req, as: [PrintJobRow].self)
+    }
+
+    /// The line rows of one order, matched on the exact pair that identifies
+    /// it. `orderNumber` alone repeats daily, so both halves are required.
+    func orderRows(orderNumber: Int, timestamp: String) async throws -> [Order] {
+        let req = try makeRequest(
+            path: "/rest/v1/orders",
+            method: "GET",
+            query: [
+                URLQueryItem(name: "orderNumber", value: "eq.\(orderNumber)"),
+                URLQueryItem(name: "timestamp", value: "eq.\(timestamp)"),
+            ]
+        )
+        return try await run(req, as: [Order].self)
+    }
 }

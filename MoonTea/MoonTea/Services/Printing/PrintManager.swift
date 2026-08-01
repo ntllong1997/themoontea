@@ -17,10 +17,20 @@ actor PrintManager {
     private static let backoffSchedule: [UInt64] = [5, 15, 30] // seconds
     private static let steadyBackoff: UInt64 = 30
 
+    /// Notified with a job's `orderNumber` once the printer has actually taken
+    /// it. `PrintBridge` uses this to flip the Supabase row to 'printed' —
+    /// which must happen here, not at `enqueue`, because enqueue returns long
+    /// before anything is on paper.
+    private var onPrinted: (@Sendable (String) async -> Void)?
+
     init(transport: PrinterTransport, targetProvider: @escaping () -> String?) {
         self.transport = transport
         self.targetProvider = targetProvider
         self.jobs = PrintQueueStore.load()
+    }
+
+    func setOnPrinted(_ handler: (@Sendable (String) async -> Void)?) {
+        onPrinted = handler
     }
 
     var pendingCount: Int { jobs.count }
@@ -51,6 +61,7 @@ actor PrintManager {
                 try await transport.send(job.payload, target: target)
                 jobs.removeFirst()
                 PrintQueueStore.save(jobs)
+                await onPrinted?(job.orderNumber)
             } catch {
                 await backoff(afterAttempt: job.attempts)
                 if let idx = jobs.firstIndex(where: { $0.id == job.id }) {

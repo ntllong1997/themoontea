@@ -228,4 +228,11 @@ final class EpsonPrinter: NSObject {
         await printManager.enqueue(orderNumber: payload.orderNumber, payload: payload)
         await refreshPendingCount()
     }
+
+    /// Forwards `PrintManager`'s post-send callback, whose queue is private to
+    /// this type. `PrintBridge` uses it to mark a Supabase job printed only
+    /// once the receipt is genuinely on paper.
+    func setPrintedHandler(_ handler: (@Sendable (String) async -> Void)?) async {
+        await printManager.setOnPrinted(handler)
+    }
 }
