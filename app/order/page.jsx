@@ -61,6 +61,7 @@ export default function OrderSystem() {
     const [mobileTab, setMobileTab] = useState('order');
     const [printerStatus, setPrinterStatus] = useState('disconnected'); // 'disconnected'|'connecting'|'connected'|'error'
     const [sendError, setSendError] = useState('');
+    const [printWarning, setPrintWarning] = useState('');
 
     // Resizable columns
     const [colSplit, setColSplit] = useState(40);
@@ -151,6 +152,8 @@ export default function OrderSystem() {
                     });
                 } catch (printErr) {
                     console.error('[print] failed:', printErr);
+                    setPrintWarning('Receipt failed to print — order was saved.');
+                    setTimeout(() => setPrintWarning(''), 5000);
                 }
             }
         } catch (err) {
@@ -362,6 +365,9 @@ export default function OrderSystem() {
 
                 {sendError && (
                     <p className='mt-2 text-xs text-red-600 font-medium text-center'>{sendError}</p>
+                )}
+                {printWarning && (
+                    <p className='mt-2 text-xs text-amber-600 font-medium text-center'>{printWarning}</p>
                 )}
                 <Button onClick={handleSendOrder} className='mt-3 w-full' disabled={orders.length === 0}>
                     Send Order

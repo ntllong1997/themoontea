@@ -1,5 +1,3 @@
-import Navbar from '@/components/Navbar';
-import Contact from '@/components/Contact';
 import '@/assets/styles/globals.css';
 
 export const viewport = {
