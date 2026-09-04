@@ -44,3 +44,5 @@ MoonTea/MoonTea/Config/Secrets.swift
 next-env.d.ts
 
 .codegpt
+# Claude Code local settings
+.claude/
