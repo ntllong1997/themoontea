@@ -252,25 +252,25 @@ enum MenuCatalog {
             flow: bobaFlow,
             station: .init(slug: "drink", title: "🧋 Drink Station")
         ),
-        // Cookie, Lemonade and Egg Roll put their flavour in a MODIFIER group,
-        // not a name group, so a line reads "Cookie (Matcha Strawberry)".
-        // Naming them by flavour alone would collide with the boba of the same
-        // name, and the sales summary groups by name.
+        // Cookie and Lemonade put their choice in a MODIFIER group, not a name
+        // group, so a line reads "Cookie (3 for $14)". Naming a line after the
+        // choice alone would collide with a same-named item in another
+        // category, and the sales summary groups by name.
+        //
+        // Every cookie is the same, so there is no flavour to pick: the only
+        // choice is how many, and the pack carries the price.
         MenuCategory(
             key: "Cookie",
             label: "Cookie",
             orderable: true,
-            price: 5.0,
-            layout: .columns,
+            price: 0,
+            layout: .rows,
             optionGroups: [
-                .init(key: "flavor", label: "Flavor",
+                .init(key: "pack", label: "Pack",
                       options: [
-                          "Matcha Strawberry",
-                          "Nutella Banana",
-                          "Red Velvet",
-                          "Taro Ube",
-                          "Oreo 2.0",
-                          "Biscoff",
+                          .init("1 for $5", price: 5.0),
+                          .init("3 for $14", price: 14.0),
+                          .init("5 for $23", price: 23.0),
                       ],
                       role: .modifier),
             ],
@@ -306,9 +306,9 @@ enum MenuCatalog {
             flow: eggRollFlow,
             station: nil
         ),
-        // The only category whose price lives on the options rather than on the
-        // category: a water is $1 and a soda is $2. "Side (Soda)" stays distinct
-        // from the Lemonade flavour "Lemonade (Soda)".
+        // Like Cookie, the price lives on the options rather than on the
+        // category: a water is $1, a soda $2 and a flan $5. "Side (Soda)" stays
+        // distinct from the Lemonade flavour "Lemonade (Soda)".
         MenuCategory(
             key: "Side",
             label: "Side",
@@ -317,7 +317,11 @@ enum MenuCatalog {
             layout: .rows,
             optionGroups: [
                 .init(key: "item", label: "Side",
-                      options: [.init("Water", price: 1.0), .init("Soda", price: 2.0)],
+                      options: [
+                          .init("Water", price: 1.0),
+                          .init("Soda", price: 2.0),
+                          .init("Flan", price: 5.0),
+                      ],
                       role: .modifier),
             ],
             addOns: [],
@@ -385,9 +389,9 @@ enum MenuCatalog {
     static func cartItem(_ category: MenuCategory, _ selection: MenuSelection) -> CartItem? {
         guard category.orderable, isComplete(category, selection) else { return nil }
 
-        // A category with no name-role groups (a flavour-only cookie, a plain
-        // egg roll) is named after itself, so its flavour reads as
-        // "Cookie (Biscoff)" rather than colliding with a same-named item in
+        // A category with no name-role groups (a pack-only cookie, a plain
+        // egg roll) is named after itself, so its choice reads as
+        // "Cookie (3 for $14)" rather than colliding with a same-named item in
         // another category.
         let nameGroups = category.optionGroups.filter { $0.role == .name }
         let base = nameGroups.isEmpty
