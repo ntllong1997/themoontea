@@ -6,6 +6,8 @@ import { getOrderHistory, updateOrderPhone } from '@/lib/db';
 import { TAX_RATE } from '@/lib/constants';
 import { calculateTotalRevenue } from '@/lib/orders/orderModel';
 import HistorySection from '@/components/HistorySection';
+import LocationPicker from '@/components/LocationPicker';
+import { locationLabel, useDeviceLocation } from '@/lib/locations';
 
 // One prep screen, driven entirely by a catalog category. Which items it shows,
 // what the per-unit statuses are called and how they are coloured all come from
@@ -14,18 +16,21 @@ export default function StationPage({ category }) {
     const { flow, key: categoryKey, station } = category;
     const initialState = flow.initial;
 
+    // A station only shows its own location's orders.
+    const [locationId, setLocationId] = useDeviceLocation();
     const [history, setHistory] = useState([]);
     const [itemStates, setItemStates] = useState({});
     const [notifiedOrders, setNotifiedOrders] = useState(new Set());
     const [phoneOverrides, setPhoneOverrides] = useState({});
 
     const fetchHistory = useCallback(async () => {
+        if (!locationId) return;
         try {
-            setHistory(await getOrderHistory());
+            setHistory(await getOrderHistory(locationId));
         } catch (e) {
             console.error('Failed to fetch history:', e);
         }
-    }, []);
+    }, [locationId]);
 
     useEffect(() => {
         fetchHistory();
@@ -48,8 +53,8 @@ export default function StationPage({ category }) {
 
     const handleSavePhone = useCallback(async (orderNumber, newPhone) => {
         setPhoneOverrides((prev) => ({ ...prev, [orderNumber]: newPhone }));
-        await updateOrderPhone(orderNumber, newPhone);
-    }, []);
+        await updateOrderPhone(orderNumber, newPhone, locationId);
+    }, [locationId]);
 
     const markNotified = useCallback((orderNumber) => {
         setNotifiedOrders((prev) => {
@@ -96,6 +101,9 @@ export default function StationPage({ category }) {
     const getItemBadge = useCallback((key) => stateFor(key).badge, [stateFor]);
     const getItemTooltip = useCallback((key) => stateFor(key).tooltip, [stateFor]);
 
+    if (locationId === undefined) return null;
+    if (locationId === null) return <LocationPicker onPick={setLocationId} />;
+
     // Each order's units are indexed before filtering, so a unit keeps the same
     // itemIndex (and therefore the same status) whichever station shows it.
     const filteredOrders = history
@@ -114,6 +122,7 @@ export default function StationPage({ category }) {
             <div className='sticky top-0 z-10 bg-white border-b px-4 py-3 flex items-center gap-3'>
                 <Link href='/order' className='text-gray-400 hover:text-gray-600 text-sm'>← Back</Link>
                 <h1 className='text-lg font-bold'>{station.title}</h1>
+                <span className='text-xs text-gray-400'>{locationLabel(locationId)}</span>
                 <span className='text-sm text-gray-400 ml-auto'>
                     {filteredOrders.length} order{filteredOrders.length !== 1 ? 's' : ''}
                 </span>
