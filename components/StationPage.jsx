@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { getOrderHistory, updateOrderPhone } from '@/lib/db';
 import { TAX_RATE } from '@/lib/constants';
@@ -8,6 +8,8 @@ import { calculateTotalRevenue } from '@/lib/orders/orderModel';
 import HistorySection from '@/components/HistorySection';
 import LocationPicker from '@/components/LocationPicker';
 import { locationLabel, useDeviceLocation } from '@/lib/locations';
+import { checkPrinterStatus, printReceipt } from '@/lib/printer';
+import { Printer } from 'lucide-react';
 
 // One prep screen, driven entirely by a catalog category. Which items it shows,
 // what the per-unit statuses are called and how they are coloured all come from
@@ -22,21 +24,60 @@ export default function StationPage({ category }) {
     const [itemStates, setItemStates] = useState({});
     const [notifiedOrders, setNotifiedOrders] = useState(new Set());
     const [phoneOverrides, setPhoneOverrides] = useState({});
+    const [printerStatus, setPrinterStatus] = useState('disconnected');
+
+    // Use refs to avoid stale closures in the polling callback
+    const printerStatusRef = useRef('disconnected');
+    const seenOrderNumbersRef = useRef(new Set());
+    const isInitializedRef = useRef(false);
 
     const fetchHistory = useCallback(async () => {
         if (!locationId) return;
         try {
-            setHistory(await getOrderHistory(locationId));
+            const orders = await getOrderHistory(locationId);
+
+            // Auto-print new orders when printer is connected, filtered to this station
+            if (isInitializedRef.current && printerStatusRef.current === 'connected') {
+                const newOrders = orders.filter(
+                    (order) => !seenOrderNumbersRef.current.has(order.orderNumber)
+                );
+                for (const order of newOrders) {
+                    const stationItems = order.items.filter((item) => item.type === categoryKey);
+                    if (stationItems.length > 0) {
+                        printReceipt({ orderNumber: order.orderNumber, items: stationItems, taxRate: TAX_RATE }).catch(
+                            (err) => console.error('[auto-print] failed for order', order.orderNumber, err)
+                        );
+                    }
+                }
+            }
+
+            // Track all seen order numbers after first load
+            orders.forEach((order) => seenOrderNumbersRef.current.add(order.orderNumber));
+            isInitializedRef.current = true;
+
+            setHistory(orders);
         } catch (e) {
             console.error('Failed to fetch history:', e);
         }
-    }, [locationId]);
+    }, [categoryKey, locationId]);
 
     useEffect(() => {
         fetchHistory();
         const id = setInterval(fetchHistory, 3000);
         return () => clearInterval(id);
     }, [fetchHistory]);
+
+    // Printer status polling
+    useEffect(() => {
+        const poll = async () => {
+            const status = await checkPrinterStatus();
+            setPrinterStatus(status);
+            printerStatusRef.current = status;
+        };
+        poll();
+        const id = setInterval(poll, 5000);
+        return () => clearInterval(id);
+    }, []);
 
     const handleItemClick = useCallback((orderNumber, itemIndex) => {
         const key = `${orderNumber}-${itemIndex}`;
@@ -64,33 +105,58 @@ export default function StationPage({ category }) {
         });
     }, []);
 
+    const handleReprintOrder = useCallback(async (orderNumber) => {
+        const order = history.find((o) => o.orderNumber === orderNumber);
+        const stationItems = (order?.items ?? []).filter((item) => item.type === categoryKey);
+        if (stationItems.length === 0) return;
+        printReceipt({ orderNumber, items: stationItems, taxRate: TAX_RATE }).catch(
+            (err) => console.error('[reprint] failed:', err)
+        );
+    }, [history, categoryKey]);
+
     const getOrderActions = useCallback(({ orderNumber }) => {
         const orderPhone = getOrderPhone(orderNumber);
 
+        const printBtn = printerStatus === 'connected' ? (
+            <button
+                onClick={(e) => { e.stopPropagation(); handleReprintOrder(orderNumber); }}
+                className='p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors'
+                title='Reprint receipt'
+            >
+                <Printer size={14} />
+            </button>
+        ) : null;
+
         if (notifiedOrders.has(orderNumber)) {
             return (
-                <span className='text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded'>
-                    Notified ✓
-                </span>
+                <div className='flex items-center gap-1'>
+                    {printBtn}
+                    <span className='text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded'>
+                        Notified ✓
+                    </span>
+                </div>
             );
         }
 
-        if (!orderPhone) return null;
+        if (!orderPhone) return printBtn;
 
         const order = history.find((o) => o.orderNumber === orderNumber);
         const itemList = (order?.items ?? []).map((item) => `• ${item.displayName}`).join('\n');
         const smsBody = `🌙 The Moon Tea\nOrder #${orderNumber} is ready for pickup! 🎉\n\n${itemList}\n\nSee you soon! 🧡`;
         const smsHref = `sms:${orderPhone}?body=${encodeURIComponent(smsBody)}`;
         return (
-            <a
-                href={smsHref}
-                onClick={(e) => { e.stopPropagation(); setTimeout(() => markNotified(orderNumber), 500); }}
-                className='rounded px-2 py-1 text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors'
-            >
-                Notify
-            </a>
+            <div className='flex items-center gap-1'>
+                {printBtn}
+                <a
+                    href={smsHref}
+                    onClick={(e) => { e.stopPropagation(); setTimeout(() => markNotified(orderNumber), 500); }}
+                    className='rounded px-2 py-1 text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors'
+                >
+                    Notify
+                </a>
+            </div>
         );
-    }, [getOrderPhone, history, notifiedOrders, markNotified]);
+    }, [getOrderPhone, history, notifiedOrders, markNotified, printerStatus, handleReprintOrder]);
 
     const stateFor = useCallback(
         (key) => flow.states[itemStates[key] || initialState],
@@ -123,9 +189,27 @@ export default function StationPage({ category }) {
                 <Link href='/order' className='text-gray-400 hover:text-gray-600 text-sm'>← Back</Link>
                 <h1 className='text-lg font-bold'>{station.title}</h1>
                 <span className='text-xs text-gray-400'>{locationLabel(locationId)}</span>
-                <span className='text-sm text-gray-400 ml-auto'>
-                    {filteredOrders.length} order{filteredOrders.length !== 1 ? 's' : ''}
-                </span>
+                <div className='ml-auto flex items-center gap-3'>
+                    <div className='flex items-center gap-1.5'>
+                        <Printer
+                            size={14}
+                            className={
+                                printerStatus === 'connected' ? 'text-green-600' :
+                                printerStatus === 'error'     ? 'text-red-400'   : 'text-gray-300'
+                            }
+                        />
+                        <span className={`text-xs font-medium ${
+                            printerStatus === 'connected' ? 'text-green-600' :
+                            printerStatus === 'error'     ? 'text-red-400'   : 'text-gray-300'
+                        }`}>
+                            {printerStatus === 'connected' ? 'Auto-print on' :
+                             printerStatus === 'error'     ? 'No printer'    : 'Offline'}
+                        </span>
+                    </div>
+                    <span className='text-sm text-gray-400'>
+                        {filteredOrders.length} order{filteredOrders.length !== 1 ? 's' : ''}
+                    </span>
+                </div>
             </div>
             <div className='p-4'>
                 <HistorySection
