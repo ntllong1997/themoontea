@@ -36,9 +36,12 @@ struct Order: Codable, Hashable, Identifiable, Sendable {
     var phone: String?
     var paymentMethod: String?
     var quantity: Int?
+    /// Which shop the order was taken at. Only read back from the server; the
+    /// value written is always `AppConstants.locationID`.
+    var location: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, orderNumber, name, price, type, timestamp, phone, paymentMethod, quantity
+        case id, orderNumber, name, price, type, timestamp, phone, paymentMethod, quantity, location
     }
 
     init(
@@ -81,6 +84,7 @@ struct Order: Codable, Hashable, Identifiable, Sendable {
         phone = try c.decodeIfPresent(String.self, forKey: .phone)
         paymentMethod = try c.decodeIfPresent(String.self, forKey: .paymentMethod)
         quantity = try c.decodeIfPresent(Int.self, forKey: .quantity)
+        location = try? Self.lenientInt(c, .location)
     }
 
     private static func lenientInt(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) throws -> Int {

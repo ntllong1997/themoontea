@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { DeviceLocationSwitch } from '@/components/LocationPicker';
 
 export default function VendorPage() {
     return (
@@ -6,6 +7,7 @@ export default function VendorPage() {
             <div className='text-center'>
                 <h1 className='text-4xl font-bold tracking-tight'>🌙 The Moon Tea</h1>
                 <p className='mt-2 text-gray-500'>Internal Management</p>
+                <DeviceLocationSwitch />
             </div>
             <div className='flex w-full max-w-xs flex-col gap-4'>
                 <Link

@@ -84,6 +84,7 @@ actor SupabaseService {
         let phone: String?
         let paymentMethod: String?
         let quantity: Int?
+        let location = AppConstants.locationID
 
         init(_ order: Order) {
             orderNumber = order.orderNumber
@@ -101,7 +102,8 @@ actor SupabaseService {
     ///
     /// Every order query is day-scoped because `orderNumber` resets to 1 each
     /// day (see `nextOrderNumber()`), so a number alone never identifies a
-    /// single order.
+    /// single order. It restarts per location too, so queries are also scoped
+    /// to `AppConstants.locationID` (see `locationFilter`).
     private func todayBounds() -> (start: String, end: String) {
         let cal = Calendar.current
         let start = cal.startOfDay(for: Date())
@@ -111,6 +113,8 @@ actor SupabaseService {
         return (iso.string(from: start), iso.string(from: end))
     }
 
+    private let locationFilter = URLQueryItem(name: "location", value: "eq.\(AppConstants.locationID)")
+
     /// Returns today's orders grouped by orderNumber, newest order first.
     func todaysOrderGroups() async throws -> [OrderGroup] {
         let bounds = todayBounds()
@@ -119,6 +123,7 @@ actor SupabaseService {
             method: "GET",
             query: [
                 .init(name: "select", value: "*"),
+                locationFilter,
                 .init(name: "timestamp", value: "gte.\(bounds.start)"),
                 .init(name: "timestamp", value: "lt.\(bounds.end)"),
                 .init(name: "order", value: "orderNumber.desc,timestamp.asc"),
@@ -147,11 +152,13 @@ actor SupabaseService {
             let range_start: String
             let range_end: String
             let group_limit: Int
+            let p_location: Int
         }
         let body = try JSONEncoder().encode(Params(
             range_start: bounds.start,
             range_end: bounds.end,
-            group_limit: limit
+            group_limit: limit,
+            p_location: AppConstants.locationID
         ))
         let req = try makeRequest(path: "/rest/v1/rpc/recent_order_groups", method: "POST", body: body)
         let rows = try await run(req, as: [Order].self)
@@ -163,13 +170,14 @@ actor SupabaseService {
         }
     }
 
-    /// Fetch all orders (used by sales summary).
+    /// Fetch all of this location's orders (used by sales summary).
     func allOrders() async throws -> [Order] {
         let req = try makeRequest(
             path: "/rest/v1/orders",
             method: "GET",
             query: [
                 .init(name: "select", value: "*"),
+                locationFilter,
                 .init(name: "order", value: "timestamp.desc"),
             ]
         )
@@ -187,10 +195,12 @@ actor SupabaseService {
         struct Params: Encodable {
             let range_start: String
             let range_end: String
+            let p_location: Int
         }
         let body = try JSONEncoder().encode(Params(
             range_start: bounds.start,
-            range_end: bounds.end
+            range_end: bounds.end,
+            p_location: AppConstants.locationID
         ))
         let req = try makeRequest(path: "/rest/v1/rpc/next_order_number", method: "POST", body: body)
         return try await run(req, as: Int.self)
@@ -229,6 +239,7 @@ actor SupabaseService {
             method: "PATCH",
             query: [
                 .init(name: "orderNumber", value: "eq.\(orderNumber)"),
+                locationFilter,
                 .init(name: "timestamp", value: "gte.\(bounds.start)"),
                 .init(name: "timestamp", value: "lt.\(bounds.end)"),
             ],
@@ -264,12 +275,14 @@ actor SupabaseService {
             let range_start: String
             let range_end: String
             let new_rows: [InsertRow]
+            let p_location: Int
         }
         let body = try JSONEncoder().encode(Params(
             target_order_number: orderNumber,
             range_start: bounds.start,
             range_end: bounds.end,
-            new_rows: rows.map(InsertRow.init)
+            new_rows: rows.map(InsertRow.init),
+            p_location: AppConstants.locationID
         ))
         let req = try makeRequest(path: "/rest/v1/rpc/replace_order_items", method: "POST", body: body)
         return try await run(req, as: [Order].self)

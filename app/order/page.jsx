@@ -9,7 +9,9 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
+import LocationPicker from '@/components/LocationPicker';
 import PrinterSettings from '@/components/PrinterSettings';
+import { locationLabel, useDeviceLocation } from '@/lib/locations';
 import { checkPrinterStatus, printReceipt as eposPrint } from '@/lib/printer';
 import { Banknote, CreditCard, DollarSign, Printer } from 'lucide-react';
 import { DEFAULT_PAYMENT_METHOD, PAYMENT_METHODS } from '@/lib/orders/paymentMethods';
@@ -46,6 +48,8 @@ export default function OrderSystem() {
         orderPanelProps,
     } = useCart();
 
+    // This till only ever reads and writes its own location's orders.
+    const [locationId, setLocationId] = useDeviceLocation();
     const [history, setHistory] = useState([]);
     const [phone, setPhone] = useState('');
     // Recorded, not charged — the till takes no payment, this only attributes
@@ -92,13 +96,14 @@ export default function OrderSystem() {
     }, []);
 
     const fetchHistory = useCallback(async () => {
+        if (!locationId) return;
         try {
-            const groupedOrders = await getOrderHistory();
+            const groupedOrders = await getOrderHistory(locationId);
             setHistory(groupedOrders);
         } catch (error) {
             console.error('Failed to fetch order history:', error);
         }
-    }, []);
+    }, [locationId]);
 
     useEffect(() => {
         fetchHistory();
@@ -133,6 +138,7 @@ export default function OrderSystem() {
                 cartItems: orders,
                 phone,
                 paymentMethod,
+                locationId,
             });
 
             setHistory((prev) => [created, ...prev]);
@@ -157,7 +163,7 @@ export default function OrderSystem() {
             console.error('Send order failed:', err);
             setSendError('Order failed to save — please try again.');
         }
-    }, [orders, phone, paymentMethod, printerStatus]);
+    }, [orders, phone, paymentMethod, printerStatus, locationId]);
 
     // Advances a unit through its own category's cycle. An item whose type this
     // build does not recognise still advances, on the catalog's neutral flow.
@@ -188,8 +194,8 @@ export default function OrderSystem() {
 
     const handleSavePhone = useCallback(async (orderNumber, newPhone) => {
         setPhoneOverrides((prev) => ({ ...prev, [orderNumber]: newPhone }));
-        await updateOrderPhone(orderNumber, newPhone);
-    }, []);
+        await updateOrderPhone(orderNumber, newPhone, locationId);
+    }, [locationId]);
 
     const handleReprintOrder = useCallback(async (orderNumber, items) => {
         try {
@@ -271,6 +277,9 @@ export default function OrderSystem() {
             }))
             .filter((o) => o.items.length > 0);
     }, [history, visiblePanels]);
+
+    if (locationId === undefined) return null;
+    if (locationId === null) return <LocationPicker onPick={setLocationId} />;
 
     const { subtotal, tax } = totals;
     const total = totals.total.toFixed(2);
@@ -388,6 +397,9 @@ export default function OrderSystem() {
                     >
                         History
                     </button>
+                    <span className='self-center px-3 text-xs text-gray-400'>
+                        {locationLabel(locationId)}
+                    </span>
                 </div>
 
                 {mobileTab === 'order' ? (
@@ -446,6 +458,7 @@ export default function OrderSystem() {
                     {/* Panel controls + station links */}
                     <div className='flex items-center gap-2 mb-1 flex-wrap'>
                         <span className='text-sm font-semibold text-gray-500'>History</span>
+                        <span className='text-xs text-gray-400'>{locationLabel(locationId)}</span>
 
                         {CATEGORIES.filter((c) => visiblePanels.has(c.key)).map((c) => (
                             <span
