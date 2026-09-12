@@ -303,10 +303,10 @@ final class OrderViewModel {
     private func applyPostgresChange(type: String, record: [String: Any]?, oldRecord: [String: Any]?) {
         switch type {
         case "INSERT":
-            guard let record, let order = Self.decodeOrder(record) else { return }
+            guard let record, let order = Self.decodeOrder(record), Self.isThisLocation(order) else { return }
             mergeInsert(orderNumber: order.orderNumber, rows: [order])
         case "UPDATE":
-            guard let record, let order = Self.decodeOrder(record) else { return }
+            guard let record, let order = Self.decodeOrder(record), Self.isThisLocation(order) else { return }
             mergeUpdate(order)
         case "DELETE":
             guard let oldRecord, let idString = oldRecord["id"] as? String, let id = UUID(uuidString: idString) else { return }
@@ -314,6 +314,14 @@ final class OrderViewModel {
         default:
             break
         }
+    }
+
+    /// The realtime channel carries every location's rows, and other locations
+    /// reuse the same order numbers — merging one would fold it into this
+    /// till's order of the same number. A row without a location predates the
+    /// column and belongs to Location 1.
+    private static func isThisLocation(_ order: Order) -> Bool {
+        (order.location ?? 1) == AppConstants.locationID
     }
 
     private static func decodeOrder(_ dict: [String: Any]) -> Order? {

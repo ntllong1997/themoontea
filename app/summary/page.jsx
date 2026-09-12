@@ -12,12 +12,18 @@ import {
     toDateInput,
     windowFor,
 } from '@/lib/orders/dateRange';
+import { LOCATIONS, locationLabel, useDeviceLocation } from '@/lib/locations';
 import Link from 'next/link';
 
 // Derived from the catalog, so a new category gets a filter tab for free.
 const TYPE_FILTERS = [
     { key: 'all', label: 'All' },
     ...CATEGORIES.map(({ key, label }) => ({ key, label })),
+];
+
+const LOCATION_FILTERS = [
+    { key: 'all', label: 'All locations' },
+    ...LOCATIONS.map(({ id, label }) => ({ key: id, label })),
 ];
 
 export default function SummaryPage() {
@@ -31,6 +37,14 @@ export default function SummaryPage() {
     });
     const [typeFilter, setTypeFilter] = useState('all');
     const [fetchError, setFetchError] = useState(false);
+
+    // Starts on this device's own location (or every location, if the device
+    // has none saved); the pills below switch between them.
+    const [deviceLocationId] = useDeviceLocation();
+    const [locationFilter, setLocationFilter] = useState('all');
+    useEffect(() => {
+        if (deviceLocationId) setLocationFilter(deviceLocationId);
+    }, [deviceLocationId]);
 
     // Every pill, preset or hand-picked, becomes one [from, to) window. It
     // scopes the query as well as the filtering below, so a range reaching
@@ -48,7 +62,11 @@ export default function SummaryPage() {
     const fetchHistory = useCallback(async () => {
         const requestId = ++latestRequest.current;
         try {
-            const grouped = await getOrdersInRange(dateWindow.from, dateWindow.to);
+            const grouped = await getOrdersInRange(
+                dateWindow.from,
+                dateWindow.to,
+                locationFilter === 'all' ? null : locationFilter
+            );
             if (requestId !== latestRequest.current) return;
             setHistory(grouped);
             setFetchError(false);
@@ -57,7 +75,7 @@ export default function SummaryPage() {
             console.error('Failed to fetch history:', e);
             setFetchError(true);
         }
-    }, [dateWindow]);
+    }, [dateWindow, locationFilter]);
 
     useEffect(() => {
         fetchHistory();
@@ -169,6 +187,13 @@ export default function SummaryPage() {
                 <Card className='mb-4'>
                     <CardContent>
                         <div className='flex flex-wrap gap-2 mb-3'>
+                            {LOCATION_FILTERS.map(({ key, label }) => (
+                                <button key={key} onClick={() => setLocationFilter(key)} className={pillClass(locationFilter === key)}>
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                        <div className='flex flex-wrap gap-2 mb-3'>
                             {DATE_FILTERS.map(({ key, label }) => (
                                 <button key={key} onClick={() => setDateFilter(key)} className={pillClass(dateFilter === key)}>
                                     {label}
@@ -209,7 +234,8 @@ export default function SummaryPage() {
                         {/* Says which days the figures below actually cover, so a
                             screenshot of this page is not ambiguous. */}
                         <p className='text-xs text-gray-400 mt-3'>
-                            Showing {formatRangeLabel(dateWindow)}
+                            Showing {formatRangeLabel(dateWindow)} ·{' '}
+                            {locationFilter === 'all' ? 'All locations' : locationLabel(locationFilter)}
                         </p>
                     </CardContent>
                 </Card>
