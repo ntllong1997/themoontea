@@ -1,79 +1,191 @@
 'use client';
 
-// Customer-facing online ordering.
+// Customer-facing self-order flow: scan a QR code (app/order/qr) -> build a
+// cart -> pay -> get an order number and an ETA, with a text/WhatsApp follow-up
+// once the order is saved. Orders land in the same `orders` table the staff
+// till and the iPad app use, sharing one daily order-number sequence, so an
+// online order is numbered and displayed exactly like one rung up in store.
 //
-// Orders land in the same `orders` table the staff till and the iPad app use,
-// sharing one daily order-number sequence, so an online order is numbered and
-// displayed exactly like one rung up in store. This page does NOT print —
-// contrast /order, the staff till, which prints locally at checkout.
+// Payment methods:
+//   - Card: tokenized in-browser by Square's Web Payments SDK
+//     (components/SquareCardForm.jsx), then charged server-side via
+//     app/api/payments/square — the card is charged BEFORE the order is
+//     created, so a declined/failed charge never creates a kitchen-visible
+//     order.
+//   - Cash App: no charge happens here at all — the customer is shown the
+//     shop's Cash App link and asked to put the order number in as the
+//     payment note, and the order is created immediately (payment_status
+//     'pending') so staff see it right away, same as walking up and paying
+//     cash. Reconciliation is manual, same as any Cash App payment today.
+//   - Cash: order created immediately (payment_status 'pending'); customer
+//     pays at the register on pickup.
 //
-// The table has no source/print_status columns, so an online order is not
-// distinguishable from an in-store one once saved, and there is no auto-print
-// queue for staff to claim: online orders appear in history and must be
-// printed manually from there.
+// This page does NOT print — contrast /order, the staff till, which prints
+// locally at checkout.
 
-import { useCallback, useState } from 'react';
+import { Suspense, useCallback, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { createOrder } from '@/lib/db';
+import { Banknote, CreditCard, DollarSign } from 'lucide-react';
+import { createOrder, getRecentOrderCount } from '@/lib/db';
 import { useCart } from '@/lib/orders/useCart';
+import { estimateReadyAt } from '@/lib/orders/estimate';
+import { PAYMENT_METHODS } from '@/lib/orders/paymentMethods';
+import { CASHAPP_URL } from '@/lib/constants';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel from '@/components/OrderPanel';
+import SquareCardForm from '@/components/SquareCardForm';
 
 const PHONE_DIGITS = 10;
+const PAYMENT_ICONS = { Cash: Banknote, Card: CreditCard, CashApp: DollarSign };
 
 const countDigits = (value) => value.replace(/\D/g, '').length;
 
-export default function OnlineOrderPage() {
+const formatEta = (minutes, readyAt) => {
+    const clock = readyAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return `about ${minutes} minute${minutes === 1 ? '' : 's'} (around ${clock})`;
+};
+
+async function notifyCustomer({ phone, orderNumber, etaMinutes }) {
+    try {
+        await fetch('/api/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, orderNumber, etaMinutes }),
+        });
+    } catch (err) {
+        // Best-effort: the order is already placed and saved, a missed text
+        // shouldn't read to the customer as a failed order.
+        console.error('[notify] failed to send:', err);
+    }
+}
+
+function OnlineOrderForm() {
+    const searchParams = useSearchParams();
+    const locationId = Number(searchParams.get('location')) || 1;
+
     const { cart, changeQuantity, clearCart, totals, orderPanelProps } = useCart();
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('');
     const [notes, setNotes] = useState('');
+    const [paymentMethod, setPaymentMethod] = useState('Cash');
     const [isSending, setIsSending] = useState(false);
     const [submitError, setSubmitError] = useState('');
     const [placedOrder, setPlacedOrder] = useState(null);
+    const [etaInfo, setEtaInfo] = useState(null);
 
     const phoneIsValid = countDigits(phone) === PHONE_DIGITS;
-    const canSubmit = cart.length > 0 && name.trim() !== '' && phoneIsValid && !isSending;
+    const canProceed = cart.length > 0 && name.trim() !== '' && phoneIsValid;
 
-    const handleSubmit = useCallback(async () => {
-        if (!canSubmit) return;
+    // Shared by every payment method once it's ready to actually save the
+    // order — computing the ETA here (not earlier) means it reflects the
+    // queue depth at the moment of checkout, not whenever the cart was built.
+    const finalizeOrder = useCallback(async (method, paymentStatus) => {
+        const recentOrderCount = await getRecentOrderCount(locationId);
+        const { minutes, readyAt } = estimateReadyAt(cart, recentOrderCount);
+        const created = await createOrder({
+            cartItems: cart,
+            phone,
+            paymentMethod: method,
+            paymentStatus,
+            estimatedReadyAt: readyAt,
+            locationId,
+        });
+
+        setEtaInfo({ minutes, readyAt });
+        setPlacedOrder(created);
+        clearCart();
+        setNotes('');
+        notifyCustomer({ phone, orderNumber: created.orderNumber, etaMinutes: minutes });
+        return created;
+    }, [cart, phone, locationId, clearCart]);
+
+    const handleCardCharge = useCallback(async (token) => {
+        const amountCents = Math.round(totals.total * 100);
+        const idempotencyKey = crypto.randomUUID();
+
+        const response = await fetch('/api/payments/square', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourceId: token, amountCents, idempotencyKey }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Payment failed.');
+
+        try {
+            await finalizeOrder('Card', 'paid');
+        } catch (err) {
+            console.error('Order save failed after a successful charge:', err);
+            throw new Error(
+                'Your card was charged, but we could not save the order automatically. Please show this screen to staff at the register.'
+            );
+        }
+    }, [finalizeOrder, totals.total]);
+
+    const handlePlaceUnpaidOrder = useCallback(async () => {
+        if (!canProceed) return;
         setIsSending(true);
         setSubmitError('');
         try {
-            const created = await createOrder({
-                cartItems: cart,
-                phone,
-                paymentMethod: 'online',
-            });
-            setPlacedOrder(created);
-            clearCart();
-            setName('');
-            setPhone('');
-            setNotes('');
+            await finalizeOrder(paymentMethod, 'pending');
         } catch (err) {
             console.error('Online order failed:', err);
             setSubmitError("We couldn't place your order. Please try again.");
         } finally {
             setIsSending(false);
         }
-    }, [canSubmit, cart, name, phone, notes, clearCart]);
+    }, [canProceed, finalizeOrder, paymentMethod]);
 
     if (placedOrder) {
+        const { minutes, readyAt } = etaInfo ?? { minutes: 0, readyAt: new Date() };
         return (
             <div className='min-h-screen bg-gray-50 p-4'>
                 <Card className='max-w-md mx-auto mt-10'>
                     <CardContent>
                         <h1 className='text-xl font-bold mb-2'>Order received 🎉</h1>
-                        <p className='text-sm text-gray-600 mb-4'>
+                        <p className='text-sm text-gray-600 mb-1'>
                             Your order number is{' '}
-                            <span className='font-bold'>{placedOrder.orderNumber}</span>. We&apos;re
-                            making it now — we&apos;ll text you when it&apos;s ready for pickup.
+                            <span className='font-bold'>{placedOrder.orderNumber}</span>.
                         </p>
-                        <p className='text-sm text-gray-600 mb-6'>
+                        <p className='text-sm text-gray-600 mb-4'>
+                            Ready in {formatEta(minutes, readyAt)}. We&apos;ll text you when it&apos;s
+                            ready for pickup.
+                        </p>
+                        <p className='text-sm text-gray-600 mb-4'>
                             Total: <span className='font-semibold'>${placedOrder.total.toFixed(2)}</span>
                         </p>
-                        <Button className='w-full' onClick={() => setPlacedOrder(null)}>
+
+                        {placedOrder.paymentMethod === 'Card' && (
+                            <p className='text-sm font-semibold text-green-700 bg-green-50 rounded px-3 py-2 mb-4'>
+                                Paid ✓
+                            </p>
+                        )}
+                        {placedOrder.paymentMethod === 'Cash' && (
+                            <p className='text-sm text-amber-800 bg-amber-50 rounded px-3 py-2 mb-4'>
+                                Please pay ${placedOrder.total.toFixed(2)} at the register when you
+                                pick up your order.
+                            </p>
+                        )}
+                        {placedOrder.paymentMethod === 'CashApp' && (
+                            <div className='text-sm text-amber-800 bg-amber-50 rounded px-3 py-2 mb-4 space-y-2'>
+                                <p>
+                                    Pay ${placedOrder.total.toFixed(2)} via Cash App, and put{' '}
+                                    <span className='font-bold'>Order #{placedOrder.orderNumber}</span>{' '}
+                                    in the payment note so we can match it.
+                                </p>
+                                <a
+                                    href={CASHAPP_URL}
+                                    target='_blank'
+                                    rel='noreferrer'
+                                    className='inline-block rounded bg-green-600 text-white font-semibold px-3 py-1.5 hover:bg-green-700'
+                                >
+                                    Open Cash App
+                                </a>
+                            </div>
+                        )}
+
+                        <Button className='w-full' onClick={() => { setPlacedOrder(null); setEtaInfo(null); }}>
                             Place another order
                         </Button>
                     </CardContent>
@@ -164,7 +276,7 @@ export default function OnlineOrderPage() {
                                     htmlFor='customer-phone'
                                     className='block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1'
                                 >
-                                    Phone
+                                    Phone <span className='normal-case text-gray-400'>(for your ready text)</span>
                                 </label>
                                 <input
                                     id='customer-phone'
@@ -214,20 +326,94 @@ export default function OnlineOrderPage() {
                             </div>
                         </div>
 
+                        <div className='mt-4'>
+                            <label className='block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1'>
+                                Payment
+                            </label>
+                            <div className='flex gap-2'>
+                                {PAYMENT_METHODS.map(({ key, label }) => {
+                                    const Icon = PAYMENT_ICONS[key];
+                                    const isActive = paymentMethod === key;
+                                    return (
+                                        <button
+                                            key={key}
+                                            type='button'
+                                            onClick={() => setPaymentMethod(key)}
+                                            aria-pressed={isActive}
+                                            className={`flex-1 flex items-center justify-center gap-1.5 rounded border px-2 py-2 text-xs font-medium transition-colors ${
+                                                isActive
+                                                    ? 'bg-black text-white border-black'
+                                                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            <Icon size={14} />
+                                            {label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
                         {submitError && (
                             <p className='text-sm text-red-600 mt-3'>{submitError}</p>
                         )}
 
-                        <Button
-                            className='w-full mt-4'
-                            onClick={handleSubmit}
-                            disabled={!canSubmit}
-                        >
-                            {isSending ? 'Placing order…' : 'Place Order'}
-                        </Button>
+                        {!canProceed && (
+                            <p className='text-xs text-gray-400 mt-3 text-center'>
+                                Add an item, then enter your name and phone to continue.
+                            </p>
+                        )}
+
+                        {canProceed && paymentMethod === 'Card' && (
+                            <div className='mt-4'>
+                                <SquareCardForm
+                                    amountLabel={`$${totals.total.toFixed(2)}`}
+                                    onCharge={handleCardCharge}
+                                />
+                            </div>
+                        )}
+
+                        {canProceed && paymentMethod === 'CashApp' && (
+                            <div className='mt-4'>
+                                <p className='text-xs text-gray-500 mb-2'>
+                                    You&apos;ll pay via Cash App after placing your order — we&apos;ll
+                                    show you the link and your order number to use as the note.
+                                </p>
+                                <Button
+                                    className='w-full'
+                                    onClick={handlePlaceUnpaidOrder}
+                                    disabled={isSending}
+                                >
+                                    {isSending ? 'Placing order…' : `Place Order — $${totals.total.toFixed(2)}`}
+                                </Button>
+                            </div>
+                        )}
+
+                        {canProceed && paymentMethod === 'Cash' && (
+                            <div className='mt-4'>
+                                <p className='text-xs text-gray-500 mb-2'>
+                                    You&apos;ll pay at the register when you pick up your order.
+                                </p>
+                                <Button
+                                    className='w-full'
+                                    onClick={handlePlaceUnpaidOrder}
+                                    disabled={isSending}
+                                >
+                                    {isSending ? 'Placing order…' : `Place Order — $${totals.total.toFixed(2)}`}
+                                </Button>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </div>
         </div>
+    );
+}
+
+export default function OnlineOrderPage() {
+    return (
+        <Suspense fallback={null}>
+            <OnlineOrderForm />
+        </Suspense>
     );
 }

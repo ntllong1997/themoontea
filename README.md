@@ -47,9 +47,24 @@ Put these in `.env.local` (gitignored via the `.env*` rule).
 | `PRINTER_BAUD` | `print-server.js` | no (default `9600`) |
 | `PRINT_SERVER_PORT` | `print-server.js` | no (default `3333`) |
 | `CASHAPP_URL` | `print-server.js` — fallback receipt QR target | no (default `https://cash.app/$TheMoonTea`) |
+| `NEXT_PUBLIC_CASHAPP_URL` | `lib/constants.js` — Cash App link shown to customers on `/order/online` | no (same default as above) |
+| `NEXT_PUBLIC_SQUARE_APP_ID` / `NEXT_PUBLIC_SQUARE_LOCATION_ID` / `NEXT_PUBLIC_SQUARE_ENV` | `components/SquareCardForm.jsx` — the browser-side Web Payments SDK | only if you want Card as a payment option online |
+| `SQUARE_ACCESS_TOKEN` / `SQUARE_LOCATION_ID` / `SQUARE_ENVIRONMENT` | `lib/payments/square.js`, server-only — actually charges the card | only if you want Card as a payment option online |
+| `NOTIFY_CHANNEL` | `lib/notify/twilio.js` — `sms` (default) or `whatsapp` | no |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | `lib/notify/twilio.js`, server-only | only if you want the "order ready soon" text/WhatsApp message |
+| `TWILIO_SMS_FROM` | same, used when `NOTIFY_CHANNEL=sms` | with the above |
+| `TWILIO_WHATSAPP_FROM` | same, used when `NOTIFY_CHANNEL=whatsapp` | with the above |
+| `TWILIO_WHATSAPP_CONTENT_SID` | same — an approved WhatsApp template's ContentSid; see the note below | optional even with `NOTIFY_CHANNEL=whatsapp` |
 
 > The first two are the only ones the web app actually needs to boot. The `PRINTER_*`
 > variables are read by the standalone print server process, not by Next.js.
+
+> **WhatsApp note.** A customer who orders online has never messaged your WhatsApp
+> number, so a ready-soon message to them is "business-initiated" — WhatsApp only
+> delivers those as an **approved template**, not freeform text, outside Twilio's
+> Sandbox. Set `TWILIO_WHATSAPP_CONTENT_SID` to an approved template's ContentSid (two
+> variables: order number, then ETA minutes) once you have one; without it, WhatsApp
+> messages will only actually deliver to numbers that joined your Twilio Sandbox.
 
 Existing `.env.local` files may also carry `NEXT_PUBLIC_SMS_WEBHOOK_URL`,
 `STRIPE_SECRET_KEY`, and `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`. **No code reads any of
@@ -65,13 +80,16 @@ isn't even installed. Safe to drop.
 | `/` | Redirect to `/vendor` |
 | `/vendor` | Internal hub — links to Order Track, Inventory, Sales Summary |
 | `/order` | **The staff till.** Cart, payment method, receipt printing, today's history |
-| `/order/online` | Customer-facing self-order. Writes to the same `orders` table but never prints |
+| `/order/online?location=<id>` | Customer-facing self-order: cart → name/phone → pay (Card via Square, Cash App, or Cash at register) → order number + ETA. Writes to the same `orders` table but never prints |
 | `/order/[station]` | Prep-station screen. Valid slugs come from `station.slug` in the catalog — currently `corndog` and `drink`. Anything else 404s |
+| `/order/qr` | Staff-facing — generates a downloadable/printable QR code per location pointing at `/order/online?location=<id>` |
 | `/orders` | Redirect to `/order` |
 | `/summary` | Sales summary with date-range pills, per-category and per-payment-method breakdown |
 | `/inventory` | Inventory counting — par/restock levels, prices, locations, case sizes, employee PIN auth |
 | `/cashapp` | Manages the list of Cash App cashtags and picks the active one for receipt QR codes (stored in `localStorage`) |
 | `POST /api/receipts/process` | ⚠️ **Stub.** Returns hardcoded `buildMockExtraction()` data. Nothing in the app calls it |
+| `POST /api/payments/square` | Server-only Square card charge for `/order/online`'s Card option. Charges the card *before* any order row is written |
+| `POST /api/notify` | Server-only order-ready text/WhatsApp send for `/order/online`, via Twilio. Best-effort — a failure here never undoes an order that was already saved |
 
 ---
 
@@ -113,6 +131,11 @@ impossible rather than retried away.
 **Timestamps.** The `timestamp` column is `timestamp without time zone`, and both clients
 write `new Date().toISOString()` into it — i.e. UTC wearing no marker. Any bound you
 compare against must be converted the same way, or every window slides by the UTC offset.
+
+**Payment status.** `"paymentStatus"` is `'paid'` for everything except a Cash or Cash App
+order placed through `/order/online`, which starts `'pending'` until staff collect it at
+pickup — see `HistorySection`'s "Unpaid — collect at pickup" badge. `"estimatedReadyAt"` is
+set once, from `lib/orders/estimate.js`, at the moment an online order is created.
 
 ---
 

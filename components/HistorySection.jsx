@@ -20,6 +20,7 @@ export default function HistorySection({
     getOrderActions,
     getOrderPhone,
     onSavePhone,
+    getOrderPaymentStatus,
     className = '',
 }) {
     const [editingPhone, setEditingPhone] = useState(null);
@@ -54,6 +55,7 @@ export default function HistorySection({
                 ) : (
                     orders.map(({ orderNumber, items }) => {
                         const phone = getOrderPhone ? getOrderPhone(orderNumber) : '';
+                        const isUnpaid = getOrderPaymentStatus?.(orderNumber) === 'pending';
                         return (
                             <div
                                 key={`${sectionKey}-${orderNumber}`}
@@ -63,6 +65,12 @@ export default function HistorySection({
                                     <p className='font-semibold text-sm shrink-0'>
                                         Order #{orderNumber}
                                     </p>
+
+                                    {isUnpaid && (
+                                        <span className='shrink-0 text-xs font-semibold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full'>
+                                            Unpaid — collect at pickup
+                                        </span>
+                                    )}
 
                                     {/* Inline phone */}
                                     <div className='flex items-center gap-1 flex-1 min-w-0'>

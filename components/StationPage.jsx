@@ -92,6 +92,11 @@ export default function StationPage({ category }) {
         return history.find((order) => order.orderNumber === orderNumber)?.phone ?? '';
     }, [phoneOverrides, history]);
 
+    const getOrderPaymentStatus = useCallback(
+        (orderNumber) => history.find((order) => order.orderNumber === orderNumber)?.paymentStatus,
+        [history]
+    );
+
     const handleSavePhone = useCallback(async (orderNumber, newPhone) => {
         setPhoneOverrides((prev) => ({ ...prev, [orderNumber]: newPhone }));
         await updateOrderPhone(orderNumber, newPhone, locationId);
@@ -224,6 +229,7 @@ export default function StationPage({ category }) {
                     getItemTooltip={getItemTooltip}
                     getOrderActions={getOrderActions}
                     getOrderPhone={getOrderPhone}
+                    getOrderPaymentStatus={getOrderPaymentStatus}
                     onSavePhone={handleSavePhone}
                 />
             </div>
