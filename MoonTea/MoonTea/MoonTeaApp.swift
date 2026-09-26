@@ -10,9 +10,14 @@ struct MoonTeaApp: App {
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
-            case .active:     SquareService.shared.handleAppDidBecomeActive()
-            case .background: SquareService.shared.handleAppDidBackground()
-            default:          break
+            case .active:
+                SquareService.shared.handleAppDidBecomeActive()
+                EpsonPrinter.shared.handleAppDidBecomeActive()
+            case .background:
+                SquareService.shared.handleAppDidBackground()
+                EpsonPrinter.shared.handleAppDidBackground()
+            default:
+                break
             }
         }
     }

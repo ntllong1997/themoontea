@@ -39,6 +39,14 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
     // one instance's teardown threads race the next instance's connect,
     // crashing after a couple of prints. Keeping one instance for the app's
     // lifetime and only connecting/disconnecting it avoids that race.
+    //
+    // `printerInstance` and `connectedTarget` are confined to `printQueue`:
+    // read or write them only from inside a `printQueue` block. `stateLock`
+    // guards `_isConnected` alone and does not cover these. The keepalive
+    // ping used to read both from the main run loop while `openConnection`
+    // wrote them on `printQueue`, which is a genuine data race — a probe
+    // could see a target that had already been torn down and conclude it was
+    // still connected to a dead link.
     private var printerInstance: Epos2Printer?
 
     // The target we're currently connected to, or nil if disconnected.
@@ -79,8 +87,18 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
     // Retries the saved printer in the background while it's known to be
     // unreachable, so a dropped link recovers on its own instead of waiting
     // for the next order's print (and losing that receipt) to notice.
+    // Probes back off rather than repeating at a fixed interval. A printer
+    // left off overnight used to draw ~1,000 connect attempts at 30s apiece,
+    // each occupying `printQueue` for up to its 5s timeout — and `send`
+    // holds that same serial queue for up to 20s waiting on a print ack, so
+    // probes and real prints contend. Backing off keeps a genuinely-absent
+    // printer cheap while still recovering a brief drop quickly.
+    //
+    // These three, like the timers, are main-thread only.
     private var reconnectWatchdog: Timer?
-    private static let reconnectWatchdogInterval: TimeInterval = 30
+    private var isWatchdogActive = false
+    private var reconnectAttempt = 0
+    private static let reconnectBackoff: [TimeInterval] = [30, 60, 120, 300]
 
     // Epson's SDK guidance is explicit: don't connect/disconnect in quick
     // succession — reconnecting immediately after a teardown can leave the
@@ -174,15 +192,17 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
     }
 
     private func pingConnection() {
-        guard let printer = printerInstance, connectedTarget != nil else { return }
+        // Every read and write of `printerInstance`/`connectedTarget` happens
+        // inside this block: the guard used to run on the main run loop (this
+        // is fired by a Timer) while `openConnection` mutated the same fields
+        // on `printQueue`.
         printQueue.async { [weak self] in
-            guard let self else { return }
-            let s = printer.getStatus()
-            if s?.connection != kTrue {
-                DispatchQueue.main.async {
-                    self.connectedTarget = nil
-                    self.setConnected(false)
-                }
+            guard let self,
+                  let printer = self.printerInstance,
+                  self.connectedTarget != nil else { return }
+            if printer.getStatus()?.connection != kTrue {
+                self.connectedTarget = nil
+                DispatchQueue.main.async { self.setConnected(false) }
             }
         }
     }
@@ -194,30 +214,123 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
     // receipt on the failed attempt. Once connection is lost for a saved
     // printer, keep probing in the background until it's back.
 
-    private func startReconnectWatchdog() {
-        guard reconnectWatchdog == nil, let target = savedTargetProvider?(), !target.isEmpty else { return }
-        let timer = Timer(timeInterval: Self.reconnectWatchdogInterval, repeats: true) { [weak self] _ in
-            self?.probeSavedTarget()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        reconnectWatchdog = timer
-        // Probe soon rather than waiting a full interval, but not instantly —
-        // see reconnectCooldown.
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.reconnectCooldown) { [weak self] in
-            self?.probeSavedTarget()
+    /// Starts background probing if a printer is saved and we're not
+    /// connected to it. Idempotent, so callers don't need to track whether
+    /// the watchdog is already running.
+    ///
+    /// This exists because `setConnected` only starts the watchdog on a
+    /// *transition* to disconnected. At launch `_isConnected` is already
+    /// false, so a failed first connect changed nothing and left no watchdog
+    /// running — open the app with the printer off and nothing ever retried
+    /// until someone connected by hand.
+    func ensureReconnectWatchdog() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.isConnected else { return }
+            self.startReconnectWatchdog()
         }
     }
 
+    // Main thread only.
+    private func startReconnectWatchdog() {
+        guard !isWatchdogActive, let target = savedTargetProvider?(), !target.isEmpty else { return }
+        isWatchdogActive = true
+        reconnectAttempt = 0
+        // Probe soon rather than waiting a full interval, but not instantly —
+        // see reconnectCooldown.
+        scheduleReconnectProbe(after: Self.reconnectCooldown)
+    }
+
+    // Main thread only.
     private func stopReconnectWatchdog() {
+        isWatchdogActive = false
+        reconnectAttempt = 0
         reconnectWatchdog?.invalidate()
         reconnectWatchdog = nil
+    }
+
+    // Main thread only. One-shot; each failed probe schedules the next one
+    // further out, and a successful connect stops the watchdog entirely via
+    // `setConnected(true)`.
+    private func scheduleReconnectProbe(after delay: TimeInterval) {
+        reconnectWatchdog?.invalidate()
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.reconnectWatchdog = nil
+            self.probeSavedTarget()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        reconnectWatchdog = timer
+    }
+
+    // Main thread only.
+    private func reconnectProbeFailed() {
+        guard isWatchdogActive else { return }
+        reconnectAttempt = min(reconnectAttempt + 1, Self.reconnectBackoff.count - 1)
+        scheduleReconnectProbe(after: Self.reconnectBackoff[reconnectAttempt])
     }
 
     private func probeSavedTarget() {
         guard let target = savedTargetProvider?(), !target.isEmpty else { return }
         printQueue.async { [weak self] in
             guard let self, let printer = self.obtainPrinter() else { return }
-            _ = self.openConnection(printer, target: target, timeout: 5_000)
+            let code = self.openConnection(printer, target: target, timeout: 5_000)
+            guard code != kSuccess else { return }  // success stops the watchdog
+            DispatchQueue.main.async { self.reconnectProbeFailed() }
+        }
+    }
+
+    // MARK: - App lifecycle
+    //
+    // iOS tears down the MFi/External Accessory session when the app is
+    // suspended, and Timers don't fire while suspended either — so the
+    // keepalive can't notice, and `_isConnected` stays stuck on its last
+    // value. The settings screen would keep showing "Connected" over a dead
+    // link until an actual order failed to print, which is the
+    // "worked all morning, then wouldn't print" symptom.
+    //
+    // `SquareService` already does exactly this for the card reader's BLE
+    // link (see `handleAppDidBecomeActive` there) — the printer simply never
+    // got the same treatment.
+
+    /// Re-derives connection state from the hardware after the app was
+    /// backgrounded. If the link died while suspended we tear it down
+    /// cleanly and let the watchdog reconnect, rather than trusting stale
+    /// state; if it survived we restart the keepalive, whose timer has been
+    /// frozen (and whose interval may well have elapsed) the whole time.
+    func handleAppDidBecomeActive() {
+        printQueue.async { [weak self] in
+            guard let self else { return }
+
+            guard let printer = self.printerInstance, self.connectedTarget != nil else {
+                // Nothing to verify — make sure something is retrying.
+                self.ensureReconnectWatchdog()
+                return
+            }
+
+            if printer.getStatus()?.connection == kTrue {
+                DispatchQueue.main.async { self.startKeepalive() }
+                return
+            }
+
+            printer.disconnect()
+            self.connectedTarget = nil
+            DispatchQueue.main.async {
+                self.setConnected(false)   // starts the watchdog
+                self.stopKeepalive()
+            }
+        }
+    }
+
+    /// Stops the timers while suspended. They can't fire anyway, and leaving
+    /// them scheduled means a burst of stale probes the moment we resume —
+    /// before `handleAppDidBecomeActive` has re-derived the real state.
+    func handleAppDidBackground() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.stopKeepalive()
+            self.reconnectWatchdog?.invalidate()
+            self.reconnectWatchdog = nil
+            self.isWatchdogActive = false
         }
     }
 

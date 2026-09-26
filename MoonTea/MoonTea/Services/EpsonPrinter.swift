@@ -99,6 +99,11 @@ final class EpsonPrinter: NSObject {
         }
         if hasSavedPrinter {
             Task { [weak self] in await self?.printManager.resume() }
+            // Begin probing straight away. Previously nothing retried until a
+            // successful connect had been followed by a drop, so launching
+            // with the printer off left it disconnected until someone
+            // connected by hand.
+            transport.ensureReconnectWatchdog()
         }
         Task { [weak self] in await self?.refreshPendingCount() }
     }
@@ -142,6 +147,23 @@ final class EpsonPrinter: NSObject {
             if status == .connecting { status = .idle }
             if success { await printManager.resume() }
         }
+    }
+
+    // MARK: - App lifecycle
+
+    /// Driven by `scenePhase` in `MoonTeaApp`, alongside the equivalent
+    /// `SquareService` hooks. Backgrounding can silently drop the printer's
+    /// MFi link, so on the way back in we re-check it against the hardware
+    /// instead of trusting `isConnected`, and give the print queue a nudge in
+    /// case receipts backed up while we were away.
+    func handleAppDidBecomeActive() {
+        guard hasSavedPrinter else { return }
+        transport.handleAppDidBecomeActive()
+        Task { [weak self] in await self?.printManager.resume() }
+    }
+
+    func handleAppDidBackground() {
+        transport.handleAppDidBackground()
     }
 
     // MARK: - Discovery
