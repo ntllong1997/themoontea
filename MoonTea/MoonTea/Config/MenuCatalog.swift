@@ -188,6 +188,7 @@ private let cookieFlow = twoStepFlow(.orange, text: neutralAmber)
 private let lemonadeFlow = twoStepFlow(.yellow, text: Color(red: 0.40, green: 0.33, blue: 0.0))
 private let eggRollFlow = twoStepFlow(.purple, text: Color(red: 0.30, green: 0.10, blue: 0.45))
 private let sideFlow = twoStepFlow(.pink, text: Color(red: 0.45, green: 0.10, blue: 0.28))
+private let spiroPapaFlow = twoStepFlow(.brown, text: Color(red: 0.35, green: 0.20, blue: 0.08))
 
 /// Drinks that offer a "hold the other flavour" tweak, and what to call it.
 private let drinkCustomizations: [String: String] = [
@@ -304,6 +305,18 @@ enum MenuCatalog {
             optionGroups: [],
             addOns: [],
             flow: eggRollFlow,
+            station: nil
+        ),
+        // A fixed spiral potato, orderable straight away like Egg Roll.
+        MenuCategory(
+            key: "Spiro Papa",
+            label: "Spiro Papa",
+            orderable: true,
+            price: 6.0,
+            layout: .rows,
+            optionGroups: [],
+            addOns: [],
+            flow: spiroPapaFlow,
             station: nil
         ),
         // Like Cookie, the price lives on the options rather than on the
