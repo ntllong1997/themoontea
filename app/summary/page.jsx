@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getOrdersInRange } from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/Card';
-import { CATEGORIES, TAX_RATE, categoryFor } from '@/lib/menu/catalog';
+import { TAX_RATE } from '@/lib/menu/catalog';
+import { useMenu } from '@/lib/menu/useMenu';
 import { PAYMENT_BUCKETS, summarizeByCategoryAndPayment } from '@/lib/orders/paymentMethods';
 import {
     DATE_FILTERS,
@@ -15,18 +16,19 @@ import {
 import { LOCATIONS, locationLabel, useDeviceLocation } from '@/lib/locations';
 import Link from 'next/link';
 
-// Derived from the catalog, so a new category gets a filter tab for free.
-const TYPE_FILTERS = [
-    { key: 'all', label: 'All' },
-    ...CATEGORIES.map(({ key, label }) => ({ key, label })),
-];
-
 const LOCATION_FILTERS = [
     { key: 'all', label: 'All locations' },
     ...LOCATIONS.map(({ id, label }) => ({ key: id, label })),
 ];
 
 export default function SummaryPage() {
+    const { menu } = useMenu();
+    // Derived from the live menu, so a category added on /menu gets a filter
+    // tab for free — hidden ones keep theirs, for their past sales.
+    const typeFilters = useMemo(
+        () => [{ key: 'all', label: 'All' }, ...menu.categories.map(({ key, label }) => ({ key, label }))],
+        [menu]
+    );
     const [history, setHistory] = useState([]);
     const [dateFilter, setDateFilter] = useState('today');
     // Seeded to today, so picking "Custom Range" starts somewhere meaningful
@@ -134,16 +136,16 @@ export default function SummaryPage() {
         // Catalog order first, so the table reads like the menu; anything with
         // a type the catalog no longer knows still gets a row at the end.
         const ordered = [
-            ...CATEGORIES.map((c) => c.key).filter((key) => rows.has(key)),
-            ...[...rows.keys()].filter((key) => !categoryFor(key)),
+            ...menu.categoryKeys.filter((key) => rows.has(key)),
+            ...[...rows.keys()].filter((key) => !menu.categoryFor(key)),
         ];
 
         return ordered.map((key) => ({
             key,
-            label: categoryFor(key)?.label ?? key,
+            label: menu.categoryFor(key)?.label ?? key,
             ...rows.get(key),
         }));
-    }, [filtered]);
+    }, [filtered, menu]);
 
     const paymentTotals = useMemo(() => {
         const totals = Object.fromEntries(PAYMENT_BUCKETS.map((b) => [b.key, 0]));
@@ -225,7 +227,7 @@ export default function SummaryPage() {
                             </div>
                         )}
                         <div className='flex flex-wrap gap-2'>
-                            {TYPE_FILTERS.map(({ key, label }) => (
+                            {typeFilters.map(({ key, label }) => (
                                 <button key={key} onClick={() => setTypeFilter(key)} className={pillClass(typeFilter === key)}>
                                     {label}
                                 </button>

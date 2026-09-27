@@ -1,12 +1,13 @@
 import SwiftUI
 
-// The iPad's mirror of lib/menu/catalog.js. Adding a category means adding one
-// entry to `MenuCatalog.categories` here AND one to the web catalog — the two
-// must agree on `key`, which is the string persisted as an order row's `type`.
+// The iPad's mirror of lib/menu/catalog.js. The menu's DATA (names, prices,
+// choices, order, shown/hidden) is edited on the web at /menu and loaded by
+// MenuStore; the built-in copy is DefaultMenu.swift. What stays in code is
+// BEHAVIOUR — colours, prep flows, stations, conditional add-ons — keyed by
+// category `key`, the string persisted as an order row's `type`.
 //
-// Ship this side FIRST when adding a category. `OrderItemType` tolerates an
-// unknown type, so an older iPad will still show and print a new category's
-// orders (on the neutral flow) rather than dropping them.
+// `OrderItemType` tolerates an unknown type, so an iPad on an older build
+// still shows and prints orders for a category it has never seen.
 
 // MARK: - Selection
 
@@ -180,8 +181,7 @@ private func twoStepFlow(_ accent: Color, text: Color) -> MenuFlow {
     )
 }
 
-/// The neutral default, and what an unknown category falls back to. Give a new
-/// category its own colours instead if you want it distinguishable in history.
+/// The neutral fallback for a unit with no type at all.
 let simpleMenuFlow = twoStepFlow(.orange, text: neutralAmber)
 
 private let cookieFlow = twoStepFlow(.orange, text: neutralAmber)
@@ -190,200 +190,156 @@ private let eggRollFlow = twoStepFlow(.purple, text: Color(red: 0.30, green: 0.1
 private let sideFlow = twoStepFlow(.pink, text: Color(red: 0.45, green: 0.10, blue: 0.28))
 private let spiroPapaFlow = twoStepFlow(.brown, text: Color(red: 0.35, green: 0.20, blue: 0.08))
 
+private func hex(_ value: UInt32) -> Color {
+    Color(red: Double((value >> 16) & 0xFF) / 255,
+          green: Double((value >> 8) & 0xFF) / 255,
+          blue: Double(value & 0xFF) / 255)
+}
+
+/// Spare colours for categories created in the web menu editor. Same order as
+/// EXTRA_FLOWS in lib/menu/catalog.js (Tailwind 600 / 900), and picked by the
+/// same hash, so a new item is the same colour on every till.
+private let extraFlows: [MenuFlow] = [
+    twoStepFlow(hex(0x65A30D), text: hex(0x365314)), // lime
+    twoStepFlow(hex(0x0D9488), text: hex(0x134E4A)), // teal
+    twoStepFlow(hex(0x4F46E5), text: hex(0x312E81)), // indigo
+    twoStepFlow(hex(0xC026D3), text: hex(0x701A75)), // fuchsia
+    twoStepFlow(hex(0xE11D48), text: hex(0x881337)), // rose
+    twoStepFlow(hex(0x0284C7), text: hex(0x0C4A6E)), // sky
+    twoStepFlow(hex(0x059669), text: hex(0x064E3B)), // emerald
+    twoStepFlow(hex(0x7C3AED), text: hex(0x4C1D95)), // violet
+]
+
 /// Drinks that offer a "hold the other flavour" tweak, and what to call it.
 private let drinkCustomizations: [String: String] = [
     "Matcha Strawberry": "Only Matcha",
     "Golden Taro": "Only Taro",
 ]
 
+// MARK: - Behaviour
+
+/// The half of a category that is code rather than editable data, keyed by
+/// category key. Mirrors CATEGORY_BEHAVIOURS in lib/menu/catalog.js. A
+/// category created in the editor has no entry and gets the defaults.
+///
+/// An add-on's condition names an option value, so renaming that option on
+/// /menu quietly stops offering the add-on — it never charges wrongly.
+private struct CategoryBehaviour {
+    var layout: MenuCategory.Layout = .rows
+    var addOns: [MenuAddOn] = []
+    var flow: MenuFlow?
+    var station: MenuStation?
+}
+
+private let categoryBehaviours: [String: CategoryBehaviour] = [
+    "Corndog": CategoryBehaviour(
+        addOns: [
+            .init(key: "dust",
+                  price: 1.0,
+                  label: { _ in "Hot Cheeto Dust" },
+                  appliesWhen: { $0.options["outside"] == "Potato" }),
+        ],
+        flow: corndogFlow,
+        station: .init(slug: "corndog", title: "🌭 Corndog Station")
+    ),
+    "Boba": CategoryBehaviour(
+        layout: .columns,
+        addOns: [
+            .init(key: "customization",
+                  price: 0,
+                  label: { drinkCustomizations[$0.options["drink"] ?? ""] },
+                  appliesWhen: { drinkCustomizations[$0.options["drink"] ?? ""] != nil }),
+        ],
+        flow: bobaFlow,
+        station: .init(slug: "drink", title: "🧋 Drink Station")
+    ),
+    "Cookie": CategoryBehaviour(flow: cookieFlow),
+    "Lemonade": CategoryBehaviour(flow: lemonadeFlow),
+    "Egg Roll": CategoryBehaviour(flow: eggRollFlow),
+    "Spiro Papa": CategoryBehaviour(flow: spiroPapaFlow),
+    "Side": CategoryBehaviour(flow: sideFlow),
+]
+
+// MARK: - Menu
+
+/// A menu ready to render: editable config joined with code behaviour. A
+/// hidden category stays in `categories` so history and the summary still
+/// label its old orders; it only drops out of `orderable`.
+struct Menu {
+    let categories: [MenuCategory]
+    let orderable: [MenuCategory]
+    private let byKey: [String: MenuCategory]
+
+    init(config: MenuConfig) {
+        let built = config.categories.map { MenuCatalog.category(from: $0) } + [MenuCatalog.discountCategory]
+        categories = built
+        orderable = built.filter(\.orderable)
+        byKey = Dictionary(built.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    func category(for type: OrderItemType) -> MenuCategory? { byKey[type.rawValue] }
+}
+
 // MARK: - Catalog
 
 enum MenuCatalog {
-    static let categories: [MenuCategory] = [
-        MenuCategory(
-            key: "Corndog",
-            label: "Corndog",
-            orderable: true,
-            price: 8.0,
-            layout: .rows,
-            optionGroups: [
-                .init(key: "inside", label: "Inside",
-                      options: ["Cheese", "Half-Half"], role: .name),
-                .init(key: "outside", label: "Outside",
-                      options: ["Potato", "Hot Cheeto", "Original"], role: .name),
-            ],
-            addOns: [
-                .init(key: "dust",
-                      price: 1.0,
-                      label: { _ in "Hot Cheeto Dust" },
-                      appliesWhen: { $0.options["outside"] == "Potato" }),
-            ],
-            flow: corndogFlow,
-            station: .init(slug: "corndog", title: "🌭 Corndog Station")
-        ),
-        MenuCategory(
-            key: "Boba",
-            label: "Boba",
-            orderable: true,
-            price: 8.0,
-            layout: .columns,
-            optionGroups: [
-                .init(key: "drink", label: "Drink",
-                      options: [
-                          "Brown Sugar",
-                          "Matcha Brown Sugar",
-                          "Golden Taro",
-                          "Korean Strawberry",
-                          "Tropical",
-                          "Strawberry",
-                          "Cafe",
-                          "Matcha Strawberry",
-                      ],
-                      role: .name),
-                .init(key: "boba", label: "Boba",
-                      options: ["Tapioca", "Mango Popping", "Strawberry Popping", "Nothing"],
-                      role: .modifier),
-            ],
-            addOns: [
-                .init(key: "customization",
-                      price: 0,
-                      label: { drinkCustomizations[$0.options["drink"] ?? ""] },
-                      appliesWhen: { drinkCustomizations[$0.options["drink"] ?? ""] != nil }),
-            ],
-            flow: bobaFlow,
-            station: .init(slug: "drink", title: "🧋 Drink Station")
-        ),
-        // Cookie and Lemonade put their choice in a MODIFIER group, not a name
-        // group, so a line reads "Cookie (3 for $14)". Naming a line after the
-        // choice alone would collide with a same-named item in another
-        // category, and the sales summary groups by name.
-        //
-        // Every cookie is the same, so there is no flavour to pick: the only
-        // choice is how many, and the pack carries the price.
-        MenuCategory(
-            key: "Cookie",
-            label: "Cookie",
-            orderable: true,
-            price: 0,
-            layout: .rows,
-            optionGroups: [
-                .init(key: "pack", label: "Pack",
-                      options: [
-                          .init("1 for $5", price: 5.0),
-                          .init("3 for $14", price: 14.0),
-                          .init("5 for $23", price: 23.0),
-                      ],
-                      role: .modifier),
-            ],
-            addOns: [],
-            flow: cookieFlow,
-            station: nil
-        ),
-        MenuCategory(
-            key: "Lemonade",
-            label: "Lemonade",
-            orderable: true,
-            price: 7.0,
-            layout: .rows,
-            optionGroups: [
-                .init(key: "base", label: "Flavor",
-                      options: ["Tea", "Soda"], role: .modifier),
-            ],
-            addOns: [],
-            flow: lemonadeFlow,
-            station: nil
-        ),
-        // No option groups at all: a fixed 4-piece portion. `isComplete` is
-        // vacuously true for an empty group list, so it can be added straight
-        // away, and the line name falls back to the category label.
-        MenuCategory(
-            key: "Egg Roll",
-            label: "Egg Roll",
-            orderable: true,
-            price: 7.0,
-            layout: .rows,
-            optionGroups: [],
-            addOns: [],
-            flow: eggRollFlow,
-            station: nil
-        ),
-        // A fixed spiral potato, orderable straight away like Egg Roll.
-        MenuCategory(
-            key: "Spiro Papa",
-            label: "Spiro Papa",
-            orderable: true,
-            price: 6.0,
-            layout: .rows,
-            optionGroups: [],
-            addOns: [],
-            flow: spiroPapaFlow,
-            station: nil
-        ),
-        // Like Cookie, the price lives on the options rather than on the
-        // category: a water is $1, a soda $2 and a flan $5. "Side (Soda)" stays
-        // distinct from the Lemonade flavour "Lemonade (Soda)".
-        MenuCategory(
-            key: "Side",
-            label: "Side",
-            orderable: true,
-            price: 0,
-            layout: .rows,
-            optionGroups: [
-                .init(key: "item", label: "Side",
-                      options: [
-                          .init("Water", price: 1.0),
-                          .init("Soda", price: 2.0),
-                          .init("Flan", price: 5.0),
-                      ],
-                      role: .modifier),
-            ],
-            addOns: [],
-            flow: sideFlow,
-            station: nil
-        ),
-        // Coupon lines written by the till. Shown in history and the summary,
-        // but never orderable from the panel.
-        MenuCategory(
-            key: "Discount",
-            label: "Discount",
-            orderable: false,
-            price: 0,
-            layout: .rows,
-            optionGroups: [],
-            addOns: [],
-            flow: discountFlow,
-            station: nil
-        ),
-    ]
-
-    static let orderable: [MenuCategory] = categories.filter(\.orderable)
-    static let stations: [MenuCategory] = categories.filter { $0.station != nil }
-
-    private static let byKey: [String: MenuCategory] = Dictionary(
-        uniqueKeysWithValues: categories.map { ($0.key, $0) }
+    /// Coupon lines written by the till. Shown in history and the summary,
+    /// never orderable and never editable, so every menu appends it.
+    static let discountCategory = MenuCategory(
+        key: "Discount",
+        label: "Discount",
+        orderable: false,
+        price: 0,
+        layout: .rows,
+        optionGroups: [],
+        addOns: [],
+        flow: discountFlow,
+        station: nil
     )
 
-    static func category(for type: OrderItemType) -> MenuCategory? { byKey[type.rawValue] }
+    static func category(from config: MenuConfig.Category) -> MenuCategory {
+        let behaviour = categoryBehaviours[config.key] ?? CategoryBehaviour()
+        return MenuCategory(
+            key: config.key,
+            label: config.label,
+            orderable: config.visible,
+            price: config.price,
+            layout: behaviour.layout,
+            optionGroups: config.optionGroups.map { group in
+                MenuOptionGroup(
+                    key: group.key,
+                    label: group.label,
+                    options: group.options.map { MenuOption($0.value, price: $0.price) },
+                    role: group.role == "name" ? .name : .modifier
+                )
+            },
+            addOns: behaviour.addOns,
+            flow: flow(forKey: config.key),
+            station: behaviour.station
+        )
+    }
 
-    static func category(slug: String) -> MenuCategory? {
-        categories.first { $0.station?.slug == slug }
+    /// A category's prep flow from its key alone, so history can colour any
+    /// row — including one whose category is hidden or unknown to this build.
+    static func flow(forKey key: String) -> MenuFlow {
+        if key == discountCategory.key { return discountFlow }
+        if let builtIn = categoryBehaviours[key]?.flow { return builtIn }
+        guard !key.isEmpty else { return simpleMenuFlow }
+        return extraFlows[Int(MenuConfig.hashKey(key) % UInt32(extraFlows.count))]
     }
 
     /// The flow to render a unit with, tolerating a type this build predates.
     static func flow(for type: OrderItemType) -> MenuFlow {
-        category(for: type)?.flow ?? simpleMenuFlow
-    }
-
-    /// A blank selection per orderable category — the builder's starting state.
-    static func freshSelections() -> [String: MenuSelection] {
-        Dictionary(uniqueKeysWithValues: orderable.map { ($0.key, MenuSelection()) })
+        flow(forKey: type.rawValue)
     }
 
     // MARK: Selection -> cart item
 
+    /// True once every group holds a value that is still on the menu, so a
+    /// selection made before a menu edit cannot slip in a removed option.
     static func isComplete(_ category: MenuCategory, _ selection: MenuSelection) -> Bool {
         category.optionGroups.allSatisfy { group in
-            !(selection.options[group.key] ?? "").isEmpty
+            group.option(selection.options[group.key]) != nil
         }
     }
 

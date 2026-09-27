@@ -9,9 +9,10 @@ final class OrderViewModel {
     var paymentMethod: PaymentMethod = .cash
     var couponApplied: Bool = false
 
-    // Builder selection per orderable category, keyed by category key. Nothing
-    // here names a corndog or a boba — MenuCatalog decides what can be built.
-    var selections: [String: MenuSelection] = MenuCatalog.freshSelections()
+    // Builder selection per category the operator has touched, keyed by
+    // category key; untouched ones read as empty via `selection(for:)`, so an
+    // item added on /menu needs no entry here.
+    var selections: [String: MenuSelection] = [:]
 
     // History
     var history: [OrderGroup] = []
@@ -126,7 +127,7 @@ final class OrderViewModel {
     }
 
     private func clearBuilderSelections() {
-        selections = MenuCatalog.freshSelections()
+        selections = [:]
     }
 
     // MARK: history (realtime)

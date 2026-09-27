@@ -1,8 +1,8 @@
 import SwiftUI
 
-// Renders the whole order panel from MenuCatalog. There is no per-category
-// markup here — a new category appears automatically once it is added to
-// `MenuCatalog.categories` with `orderable: true`.
+// Renders the whole order panel from the live menu (MenuStore). There is no
+// per-category markup here — an item added on the web at /menu appears
+// automatically.
 
 struct OrderPanelView: View {
     @Bindable var vm: OrderViewModel
@@ -13,8 +13,20 @@ struct OrderPanelView: View {
                 Text("Order Panel")
                     .font(.system(size: 20, weight: .bold))
 
-                ForEach(MenuCatalog.orderable) { category in
-                    categorySection(category)
+                // Nothing is tappable until the first menu is known, so a
+                // fresh install never sells at the built-in prices by accident.
+                if MenuStore.shared.isLoaded {
+                    if MenuStore.shared.source == .cached {
+                        Text("Offline — using the last menu this iPad loaded. Prices may be out of date.")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
+                    ForEach(MenuStore.shared.menu.orderable) { category in
+                        categorySection(category)
+                    }
+                } else {
+                    ProgressView("Loading menu…")
+                        .frame(maxWidth: .infinity)
                 }
             }
         }

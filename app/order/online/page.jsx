@@ -16,6 +16,7 @@ import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { createOrder } from '@/lib/db';
 import { useCart } from '@/lib/orders/useCart';
+import { MENU_SOURCES, useMenu } from '@/lib/menu/useMenu';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel from '@/components/OrderPanel';
@@ -25,7 +26,8 @@ const PHONE_DIGITS = 10;
 const countDigits = (value) => value.replace(/\D/g, '').length;
 
 export default function OnlineOrderPage() {
-    const { cart, changeQuantity, clearCart, totals, orderPanelProps } = useCart();
+    const { menu, isLoading: isMenuLoading, source: menuSource } = useMenu();
+    const { cart, changeQuantity, clearCart, totals, orderPanelProps } = useCart({ menu });
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('');
     const [notes, setNotes] = useState('');
@@ -92,7 +94,11 @@ export default function OnlineOrderPage() {
                     <h1 className='text-lg font-bold'>Order Online</h1>
                 </div>
 
-                <OrderPanel {...orderPanelProps} />
+                <OrderPanel
+                    {...orderPanelProps}
+                    isLoading={isMenuLoading}
+                    isOffline={menuSource === MENU_SOURCES.cached}
+                />
 
                 <Card>
                     <CardContent>

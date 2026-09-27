@@ -33,8 +33,13 @@ struct SummaryView: View {
 
         static let all = TypeFilter(key: "", rawValue: "All")
 
-        static let allCases: [TypeFilter] =
-            [all] + MenuCatalog.orderable.map { TypeFilter(key: $0.key, rawValue: $0.label) }
+        /// From the live menu, so an item added on /menu gets a pill — and a
+        /// hidden one keeps its pill for its past sales.
+        static var allCases: [TypeFilter] {
+            [all] + MenuStore.shared.menu.categories
+                .filter { $0.key != MenuCatalog.discountCategory.key }
+                .map { TypeFilter(key: $0.key, rawValue: $0.label) }
+        }
     }
 
     /// Every pill, preset or hand-picked, becomes one `[from, to)` window — so

@@ -70,6 +70,28 @@ actor SupabaseService {
         catch { throw SupabaseError.decoding(error) }
     }
 
+    // MARK: - Menu
+
+    /// The saved menu row as raw JSON (`[{"config": {...}}]`, or `[]` when no
+    /// menu has been saved yet). Left undecoded on purpose: MenuStore parses
+    /// and validates it, because the stored row is external data.
+    func fetchMenuConfigData() async throws -> Data {
+        let req = try makeRequest(
+            path: "/rest/v1/menu_config",
+            method: "GET",
+            query: [
+                URLQueryItem(name: "id", value: "eq.1"),
+                URLQueryItem(name: "select", value: "config"),
+            ]
+        )
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw SupabaseError.http(0, "no response") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw SupabaseError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return data
+    }
+
     // MARK: - Orders
 
     /// One line-item row as the `orders` table expects it. Shared by

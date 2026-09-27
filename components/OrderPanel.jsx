@@ -1,6 +1,6 @@
-// Renders the whole order panel from lib/menu/catalog.js. There is no
-// per-category markup here — a new category appears automatically once it is
-// added to CATEGORIES.
+// Renders the whole order panel from the live menu (lib/menu/useMenu.js).
+// There is no per-category markup here — a category added on /menu appears
+// automatically.
 
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -18,12 +18,25 @@ export default function OrderPanel({
     onSelectOption,
     onToggleAddOn,
     onAdd,
+    isLoading = false,
+    isOffline = false,
 }) {
     return (
         <Card>
             <CardContent>
                 <h2 className='text-xl font-bold mb-4'>Order Panel</h2>
 
+                {isOffline && (
+                    <p role='status' className='mb-4 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-900'>
+                        Offline — using the last menu this device loaded. Prices may be out of date.
+                    </p>
+                )}
+
+                {/* Nothing can be tapped until the saved menu arrives, so an
+                    order never goes in at a price that has since been edited. */}
+                {isLoading ? (
+                    <p role='status' className='py-8 text-center text-sm text-gray-500'>Loading menu…</p>
+                ) : (
                 <div className='flex flex-col gap-6'>
                     {categories.map((category) => (
                         <CategorySection
@@ -36,6 +49,7 @@ export default function OrderPanel({
                         />
                     ))}
                 </div>
+                )}
             </CardContent>
         </Card>
     );

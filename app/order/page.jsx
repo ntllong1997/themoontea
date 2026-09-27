@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { createOrder, getOrderHistory, updateOrderPhone } from '@/lib/db';
 import { calculateTotalRevenue, formatItemName } from '@/lib/orders/orderModel';
 import { useCart } from '@/lib/orders/useCart';
+import { MENU_SOURCES, useMenu } from '@/lib/menu/useMenu';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel from '@/components/OrderPanel';
@@ -16,8 +17,6 @@ import { checkPrinterStatus, printReceipt as eposPrint } from '@/lib/printer';
 import { Banknote, CreditCard, DollarSign, Printer } from 'lucide-react';
 import { DEFAULT_PAYMENT_METHOD, PAYMENT_METHODS } from '@/lib/orders/paymentMethods';
 import {
-    CATEGORIES,
-    CATEGORY_KEYS,
     STATION_CATEGORIES,
     TAX_RATE,
     flowStateFor,
@@ -38,6 +37,8 @@ const toPrintableItems = (units) =>
     units.map(({ displayName, price }) => ({ name: displayName, price }));
 
 export default function OrderSystem() {
+    const { menu, isLoading: isMenuLoading, source: menuSource } = useMenu();
+
     // Cart building is shared with the customer online page (/order/online);
     // only the `source` each one submits differs.
     const {
@@ -45,8 +46,14 @@ export default function OrderSystem() {
         changeQuantity: handleQuantityChange,
         clearCart,
         totals,
-        orderPanelProps,
-    } = useCart();
+        orderPanelProps: cartPanelProps,
+    } = useCart({ menu });
+
+    const orderPanelProps = {
+        ...cartPanelProps,
+        isLoading: isMenuLoading,
+        isOffline: menuSource === MENU_SOURCES.cached,
+    };
 
     // This till only ever reads and writes its own location's orders.
     const [locationId, setLocationId] = useDeviceLocation();
@@ -74,12 +81,14 @@ export default function OrderSystem() {
     const mobileHistoryRef = useRef(null);
     const tabletHistoryRef = useRef(null);
 
-    // Panel visibility, keyed by category key
-    const [visiblePanels, setVisiblePanels] = useState(() => new Set(CATEGORY_KEYS));
+    // Panels the user has hidden, keyed by category key. Stored as the HIDDEN
+    // set so a category added on /menu shows up without being toggled on.
+    const [hiddenPanelKeys, setHiddenPanelKeys] = useState(() => new Set());
+    const isPanelVisible = useCallback((key) => !hiddenPanelKeys.has(key), [hiddenPanelKeys]);
     const [showAddMenu, setShowAddMenu] = useState(false);
 
     const togglePanel = useCallback((key) => {
-        setVisiblePanels((prev) => {
+        setHiddenPanelKeys((prev) => {
             const next = new Set(prev);
             if (next.has(key)) next.delete(key);
             else next.add(key);
@@ -87,7 +96,7 @@ export default function OrderSystem() {
         });
     }, []);
 
-    const hiddenPanels = CATEGORIES.filter((c) => !visiblePanels.has(c.key));
+    const hiddenPanels = menu.categories.filter((c) => !isPanelVisible(c.key));
 
     const onDragMove = useCallback((clientX) => {
         if (!isDragging.current || !containerRef.current) return;
@@ -276,10 +285,10 @@ export default function OrderSystem() {
                 orderNumber: order.orderNumber,
                 items: order.items
                     .map((item, i) => ({ item, itemIndex: i }))
-                    .filter(({ item }) => visiblePanels.has(item.type)),
+                    .filter(({ item }) => isPanelVisible(item.type)),
             }))
             .filter((o) => o.items.length > 0);
-    }, [history, visiblePanels]);
+    }, [history, isPanelVisible]);
 
     if (locationId === undefined) return null;
     if (locationId === null) return <LocationPicker onPick={setLocationId} />;
@@ -466,7 +475,7 @@ export default function OrderSystem() {
                         <span className='text-sm font-semibold text-gray-500'>History</span>
                         <span className='text-xs text-gray-400'>{locationLabel(locationId)}</span>
 
-                        {CATEGORIES.filter((c) => visiblePanels.has(c.key)).map((c) => (
+                        {menu.categories.filter((c) => isPanelVisible(c.key)).map((c) => (
                             <span
                                 key={c.key}
                                 className='inline-flex items-center gap-1 bg-gray-100 rounded-full px-2.5 py-0.5 text-xs font-medium'
