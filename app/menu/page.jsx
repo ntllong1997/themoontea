@@ -10,6 +10,12 @@ const NAV = [
     { href: '#popups', label: 'Pop-ups' },
 ];
 
+// The three cups fanned out in the hero, by menu item name. Their photos come
+// from lib/site/menu.js, so swapping a photo there updates the hero too.
+const HERO_DRINKS = ['Matcha Brown Sugar', 'Brown Sugar Boba Tea', 'Golden Taro'].map(
+    (name) => MENU_SECTIONS.flatMap((section) => section.items).find((item) => item.name === name)
+);
+
 const toppingLabel = (topping) => (topping === 'Nothing' ? 'No boba' : topping);
 
 export default function MenuPage() {
@@ -125,20 +131,20 @@ function Hero() {
                 </div>
                 <div className='relative mx-auto flex w-full max-w-[260px] items-end justify-center sm:max-w-md'>
                     <div className='absolute inset-x-6 bottom-0 top-10 rounded-[3rem] bg-moon-caramel/25' />
-                    {['matcha-brown-sugar', 'brown-sugar-boba', 'golden-taro'].map((name, i) => (
+                    {HERO_DRINKS.map((item, i) => (
                         <div
-                            key={name}
-                            className={`relative aspect-[5/8] ${i === 1 ? 'z-10 w-[40%]' : 'w-[32%] opacity-95'} ${
+                            key={item.name}
+                            className={`relative isolate aspect-[5/8] overflow-hidden rounded-[2rem] bg-moon-paper shadow-md ring-1 ring-moon-caramel/20 ${i === 1 ? 'z-10 w-[40%]' : 'w-[32%]'} ${
                                 i === 0 ? '-mr-6 rotate-[-6deg]' : i === 2 ? '-ml-6 rotate-[6deg]' : ''
                             }`}
                         >
                             <Image
-                                src={`/menu/${name}.jpg`}
+                                src={item.image}
                                 alt=''
                                 fill
                                 priority
                                 sizes='(min-width: 768px) 200px, 110px'
-                                className='rounded-[2rem] object-cover mix-blend-multiply'
+                                className='object-contain p-1.5 mix-blend-multiply'
                             />
                         </div>
                     ))}
