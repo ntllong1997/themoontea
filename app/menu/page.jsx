@@ -193,13 +193,13 @@ function BuildYourOwnSection({ section }) {
                 <div className='grid gap-4 md:grid-cols-2 md:gap-6'>
                     <div className='overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-moon-caramel/20'>
                         {item.image && (
-                            <div className='relative aspect-[4/3] bg-moon-paper'>
+                            <div className='relative aspect-[5/4] bg-moon-paper'>
                                 <Image
                                     src={item.image}
                                     alt={item.name}
                                     fill
                                     sizes='(min-width: 768px) 560px, 100vw'
-                                    className='object-contain p-4 mix-blend-multiply'
+                                    className='object-contain p-3 drop-shadow-md'
                                 />
                             </div>
                         )}
@@ -220,9 +220,22 @@ function BuildYourOwnSection({ section }) {
                                 </p>
                                 <ul className='grid gap-2'>
                                     {choice.options.map((option) => (
-                                        <li key={option.name} className='rounded-2xl bg-white px-4 py-3 text-moon-ink shadow-[0_3px_0_#241810]'>
-                                            <p className='font-extrabold sm:text-lg'>{option.name}</p>
-                                            <p className='text-sm text-moon-muted'>{option.description}</p>
+                                        <li key={option.name} className='flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-moon-ink shadow-[0_3px_0_#241810]'>
+                                            {option.image && (
+                                                <div className='relative h-9 w-20 shrink-0 sm:h-10 sm:w-24'>
+                                                    <Image
+                                                        src={option.image}
+                                                        alt=''
+                                                        fill
+                                                        sizes='96px'
+                                                        className='object-contain'
+                                                    />
+                                                </div>
+                                            )}
+                                            <div className='min-w-0'>
+                                                <p className='font-extrabold sm:text-lg'>{option.name}</p>
+                                                <p className='text-sm text-moon-muted'>{option.description}</p>
+                                            </div>
                                         </li>
                                     ))}
                                 </ul>
