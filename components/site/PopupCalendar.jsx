@@ -19,12 +19,14 @@ const monthTitle = (date) => date.toLocaleDateString('en-US', { month: 'long', y
 const longDate = (key) =>
     parseDate(key).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-/** The 6×7 grid of days shown for a month, padded with the neighbours' days. */
+/** The whole weeks covering a month, padded with the neighbours' days. */
 function monthGrid(month) {
     const first = new Date(month.getFullYear(), month.getMonth(), 1);
+    const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+    const cells = Math.ceil((first.getDay() + daysInMonth) / 7) * 7;
     const start = new Date(first);
     start.setDate(1 - first.getDay());
-    return Array.from({ length: 42 }, (_, i) => {
+    return Array.from({ length: cells }, (_, i) => {
         const day = new Date(start);
         day.setDate(start.getDate() + i);
         return day;
@@ -88,8 +90,8 @@ export default function PopupCalendar() {
 
     return (
         <div className='grid gap-6 lg:grid-cols-[minmax(0,420px)_1fr] lg:items-start'>
-            <div className='rounded-3xl bg-white p-5 shadow-sm ring-1 ring-moon-caramel/20'>
-                <div className='mb-4 flex items-center justify-between'>
+            <div className='rounded-3xl bg-white p-3 shadow-sm ring-1 ring-moon-caramel/20 sm:p-5'>
+                <div className='mb-3 flex items-center justify-between'>
                     <button
                         type='button'
                         onClick={() => shiftMonth(-1)}
@@ -112,8 +114,9 @@ export default function PopupCalendar() {
 
                 <div className='grid grid-cols-7 gap-1 text-center'>
                     {WEEKDAYS.map((day) => (
-                        <div key={day} className='pb-2 text-xs font-bold uppercase tracking-wide text-moon-muted'>
-                            {day}
+                        <div key={day} className='pb-2 text-[11px] font-bold uppercase tracking-wide text-moon-muted sm:text-xs'>
+                            {day.slice(0, 1)}
+                            <span className='hidden sm:inline'>{day.slice(1)}</span>
                         </div>
                     ))}
                     {monthGrid(month).map((day) => {
@@ -150,7 +153,7 @@ export default function PopupCalendar() {
                     })}
                 </div>
 
-                <div className='mt-4 flex items-center gap-4 text-xs text-moon-muted'>
+                <div className='mt-3 flex items-center gap-4 px-1 text-xs text-moon-muted sm:mt-4'>
                     <span className='flex items-center gap-1.5'>
                         <span className='h-3 w-3 rounded-full bg-moon-caramel' /> Pop-up day
                     </span>
@@ -195,55 +198,57 @@ export default function PopupCalendar() {
 function PopupCard({ popup, isToday }) {
     const date = parseDate(popup.date);
     return (
-        <li className='flex gap-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-moon-caramel/20 sm:p-5'>
-            <div className='flex w-16 shrink-0 flex-col items-center justify-center rounded-2xl bg-moon-caramel py-2 text-white sm:w-20'>
-                <span className='text-xs font-bold uppercase tracking-wider'>
-                    {date.toLocaleDateString('en-US', { month: 'short' })}
-                </span>
-                <span className='font-display text-3xl leading-none'>{date.getDate()}</span>
-                <span className='text-xs font-semibold'>
-                    {date.toLocaleDateString('en-US', { weekday: 'short' })}
-                </span>
-            </div>
-            <div className='min-w-0 flex-1'>
-                <div className='flex flex-wrap items-center gap-2'>
-                    <h3 className='font-display text-lg text-moon-ink sm:text-xl'>{popup.name}</h3>
-                    {isToday && (
-                        <span className='rounded-full bg-moon-orange px-2 py-0.5 text-xs font-bold text-white'>
-                            Today!
-                        </span>
-                    )}
-                </div>
-                <p className='mt-1 flex items-center gap-1.5 text-sm text-moon-muted'>
-                    <Clock className='h-4 w-4 shrink-0' />
-                    {formatTime(popup.start)} – {formatTime(popup.end)}
-                </p>
-                <p className='mt-0.5 flex items-start gap-1.5 text-sm text-moon-muted'>
-                    <MapPin className='mt-0.5 h-4 w-4 shrink-0' />
-                    <span>
-                        {popup.place}
-                        {popup.address && <span className='block'>{popup.address}</span>}
+        <li className='rounded-3xl bg-white p-4 shadow-sm ring-1 ring-moon-caramel/20 sm:p-5'>
+            <div className='flex gap-3 sm:gap-4'>
+                <div className='flex w-16 shrink-0 flex-col items-center justify-center self-start rounded-2xl bg-moon-caramel py-2 text-white sm:w-20'>
+                    <span className='text-xs font-bold uppercase tracking-wider'>
+                        {date.toLocaleDateString('en-US', { month: 'short' })}
                     </span>
-                </p>
-                {popup.note && <p className='mt-2 text-sm text-moon-ink'>{popup.note}</p>}
-                <div className='mt-3 flex flex-wrap gap-2'>
-                    <a
-                        href={directionsUrl(popup)}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        className='inline-flex items-center gap-1.5 rounded-full bg-moon-ink px-3.5 py-1.5 text-sm font-semibold text-white transition hover:bg-moon-orange'
-                    >
-                        <MapPin className='h-4 w-4' /> Directions
-                    </a>
-                    <a
-                        href={googleCalendarUrl(popup)}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        className='inline-flex items-center gap-1.5 rounded-full bg-moon-cream px-3.5 py-1.5 text-sm font-semibold text-moon-ink ring-1 ring-moon-caramel/40 transition hover:bg-white'
-                    >
-                        <CalendarPlus className='h-4 w-4' /> Add to calendar
-                    </a>
+                    <span className='font-display text-3xl leading-none'>{date.getDate()}</span>
+                    <span className='text-xs font-semibold'>
+                        {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                    </span>
                 </div>
+                <div className='min-w-0 flex-1'>
+                    <div className='flex flex-wrap items-center gap-x-2 gap-y-1'>
+                        <h3 className='font-display text-lg leading-tight text-moon-ink sm:text-xl'>{popup.name}</h3>
+                        {isToday && (
+                            <span className='rounded-full bg-moon-orange px-2 py-0.5 text-xs font-bold text-white'>
+                                Today!
+                            </span>
+                        )}
+                    </div>
+                    <p className='mt-1 flex items-center gap-1.5 text-sm text-moon-muted'>
+                        <Clock className='h-4 w-4 shrink-0' />
+                        {formatTime(popup.start)} – {formatTime(popup.end)}
+                    </p>
+                    <p className='mt-0.5 flex items-start gap-1.5 text-sm text-moon-muted'>
+                        <MapPin className='mt-0.5 h-4 w-4 shrink-0' />
+                        <span>
+                            {popup.place}
+                            {popup.address && <span className='block'>{popup.address}</span>}
+                        </span>
+                    </p>
+                    {popup.note && <p className='mt-2 text-sm text-moon-ink'>{popup.note}</p>}
+                </div>
+            </div>
+            <div className='mt-3 grid grid-cols-2 gap-2 sm:ml-24 sm:flex sm:flex-wrap'>
+                <a
+                    href={directionsUrl(popup)}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    className='inline-flex items-center justify-center gap-1.5 rounded-full bg-moon-ink px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-moon-orange sm:py-1.5'
+                >
+                    <MapPin className='h-4 w-4' /> Directions
+                </a>
+                <a
+                    href={googleCalendarUrl(popup)}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    className='inline-flex items-center justify-center gap-1.5 rounded-full bg-moon-cream px-3.5 py-2.5 text-sm font-semibold text-moon-ink ring-1 ring-moon-caramel/40 transition hover:bg-white sm:py-1.5'
+                >
+                    <CalendarPlus className='h-4 w-4' /> Save date
+                </a>
             </div>
         </li>
     );
