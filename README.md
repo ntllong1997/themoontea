@@ -70,8 +70,24 @@ isn't even installed. Safe to drop.
 | `/orders` | Redirect to `/order` |
 | `/summary` | Sales summary with date-range pills, per-category and per-payment-method breakdown |
 | `/inventory` | Inventory counting — par/restock levels, prices, locations, case sizes, employee PIN auth |
+| `/menu` | **Public customer site.** Menu with photos and descriptions, plus the pop-up calendar. See [Customer site](#customer-site) |
 | `/cashapp` | Manages the list of Cash App cashtags and picks the active one for receipt QR codes (stored in `localStorage`) |
 | `POST /api/receipts/process` | ⚠️ **Stub.** Returns hardcoded `buildMockExtraction()` data. Nothing in the app calls it |
+
+---
+
+## Customer site
+
+`/menu` is the page to share with customers (link it from Instagram, a QR code on the
+table, etc.). It is fully static and needs no database.
+
+- **Menu items** live in `lib/site/menu.js`. To add one, put a photo in `public/menu/` and
+  copy an existing `{ name, description, image }` block. Prices come from
+  `lib/menu/catalog.js`, so the site and the till never disagree.
+- **Pop-up dates** live in `lib/site/popups.js` — add `{ date, start, end, name, place }`
+  entries to `POPUPS`. Past dates hide themselves automatically.
+- `npm test` checks both files (missing photos, bad dates, corndog choices the till
+  doesn't sell).
 
 ---
 
