@@ -84,6 +84,8 @@ table, etc.). It is fully static and needs no database.
 - **Menu items** live in `lib/site/menu.js`. To add one, put a photo in `public/menu/` and
   copy an existing `{ name, description, image }` block. Prices come from
   `lib/menu/catalog.js`, so the site and the till never disagree.
+  Add `hidden: true` to an item or a section to take it off the site without deleting it
+  (Bites & Sweets is hidden this way for now).
 - **Pop-up dates** live in `lib/site/popups.js` — add `{ date, start, end, name, place }`
   entries to `POPUPS`. Past dates hide themselves automatically.
 - `npm test` checks both files (missing photos, bad dates, corndog choices the till

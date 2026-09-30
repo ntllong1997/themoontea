@@ -2,11 +2,11 @@
 // Content lives in lib/site/menu.js and lib/site/popups.js — edit those, not
 // this file, to add items or dates.
 import Image from 'next/image';
-import { MENU_SECTIONS } from '@/lib/site/menu';
+import { MENU_SECTIONS, VISIBLE_SECTIONS } from '@/lib/site/menu';
 import PopupCalendar, { NextPopupTeaser } from '@/components/site/PopupCalendar';
 
 const NAV = [
-    ...MENU_SECTIONS.map((section) => ({ href: `#${section.id}`, label: section.navLabel ?? section.title })),
+    ...VISIBLE_SECTIONS.map((section) => ({ href: `#${section.id}`, label: section.navLabel ?? section.title })),
     { href: '#popups', label: 'Pop-ups' },
 ];
 
@@ -23,7 +23,7 @@ export default function MenuPage() {
         <div className='bg-[radial-gradient(ellipse_at_top,_#FDF8F1_0%,_#F8EFE3_60%)]'>
             <Header />
             <Hero />
-            {MENU_SECTIONS.map((section) =>
+            {VISIBLE_SECTIONS.map((section) =>
                 section.choices ? (
                     <BuildYourOwnSection key={section.id} section={section} />
                 ) : (
@@ -112,7 +112,7 @@ function Hero() {
                     </p>
                     <div className='mt-5 grid grid-cols-2 gap-2 sm:mt-6 sm:flex sm:flex-wrap sm:gap-3'>
                         <a
-                            href={`#${MENU_SECTIONS[0].id}`}
+                            href={`#${VISIBLE_SECTIONS[0].id}`}
                             className='rounded-full bg-moon-ink px-4 py-3 text-center text-sm font-bold text-white shadow-sm transition hover:bg-moon-orange sm:px-6 sm:text-base'
                         >
                             See the menu
