@@ -1,17 +1,15 @@
 'use client';
 
-// Staff page for the customer menu site. Two tabs:
-//   Menu items: mark items sold out or hidden, reorder them, add or edit
-//               items with a photo (app/api/admin/menu/).
-//   Pop-ups:    the dates on the customer pop-up calendar (app/api/admin/popups/).
+// Staff page for the customer menu: mark items sold out or hidden, reorder
+// them, and add or edit items with a photo (app/api/admin/menu/). Its sister
+// page /admin/popups edits the pop-up calendar.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
 import { ArrowDown, ArrowUp, Camera, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { SECTIONS, STATUSES, categoryTitle, formatPrice } from '@/lib/site/menu';
 import { resizePhoto } from '@/lib/site/resizePhoto';
-import PopupsTab from '@/components/admin/PopupsTab';
+import AdminShell from '@/components/admin/AdminShell';
 import { api, jsonRequest } from '@/lib/site/adminApi';
 
 const NEW_CATEGORY = '__new__';
@@ -22,78 +20,16 @@ const STATUS_STYLE = {
     hidden: 'bg-gray-700 text-white',
 };
 
-const TABS = [
-    { id: 'items', label: 'Menu items' },
-    { id: 'popups', label: 'Pop-ups' },
-];
-
 export default function AdminMenuPage() {
-    const [tab, setTab] = useState('items');
-
-    // Remember the tab in the address (?tab=popups) so a refresh stays put.
+    // Old bookmarks of the pop-ups tab (/admin/menu?tab=popups) go to its own page.
     useEffect(() => {
-        if (new URLSearchParams(window.location.search).get('tab') === 'popups') setTab('popups');
+        if (new URLSearchParams(window.location.search).get('tab') === 'popups') window.location.replace('/admin/popups');
     }, []);
-    const choose = (id) => {
-        setTab(id);
-        window.history.replaceState(null, '', id === 'items' ? '/admin/menu' : `/admin/menu?tab=${id}`);
-    };
 
     return (
-        <main className='min-h-screen bg-gray-50 pb-24'>
-            <header className='sticky top-0 z-20 border-b border-gray-200 bg-white/95 backdrop-blur'>
-                <div className='mx-auto flex max-w-3xl items-center gap-3 px-4 pt-3'>
-                    <Link href='/vendor' className='text-sm text-gray-400 hover:text-gray-600'>
-                        ← Back
-                    </Link>
-                    <h1 className='text-xl font-bold'>Menu Items</h1>
-                    <a
-                        href='/menu'
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        className='ml-auto text-sm font-medium text-blue-600 hover:underline'
-                    >
-                        View menu ↗
-                    </a>
-                </div>
-                <nav className='mx-auto flex max-w-3xl gap-6 px-4'>
-                    {TABS.map((t) => (
-                        <button
-                            key={t.id}
-                            type='button'
-                            onClick={() => choose(t.id)}
-                            aria-pressed={tab === t.id}
-                            className={`border-b-2 py-3 text-sm font-semibold transition-colors ${
-                                tab === t.id ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'
-                            }`}
-                        >
-                            {t.label}
-                        </button>
-                    ))}
-                </nav>
-            </header>
-            <SetupCheck />
-            {tab === 'items' ? <MenuItemsTab /> : <PopupsTab />}
-        </main>
-    );
-}
-
-/** A banner explaining a setup problem (e.g. the service key), if there is one. */
-function SetupCheck() {
-    const [problem, setProblem] = useState('');
-    useEffect(() => {
-        api('/api/admin/status')
-            .then((status) => setProblem(status.ok ? '' : status.message))
-            .catch((e) => setProblem(e.message === 'Signed out' ? '' : e.message));
-    }, []);
-    if (!problem) return null;
-    return (
-        <div className='mx-auto max-w-3xl px-4 pt-4'>
-            <div className='rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900'>
-                <p className='font-bold'>Saving won&apos;t work on this copy of the site yet</p>
-                <p className='mt-1'>{problem}</p>
-            </div>
-        </div>
+        <AdminShell active='items' title='Menu Items'>
+            <MenuItemsTab />
+        </AdminShell>
     );
 }
 

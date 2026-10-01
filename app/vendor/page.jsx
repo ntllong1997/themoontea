@@ -39,6 +39,13 @@ export default function VendorPage() {
                     <span className='text-xl'>→</span>
                 </Link>
                 <Link
+                    href='/admin/popups'
+                    className='flex items-center justify-between rounded-2xl border border-gray-200 bg-white px-6 py-5 text-gray-800 shadow-sm transition-colors hover:bg-gray-50'
+                >
+                    <span className='text-lg font-semibold'>Pop-up Calendar</span>
+                    <span className='text-xl'>→</span>
+                </Link>
+                <Link
                     href='/menu'
                     className='flex items-center justify-between rounded-2xl border border-gray-200 bg-white px-6 py-5 text-gray-800 shadow-sm transition-colors hover:bg-gray-50'
                 >
