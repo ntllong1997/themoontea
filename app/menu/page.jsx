@@ -31,6 +31,13 @@ export default async function MenuPage() {
     ];
     return (
         <div className='bg-[radial-gradient(ellipse_at_top,_#FDF8F1_0%,_#F8EFE3_60%)]'>
+            {/* First thing a keyboard or screen-reader user reaches. */}
+            <a
+                href={`#${sections[0]?.id ?? 'popups'}`}
+                className='sr-only rounded-full bg-moon-ink px-4 py-2 font-bold text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50'
+            >
+                Skip to the menu
+            </a>
             <Header nav={nav} />
             <Hero drinks={heroDrinks(sections)} firstSectionId={sections[0]?.id ?? 'popups'} popups={popups} />
             {sections.map((section) =>
@@ -63,7 +70,7 @@ function Header({ nav }) {
                     <Image src='/menu/logo.jpg' alt='' width={30} height={46} className='h-9 w-auto mix-blend-multiply md:h-11' />
                     <span className='font-display text-lg md:text-xl'>The Moon Tea</span>
                 </a>
-                <nav className='ml-auto hidden md:block'>
+                <nav aria-label='Menu sections' className='ml-auto hidden md:block'>
                     <ul className='flex gap-1 whitespace-nowrap text-sm font-semibold'>
                         {nav.map((link) => (
                             <li key={link.href}>
@@ -83,7 +90,7 @@ function Header({ nav }) {
                 </nav>
             </div>
             {/* Phones: every section one thumb-swipe away. */}
-            <nav className='overflow-x-auto [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden'>
+            <nav aria-label='Menu sections' className='overflow-x-auto [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden'>
                 <ul className='flex w-max gap-2 px-4 pb-2 text-sm font-bold'>
                     {nav.map((link) => (
                         <li key={link.href}>
@@ -129,7 +136,7 @@ function Hero({ drinks, firstSectionId, popups }) {
                         </a>
                         <a
                             href='#popups'
-                            className='rounded-full bg-moon-caramel px-4 py-3 text-center text-sm font-bold text-white shadow-sm transition hover:bg-moon-orange sm:px-6 sm:text-base'
+                            className='rounded-full bg-moon-caramel px-4 py-3 text-center text-sm font-bold text-moon-ink shadow-sm transition hover:bg-moon-orange hover:text-white sm:px-6 sm:text-base'
                         >
                             <span className='sm:hidden'>Next pop-up</span>
                             <span className='hidden sm:inline'>Find our next pop-up</span>
@@ -172,7 +179,7 @@ function SectionHeading({ eyebrow, title, price }) {
                 <span className='font-display text-[2.1rem] sm:text-5xl'>{title}</span>
             </h2>
             {price && (
-                <span className='mb-1 rounded-full bg-moon-caramel px-3 py-1 text-sm font-bold text-white'>
+                <span className='mb-1 rounded-full bg-moon-caramel px-3 py-1 text-sm font-bold text-moon-ink'>
                     {price} each
                 </span>
             )}
@@ -239,9 +246,9 @@ function BuildYourOwnSection({ section }) {
                     </div>
                     <div className='space-y-3 sm:space-y-4'>
                         {section.choices.map((choice, i) => (
-                            <div key={choice.step} className='rounded-3xl bg-moon-caramel p-4 text-white shadow-sm sm:p-5'>
+                            <div key={choice.step} className='rounded-3xl bg-moon-caramel p-4 text-moon-ink shadow-sm sm:p-5'>
                                 <p className='mb-3 flex items-center gap-3 font-display text-xl sm:text-2xl'>
-                                    <span className='flex h-8 w-8 shrink-0 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-white font-body text-lg font-black text-moon-caramel'>
+                                    <span className='flex h-8 w-8 shrink-0 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-white font-body text-lg font-black text-moon-ink'>
                                         {i + 1}
                                     </span>
                                     {choice.step}

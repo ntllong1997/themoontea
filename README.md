@@ -103,6 +103,23 @@ table, etc.). It needs no sign-in.
 
 ---
 
+## Accessibility
+
+The customer site and the staff site editors are checked against WCAG 2.2 AA with
+axe-core (0 violations) plus keyboard testing. Keep these when changing them:
+
+- **Colour:** `moon-caramel` is a fill. Put `moon-ink` text on it, never white
+  (white on caramel is 2.6:1). `moon-orange` and `moon-muted` are tuned to pass 4.5:1 on
+  every cream background.
+- **Modals:** use `components/admin/Dialog.jsx`. It names the dialog, moves focus in and back out,
+  keeps Tab inside, and closes on Escape.
+- **Global CSS:** `assets/styles/globals.css` gives every focusable element a visible
+  keyboard outline and turns animation off for `prefers-reduced-motion`.
+- **Page titles:** every page sets a `<title>` (a `metadata` export or a small `layout.jsx`).
+  The root layout owns the single `<main>` landmark.
+
+---
+
 ## Locations
 
 The two-location split is switched **off**: `LOCATIONS_ENABLED = false` in

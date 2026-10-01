@@ -5,7 +5,7 @@ const script = Playfair_Display({ style: 'italic', subsets: ['latin'], variable:
 const body = Nunito({ subsets: ['latin'], variable: '--font-body' });
 
 export const metadata = {
-    title: 'The Moon Tea · Boba & Bites',
+    title: { absolute: 'The Moon Tea · Boba & Bites' },
     description:
         'Brown sugar boba, fruit teas and Korean corndogs from The Moon Tea pop-up. See the menu and find our next pop-up.',
     openGraph: {

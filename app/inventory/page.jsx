@@ -1734,18 +1734,18 @@ export default function InventoryPage() {
 
     if (isLoading) {
         return (
-            <main className='flex min-h-screen items-center justify-center bg-gray-50'>
+            <div className='flex min-h-screen items-center justify-center bg-gray-50'>
                 <div className='text-center'>
                     <div className='mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-black' />
                     <p className='text-sm text-gray-500'>Loading inventory…</p>
                 </div>
-            </main>
+            </div>
         );
     }
 
     if (!currentUser) {
         return (
-            <main className='flex min-h-screen items-center justify-center bg-gray-50 p-4'>
+            <div className='flex min-h-screen items-center justify-center bg-gray-50 p-4'>
                 <div className='w-full max-w-sm rounded-2xl bg-white p-8 shadow-sm'>
                     <div className='mb-6 text-center'>
                         <h1 className='text-2xl font-bold'>Inventory</h1>
@@ -1790,12 +1790,12 @@ export default function InventoryPage() {
                         )}
                     </div>
                 </div>
-            </main>
+            </div>
         );
     }
 
     return (
-        <main className='min-h-screen bg-gray-50'>
+        <div className='min-h-screen bg-gray-50'>
             {/* Header */}
             <div className='border-b border-gray-200 bg-white'>
                 {/* Row 1: title + user */}
@@ -2508,6 +2508,6 @@ export default function InventoryPage() {
                     submitting={submitting}
                 />
             )}
-        </main>
+        </div>
     );
 }
