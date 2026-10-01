@@ -18,10 +18,10 @@ export default {
         moon: {
           cream: "#F8EFE3",
           paper: "#FDF8F1",
-          caramel: "#C8964F",
-          orange: "#C4742A",
+          caramel: "#C8964F", // a fill: put moon-ink text on it, never white
+          orange: "#9E5618", // 4.9:1+ on every cream, 5.5:1 under white text
           ink: "#241810",
-          muted: "#7A6552",
+          muted: "#6E5A48", // 5.7:1+ on every cream
         },
       },
       fontFamily: {

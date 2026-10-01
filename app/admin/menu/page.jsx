@@ -10,13 +10,14 @@ import { ArrowDown, ArrowUp, Camera, Loader2, Pencil, Plus, Trash2, X } from 'lu
 import { SECTIONS, STATUSES, categoryTitle, formatPrice } from '@/lib/site/menu';
 import { resizePhoto } from '@/lib/site/resizePhoto';
 import AdminShell from '@/components/admin/AdminShell';
+import Dialog from '@/components/admin/Dialog';
 import { api, jsonRequest } from '@/lib/site/adminApi';
 
 const NEW_CATEGORY = '__new__';
 
 const STATUS_STYLE = {
-    available: 'bg-green-600 text-white',
-    sold_out: 'bg-amber-500 text-white',
+    available: 'bg-green-700 text-white',
+    sold_out: 'bg-amber-700 text-white',
     hidden: 'bg-gray-700 text-white',
 };
 
@@ -110,23 +111,24 @@ function MenuItemsTab() {
         <>
             <div className='mx-auto max-w-3xl space-y-6 px-4 pt-4'>
                 <p className='text-sm text-gray-500'>
-                    <b className='text-green-700'>Available</b> shows normally. <b className='text-amber-600'>Sold out</b>{' '}
+                    <b className='text-green-700'>Available</b> shows normally. <b className='text-amber-700'>Sold out</b>{' '}
                     stays on the menu, greyed out. <b className='text-gray-700'>Hidden</b> takes it off the menu.
                     Changes show on the menu right away.
                 </p>
 
                 {error && (
-                    <div className='flex items-start gap-3 rounded-2xl bg-red-50 p-4 text-sm text-red-700'>
+                    <div role='alert' className='flex items-start gap-3 rounded-2xl bg-red-50 p-4 text-sm text-red-800'>
                         <span className='flex-1'>{error}</span>
-                        <button type='button' onClick={() => setError('')} aria-label='Dismiss'>
-                            <X className='h-4 w-4' />
+                        <button type='button' onClick={() => setError('')} aria-label='Dismiss message' className='-m-1 rounded p-1'>
+                            <X className='h-4 w-4' aria-hidden />
                         </button>
                     </div>
                 )}
 
                 {items === null && !error && (
-                    <div className='flex justify-center py-16 text-gray-400'>
-                        <Loader2 className='h-6 w-6 animate-spin' />
+                    <div className='flex justify-center py-16 text-gray-500' role='status'>
+                        <Loader2 className='h-6 w-6 animate-spin' aria-hidden />
+                        <span className='sr-only'>Loading menu items…</span>
                     </div>
                 )}
 
@@ -199,7 +201,8 @@ function Thumb({ src, className = '' }) {
 
 function ItemRow({ item, isFirst, isLast, onStatus, onMove, onEdit }) {
     return (
-        <li className={`rounded-2xl bg-white p-3 shadow-sm ring-1 ring-gray-200 ${item.status === 'hidden' ? 'opacity-70' : ''}`}>
+        // Hidden rows get a dashed outline rather than fading, so their text keeps full contrast.
+        <li className={`rounded-2xl p-3 shadow-sm ${item.status === 'hidden' ? 'border-2 border-dashed border-gray-300 bg-gray-50' : 'bg-white ring-1 ring-gray-200'}`}>
             <div className='flex items-center gap-3'>
                 <Thumb src={item.image_url} className='h-14 w-14' />
                 <button type='button' onClick={onEdit} className='min-w-0 flex-1 text-left'>
@@ -211,8 +214,8 @@ function ItemRow({ item, isFirst, isLast, onStatus, onMove, onEdit }) {
                         type='button'
                         onClick={() => onMove(-1)}
                         disabled={isFirst}
-                        aria-label='Move up'
-                        className='rounded p-1 text-gray-400 hover:text-black disabled:opacity-20'
+                        aria-label={`Move ${item.name} up`}
+                        className='rounded p-1 text-gray-500 hover:text-black disabled:opacity-20'
                     >
                         <ArrowUp className='h-4 w-4' />
                     </button>
@@ -220,8 +223,8 @@ function ItemRow({ item, isFirst, isLast, onStatus, onMove, onEdit }) {
                         type='button'
                         onClick={() => onMove(1)}
                         disabled={isLast}
-                        aria-label='Move down'
-                        className='rounded p-1 text-gray-400 hover:text-black disabled:opacity-20'
+                        aria-label={`Move ${item.name} down`}
+                        className='rounded p-1 text-gray-500 hover:text-black disabled:opacity-20'
                     >
                         <ArrowDown className='h-4 w-4' />
                     </button>
@@ -235,7 +238,7 @@ function ItemRow({ item, isFirst, isLast, onStatus, onMove, onEdit }) {
                     <Pencil className='h-4 w-4' />
                 </button>
             </div>
-            <div className='mt-3 grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1'>
+            <div role='group' aria-label={`${item.name} status`} className='mt-3 grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1'>
                 {STATUSES.map((status) => (
                     <button
                         key={status.value}
@@ -243,7 +246,7 @@ function ItemRow({ item, isFirst, isLast, onStatus, onMove, onEdit }) {
                         onClick={() => item.status !== status.value && onStatus(status.value)}
                         aria-pressed={item.status === status.value}
                         className={`rounded-lg py-2 text-sm font-semibold transition-colors ${
-                            item.status === status.value ? STATUS_STYLE[status.value] : 'text-gray-500 hover:bg-white'
+                            item.status === status.value ? STATUS_STYLE[status.value] : 'text-gray-600 hover:bg-white'
                         }`}
                     >
                         {status.label}
@@ -255,7 +258,7 @@ function ItemRow({ item, isFirst, isLast, onStatus, onMove, onEdit }) {
 }
 
 const inputClass =
-    'w-full rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-black';
+    'w-full rounded-xl border border-gray-300 bg-white px-4 py-3 focus:border-black focus:outline-none focus:ring-2 focus:ring-blue-600';
 
 function ItemEditor({ item, categories, onClose, onSaved, onDeleted }) {
     const isNew = !item.id;
@@ -335,19 +338,7 @@ function ItemEditor({ item, categories, onClose, onSaved, onDeleted }) {
     }
 
     return (
-        <div className='fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center sm:p-6' onClick={onClose}>
-            <form
-                onSubmit={save}
-                onClick={(e) => e.stopPropagation()}
-                className='max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-xl sm:rounded-3xl'
-            >
-                <div className='mb-4 flex items-center justify-between'>
-                    <h2 className='text-lg font-bold'>{isNew ? 'Add item' : 'Edit item'}</h2>
-                    <button type='button' onClick={onClose} aria-label='Close' className='rounded-full p-2 hover:bg-gray-100'>
-                        <X className='h-5 w-5' />
-                    </button>
-                </div>
-
+        <Dialog title={isNew ? 'Add item' : 'Edit item'} onClose={onClose} onSubmit={save}>
                 <div className='space-y-4'>
                     <div className='flex items-center gap-4'>
                         <button
@@ -359,11 +350,12 @@ function ItemEditor({ item, categories, onClose, onSaved, onDeleted }) {
                             {form.image_url ? (
                                 <Image src={form.image_url} alt='' fill sizes='112px' unoptimized className='object-contain' />
                             ) : (
-                                <Camera className='absolute inset-0 m-auto h-7 w-7 text-gray-400' />
+                                <Camera className='absolute inset-0 m-auto h-7 w-7 text-gray-500' />
                             )}
                             {uploading && (
-                                <span className='absolute inset-0 flex items-center justify-center bg-white/70'>
-                                    <Loader2 className='h-6 w-6 animate-spin' />
+                                <span className='absolute inset-0 flex items-center justify-center bg-white/70' role='status'>
+                                    <Loader2 className='h-6 w-6 animate-spin' aria-hidden />
+                                    <span className='sr-only'>Uploading photo…</span>
                                 </span>
                             )}
                         </button>
@@ -385,7 +377,7 @@ function ItemEditor({ item, categories, onClose, onSaved, onDeleted }) {
                                     Remove photo
                                 </button>
                             )}
-                            <p className='text-gray-400'>Best on a plain white background.</p>
+                            <p className='text-gray-500'>Best on a plain white background.</p>
                         </div>
                         <input ref={fileInput} type='file' accept='image/*' onChange={pickPhoto} className='hidden' />
                     </div>
@@ -435,6 +427,7 @@ function ItemEditor({ item, categories, onClose, onSaved, onDeleted }) {
                             value={form.newCategory}
                             onChange={set('newCategory')}
                             maxLength={40}
+                            aria-label='New category name'
                             className={inputClass}
                             placeholder='New category name, e.g. Smoothies'
                         />
@@ -462,8 +455,8 @@ function ItemEditor({ item, categories, onClose, onSaved, onDeleted }) {
                         />
                     </label>
 
-                    <div>
-                        <span className='mb-1 block text-sm font-semibold'>Status</span>
+                    <div role='group' aria-labelledby='item-status-label'>
+                        <span id='item-status-label' className='mb-1 block text-sm font-semibold'>Status</span>
                         <div className='grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1'>
                             {STATUSES.map((status) => (
                                 <button
@@ -472,7 +465,7 @@ function ItemEditor({ item, categories, onClose, onSaved, onDeleted }) {
                                     onClick={() => setForm((f) => ({ ...f, status: status.value }))}
                                     aria-pressed={form.status === status.value}
                                     className={`rounded-lg py-2 text-sm font-semibold ${
-                                        form.status === status.value ? STATUS_STYLE[status.value] : 'text-gray-500'
+                                        form.status === status.value ? STATUS_STYLE[status.value] : 'text-gray-600'
                                     }`}
                                 >
                                     {status.label}
@@ -481,7 +474,7 @@ function ItemEditor({ item, categories, onClose, onSaved, onDeleted }) {
                         </div>
                     </div>
 
-                    {error && <p className='rounded-xl bg-red-50 p-3 text-sm text-red-700'>{error}</p>}
+                    {error && <p role='alert' className='rounded-xl bg-red-50 p-3 text-sm text-red-800'>{error}</p>}
 
                     <div className='flex gap-3 pt-2'>
                         {!isNew && (
@@ -504,7 +497,6 @@ function ItemEditor({ item, categories, onClose, onSaved, onDeleted }) {
                         </button>
                     </div>
                 </div>
-            </form>
-        </div>
+        </Dialog>
     );
 }

@@ -6,9 +6,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarPlus, Copy, Loader2, MapPin, Clock, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { dateKey, formatTime, parseDate } from '@/lib/site/popups';
 import { api, jsonRequest } from '@/lib/site/adminApi';
+import Dialog from '@/components/admin/Dialog';
 
 const inputClass =
-    'w-full rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none focus:border-black';
+    'w-full rounded-xl border border-gray-300 bg-white px-4 py-3 focus:border-black focus:outline-none focus:ring-2 focus:ring-blue-600';
 
 const longDate = (key) =>
     parseDate(key).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
@@ -47,17 +48,18 @@ export default function PopupsTab() {
                 </p>
 
                 {error && (
-                    <div className='flex items-start gap-3 rounded-2xl bg-red-50 p-4 text-sm text-red-700'>
+                    <div role='alert' className='flex items-start gap-3 rounded-2xl bg-red-50 p-4 text-sm text-red-800'>
                         <span className='flex-1'>{error}</span>
-                        <button type='button' onClick={() => setError('')} aria-label='Dismiss'>
-                            <X className='h-4 w-4' />
+                        <button type='button' onClick={() => setError('')} aria-label='Dismiss message' className='-m-1 rounded p-1'>
+                            <X className='h-4 w-4' aria-hidden />
                         </button>
                     </div>
                 )}
 
                 {popups === null && !error && (
-                    <div className='flex justify-center py-16 text-gray-400'>
-                        <Loader2 className='h-6 w-6 animate-spin' />
+                    <div className='flex justify-center py-16 text-gray-500' role='status'>
+                        <Loader2 className='h-6 w-6 animate-spin' aria-hidden />
+                        <span className='sr-only'>Loading pop-ups…</span>
                     </div>
                 )}
 
@@ -82,12 +84,13 @@ export default function PopupsTab() {
                         <button
                             type='button'
                             onClick={() => setShowPast((v) => !v)}
+                            aria-expanded={showPast}
                             className='text-sm font-semibold text-gray-500 hover:text-gray-800'
                         >
                             {showPast ? 'Hide' : 'Show'} past pop-ups ({past.length})
                         </button>
                         {showPast && (
-                            <ul className='mt-2 space-y-2 opacity-70'>
+                            <ul className='mt-2 space-y-2'>
                                 {past.map((popup) => (
                                     <PopupRow key={popup.id} popup={popup} onEdit={() => setEditing(popup)} />
                                 ))}
@@ -137,6 +140,7 @@ function PopupRow({ popup, isToday, onEdit }) {
             <button
                 type='button'
                 onClick={onEdit}
+                aria-label={`Edit ${popup.name}, ${longDate(popup.date)}, ${formatTime(popup.start)} to ${formatTime(popup.end)}, ${popup.place}`}
                 className='flex w-full items-center gap-3 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-gray-200 hover:ring-gray-400'
             >
                 <div className='flex w-14 shrink-0 flex-col items-center rounded-xl bg-gray-900 py-1.5 text-white'>
@@ -149,7 +153,7 @@ function PopupRow({ popup, isToday, onEdit }) {
                 <div className='min-w-0 flex-1'>
                     <p className='flex items-center gap-2 font-semibold'>
                         <span className='truncate'>{popup.name}</span>
-                        {isToday && <span className='rounded-full bg-green-600 px-2 py-0.5 text-xs text-white'>Today</span>}
+                        {isToday && <span className='rounded-full bg-green-700 px-2 py-0.5 text-xs text-white'>Today</span>}
                     </p>
                     <p className='flex items-center gap-1 text-sm text-gray-500'>
                         <Clock className='h-3.5 w-3.5 shrink-0' /> {formatTime(popup.start)} – {formatTime(popup.end)}
@@ -158,7 +162,7 @@ function PopupRow({ popup, isToday, onEdit }) {
                         <MapPin className='h-3.5 w-3.5 shrink-0' /> {popup.place}
                     </p>
                 </div>
-                <Pencil className='h-4 w-4 shrink-0 text-gray-400' />
+                <Pencil className='h-4 w-4 shrink-0 text-gray-500' />
             </button>
         </li>
     );
@@ -208,19 +212,7 @@ function PopupEditor({ popup, onClose, onDuplicate, onSaved, onDeleted }) {
     }
 
     return (
-        <div className='fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center sm:p-6' onClick={onClose}>
-            <form
-                onSubmit={save}
-                onClick={(e) => e.stopPropagation()}
-                className='max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-xl sm:rounded-3xl'
-            >
-                <div className='mb-4 flex items-center justify-between'>
-                    <h2 className='text-lg font-bold'>{isNew ? 'Add pop-up' : 'Edit pop-up'}</h2>
-                    <button type='button' onClick={onClose} aria-label='Close' className='rounded-full p-2 hover:bg-gray-100'>
-                        <X className='h-5 w-5' />
-                    </button>
-                </div>
-
+        <Dialog title={isNew ? 'Add pop-up' : 'Edit pop-up'} onClose={onClose} onSubmit={save}>
                 <div className='space-y-4'>
                     <label className='block'>
                         <span className='mb-1 block text-sm font-semibold'>Date</span>
@@ -260,7 +252,7 @@ function PopupEditor({ popup, onClose, onDuplicate, onSaved, onDeleted }) {
                     </label>
                     <label className='block'>
                         <span className='mb-1 block text-sm font-semibold'>
-                            Address <span className='font-normal text-gray-400'>(optional, for the Directions button)</span>
+                            Address <span className='font-normal text-gray-500'>(optional, for the Directions button)</span>
                         </span>
                         <input
                             value={form.address}
@@ -272,7 +264,7 @@ function PopupEditor({ popup, onClose, onDuplicate, onSaved, onDeleted }) {
                     </label>
                     <label className='block'>
                         <span className='mb-1 block text-sm font-semibold'>
-                            Note <span className='font-normal text-gray-400'>(optional)</span>
+                            Note <span className='font-normal text-gray-500'>(optional)</span>
                         </span>
                         <input
                             value={form.note}
@@ -283,7 +275,7 @@ function PopupEditor({ popup, onClose, onDuplicate, onSaved, onDeleted }) {
                         />
                     </label>
 
-                    {error && <p className='rounded-xl bg-red-50 p-3 text-sm text-red-700'>{error}</p>}
+                    {error && <p role='alert' className='rounded-xl bg-red-50 p-3 text-sm text-red-800'>{error}</p>}
 
                     <div className='flex gap-3 pt-2'>
                         {!isNew && (
@@ -319,7 +311,6 @@ function PopupEditor({ popup, onClose, onDuplicate, onSaved, onDeleted }) {
                         </button>
                     </div>
                 </div>
-            </form>
-        </div>
+        </Dialog>
     );
 }

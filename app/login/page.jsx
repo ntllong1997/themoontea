@@ -67,16 +67,20 @@ function LoginForm() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder='Password'
                 aria-label='Password'
-                className='w-full rounded-2xl border border-gray-200 bg-white px-5 py-4 text-lg outline-none focus:border-black'
+                className='w-full rounded-2xl border border-gray-300 bg-white px-5 py-4 text-lg focus:border-black focus:outline-none focus:ring-2 focus:ring-blue-600'
             />
             {notConfigured && (
-                <p className='rounded-xl bg-amber-50 p-3 text-center text-sm text-amber-800'>
+                <p role='status' className='rounded-xl bg-amber-50 p-3 text-center text-sm text-amber-900'>
                     No staff password is set up on this copy of the site yet. Add <b>STAFF_PASSWORD</b> in
                     Vercel → Settings → Environment Variables (tick <b>Production</b> and <b>Preview</b>), then
                     redeploy.
                 </p>
             )}
-            {error && <p className='text-center text-sm font-medium text-red-600'>{error}</p>}
+            {error && (
+                <p role='alert' className='text-center text-sm font-medium text-red-700'>
+                    {error}
+                </p>
+            )}
             <button
                 type='submit'
                 disabled={busy || !password}
@@ -84,17 +88,17 @@ function LoginForm() {
             >
                 {busy ? 'Signing in…' : 'Sign in'}
             </button>
-            <p className='text-center text-xs text-gray-400'>This device stays signed in for 30 days.</p>
+            <p className='text-center text-xs text-gray-500'>This device stays signed in for 30 days.</p>
         </form>
     );
 }
 
 export default function LoginPage() {
     return (
-        <main className='flex min-h-screen items-center justify-center bg-gray-50 p-6'>
+        <div className='flex min-h-screen items-center justify-center bg-gray-50 p-6'>
             <Suspense>
                 <LoginForm />
             </Suspense>
-        </main>
+        </div>
     );
 }

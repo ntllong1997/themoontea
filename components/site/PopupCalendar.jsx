@@ -52,7 +52,7 @@ export function NextPopupTeaser({ popups }) {
             href='#popups'
             className='inline-flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-semibold text-moon-ink shadow-sm ring-1 ring-moon-caramel/30 transition hover:bg-white'
         >
-            <span className='relative flex h-2.5 w-2.5'>
+            <span className='relative flex h-2.5 w-2.5' aria-hidden>
                 <span className='absolute inline-flex h-full w-full animate-ping rounded-full bg-moon-orange opacity-60' />
                 <span className='relative inline-flex h-2.5 w-2.5 rounded-full bg-moon-orange' />
             </span>
@@ -100,7 +100,9 @@ export default function PopupCalendar({ popups }) {
                     >
                         <ChevronLeft className='h-5 w-5' />
                     </button>
-                    <h3 className='font-display text-xl text-moon-ink'>{monthTitle(month)}</h3>
+                    <h3 className='font-display text-xl text-moon-ink' aria-live='polite'>
+                        {monthTitle(month)}
+                    </h3>
                     <button
                         type='button'
                         onClick={() => shiftMonth(1)}
@@ -138,7 +140,7 @@ export default function PopupCalendar({ popups }) {
                                     hasPopup
                                         ? isSelected
                                             ? 'bg-moon-ink font-bold text-white'
-                                            : 'bg-moon-caramel font-bold text-white hover:bg-moon-orange'
+                                            : 'bg-moon-caramel font-bold text-moon-ink hover:bg-moon-orange hover:text-white'
                                         : 'cursor-default text-moon-ink/70',
                                     key < todayKey && !hasPopup && 'text-moon-ink/25',
                                     isToday && !hasPopup && 'ring-2 ring-moon-caramel/60',
@@ -199,7 +201,7 @@ function PopupCard({ popup, isToday }) {
     return (
         <li className='rounded-3xl bg-white p-4 shadow-sm ring-1 ring-moon-caramel/20 sm:p-5'>
             <div className='flex gap-3 sm:gap-4'>
-                <div className='flex w-16 shrink-0 flex-col items-center justify-center self-start rounded-2xl bg-moon-caramel py-2 text-white sm:w-20'>
+                <div className='flex w-16 shrink-0 flex-col items-center justify-center self-start rounded-2xl bg-moon-caramel py-2 text-moon-ink sm:w-20'>
                     <span className='text-xs font-bold uppercase tracking-wider'>
                         {date.toLocaleDateString('en-US', { month: 'short' })}
                     </span>
@@ -238,7 +240,8 @@ function PopupCard({ popup, isToday }) {
                     rel='noopener noreferrer'
                     className='inline-flex items-center justify-center gap-1.5 rounded-full bg-moon-ink px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-moon-orange sm:py-1.5'
                 >
-                    <MapPin className='h-4 w-4' /> Directions
+                    <MapPin className='h-4 w-4' aria-hidden /> Directions
+                    <span className='sr-only'> to {popup.place} (opens in a new tab)</span>
                 </a>
                 <a
                     href={googleCalendarUrl(popup)}
@@ -246,7 +249,8 @@ function PopupCard({ popup, isToday }) {
                     rel='noopener noreferrer'
                     className='inline-flex items-center justify-center gap-1.5 rounded-full bg-moon-cream px-3.5 py-2.5 text-sm font-semibold text-moon-ink ring-1 ring-moon-caramel/40 transition hover:bg-white sm:py-1.5'
                 >
-                    <CalendarPlus className='h-4 w-4' /> Save date
+                    <CalendarPlus className='h-4 w-4' aria-hidden /> Save date
+                    <span className='sr-only'> for {popup.name} to Google Calendar (opens in a new tab)</span>
                 </a>
             </div>
         </li>
