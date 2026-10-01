@@ -72,8 +72,28 @@ export default function AdminMenuPage() {
                     ))}
                 </nav>
             </header>
+            <SetupCheck />
             {tab === 'items' ? <MenuItemsTab /> : <PopupsTab />}
         </main>
+    );
+}
+
+/** A banner explaining a setup problem (e.g. the service key), if there is one. */
+function SetupCheck() {
+    const [problem, setProblem] = useState('');
+    useEffect(() => {
+        api('/api/admin/status')
+            .then((status) => setProblem(status.ok ? '' : status.message))
+            .catch((e) => setProblem(e.message === 'Signed out' ? '' : e.message));
+    }, []);
+    if (!problem) return null;
+    return (
+        <div className='mx-auto max-w-3xl px-4 pt-4'>
+            <div className='rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900'>
+                <p className='font-bold'>Saving won&apos;t work on this copy of the site yet</p>
+                <p className='mt-1'>{problem}</p>
+            </div>
+        </div>
     );
 }
 
