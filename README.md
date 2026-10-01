@@ -42,13 +42,17 @@ Put these in `.env.local` (gitignored via the `.env*` rule).
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | `lib/db.js`, `lib/inventoryDb.js`, `lib/employeesDb.js`, `lib/supabase/server.js` | **yes** |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | same as above | **yes** |
+| `STAFF_PASSWORD` | `middleware.js`, `app/api/login` — the one password staff type at `/login` | **yes** (without it nobody can sign in) |
+| `SUPABASE_SERVICE_ROLE_KEY` | `lib/supabase/admin.js` — server only, used by `/admin/menu` to save items and photos. Supabase → Project Settings → API | **yes** for `/admin/menu` |
 | `NEXT_PUBLIC_INVENTORY_WEBHOOK_URL` | `app/inventory/page.jsx` — posts inventory submissions | optional (defaults to `''`) |
 | `PRINTER_PORT` | `print-server.js` — COM port from Device Manager → Ports | no (default `COM9`) |
 | `PRINTER_BAUD` | `print-server.js` | no (default `9600`) |
 | `PRINT_SERVER_PORT` | `print-server.js` | no (default `3333`) |
 | `CASHAPP_URL` | `print-server.js` — fallback receipt QR target | no (default `https://cash.app/$TheMoonTea`) |
 
-> The first two are the only ones the web app actually needs to boot. The `PRINTER_*`
+> The first two are the only ones the web app needs to boot; add `STAFF_PASSWORD` and
+> `SUPABASE_SERVICE_ROLE_KEY` too, or staff can't sign in or edit the menu.
+> Never prefix the service-role key with `NEXT_PUBLIC_`: it bypasses all database security. The `PRINTER_*`
 > variables are read by the standalone print server process, not by Next.js.
 
 Existing `.env.local` files may also carry `NEXT_PUBLIC_SMS_WEBHOOK_URL`,
@@ -62,6 +66,8 @@ isn't even installed. Safe to drop.
 
 | Route | What it is |
 |---|---|
+| `/login` | Staff sign-in. **Every route except `/menu`, `/order/online` and `/login` needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
+| `/admin/menu` | Manage the customer menu: Available / Sold out / Hidden, reorder, add and edit items with a photo |
 | `/` | Redirect to `/vendor` |
 | `/vendor` | Internal hub — links to Order Track, Inventory, Sales Summary |
 | `/order` | **The staff till.** Cart, payment method, receipt printing, today's history |
@@ -79,17 +85,29 @@ isn't even installed. Safe to drop.
 ## Customer site
 
 `/menu` is the page to share with customers (link it from Instagram, a QR code on the
-table, etc.). It is fully static and needs no database.
+table, etc.). It needs no sign-in.
 
-- **Menu items** live in `lib/site/menu.js`. To add one, put a photo in `public/menu/` and
-  copy an existing `{ name, description, image }` block. Prices come from
-  `lib/menu/catalog.js`, so the site and the till never disagree.
-  Add `hidden: true` to an item or a section to take it off the site without deleting it
-  (Bites & Sweets is hidden this way for now).
+- **Menu items** live in the Supabase table `site_menu_items` and are managed by staff at
+  `/admin/menu` — no code change or redeploy needed. Saving there refreshes `/menu` right
+  away. Photos go to the public `menu-photos` storage bucket.
+- The browser's anon key can only *read* items that aren't hidden; all writes go through
+  `app/api/admin/menu/*`, which check the staff session and use the service-role key.
+- How each category **looks** (heading, blurb, the corndog build steps, the boba choices)
+  is in `lib/site/menu.js` → `SECTIONS`. A new category typed in the admin page works
+  without touching code; it just gets plain defaults.
+- If Supabase can't be reached, `/menu` falls back to `FALLBACK_ITEMS` in the same file, so
+  the page is never empty.
 - **Pop-up dates** live in `lib/site/popups.js` — add `{ date, start, end, name, place }`
   entries to `POPUPS`. Past dates hide themselves automatically.
-- `npm test` checks both files (missing photos, bad dates, corndog choices the till
-  doesn't sell).
+
+---
+
+## Locations
+
+The two-location split is switched **off**: `LOCATIONS_ENABLED = false` in
+`lib/locations.js`. Every device is Location 1, nothing asks which location it is at, and
+the sales summary covers all orders. Set it back to `true` to restore the picker. (The iPad
+app is always Location 1 either way.)
 
 ---
 

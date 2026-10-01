@@ -1,29 +1,38 @@
 // The public, customer-facing site: the menu and the pop-up calendar.
-// Content lives in lib/site/menu.js and lib/site/popups.js — edit those, not
-// this file, to add items or dates.
+// Items come from the database (managed at /admin/menu); how each category
+// looks lives in lib/site/menu.js, and pop-up dates in lib/site/popups.js.
 import Image from 'next/image';
-import { MENU_SECTIONS, VISIBLE_SECTIONS } from '@/lib/site/menu';
+import { buildSections } from '@/lib/site/menu';
+import { getPublicMenuItems } from '@/lib/site/menuData';
 import PopupCalendar, { NextPopupTeaser } from '@/components/site/PopupCalendar';
 
-const NAV = [
-    ...VISIBLE_SECTIONS.map((section) => ({ href: `#${section.id}`, label: section.navLabel ?? section.title })),
-    { href: '#popups', label: 'Pop-ups' },
-];
+// Re-read the menu at most once a minute. Saving on /admin/menu refreshes it
+// straight away (revalidatePath), so this is only a safety net.
+export const revalidate = 60;
 
-// The three cups fanned out in the hero, by menu item name. Their photos come
-// from lib/site/menu.js, so swapping a photo there updates the hero too.
-const HERO_DRINKS = ['Matcha Brown Sugar', 'Brown Sugar Boba Tea', 'Golden Taro'].map(
-    (name) => MENU_SECTIONS.flatMap((section) => section.items).find((item) => item.name === name)
-);
+// The cups fanned out in the hero: these drinks if they're on the menu with a
+// photo, topped up with any other drink photos.
+const HERO_PREFERENCE = ['Matcha Brown Sugar', 'Brown Sugar Boba Tea', 'Golden Taro'];
+
+function heroDrinks(sections) {
+    const drinks = (sections.find((s) => s.id === 'boba')?.items ?? []).filter((item) => item.image && !item.soldOut);
+    const preferred = HERO_PREFERENCE.map((name) => drinks.find((d) => d.name === name)).filter(Boolean);
+    return [...preferred, ...drinks.filter((d) => !preferred.includes(d))].slice(0, 3);
+}
 
 const toppingLabel = (topping) => (topping === 'Nothing' ? 'No boba' : topping);
 
-export default function MenuPage() {
+export default async function MenuPage() {
+    const sections = buildSections(await getPublicMenuItems());
+    const nav = [
+        ...sections.map((section) => ({ href: `#${section.id}`, label: section.navLabel ?? section.title })),
+        { href: '#popups', label: 'Pop-ups' },
+    ];
     return (
         <div className='bg-[radial-gradient(ellipse_at_top,_#FDF8F1_0%,_#F8EFE3_60%)]'>
-            <Header />
-            <Hero />
-            {VISIBLE_SECTIONS.map((section) =>
+            <Header nav={nav} />
+            <Hero drinks={heroDrinks(sections)} firstSectionId={sections[0]?.id ?? 'popups'} />
+            {sections.map((section) =>
                 section.choices ? (
                     <BuildYourOwnSection key={section.id} section={section} />
                 ) : (
@@ -45,7 +54,7 @@ export default function MenuPage() {
     );
 }
 
-function Header() {
+function Header({ nav }) {
     return (
         <header className='sticky top-0 z-30 border-b border-moon-caramel/20 bg-moon-cream/95 backdrop-blur'>
             <div className='mx-auto flex max-w-6xl items-center gap-4 px-4 py-1.5 sm:px-6 md:py-2'>
@@ -55,7 +64,7 @@ function Header() {
                 </a>
                 <nav className='ml-auto hidden md:block'>
                     <ul className='flex gap-1 whitespace-nowrap text-sm font-semibold'>
-                        {NAV.map((link) => (
+                        {nav.map((link) => (
                             <li key={link.href}>
                                 <a
                                     href={link.href}
@@ -75,7 +84,7 @@ function Header() {
             {/* Phones: every section one thumb-swipe away. */}
             <nav className='overflow-x-auto [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden'>
                 <ul className='flex w-max gap-2 px-4 pb-2 text-sm font-bold'>
-                    {NAV.map((link) => (
+                    {nav.map((link) => (
                         <li key={link.href}>
                             <a
                                 href={link.href}
@@ -95,7 +104,7 @@ function Header() {
     );
 }
 
-function Hero() {
+function Hero({ drinks, firstSectionId }) {
     return (
         <section id='top' className='relative overflow-hidden'>
             <div className='mx-auto grid max-w-6xl items-center gap-6 px-4 pb-8 pt-6 sm:px-6 md:grid-cols-[1.1fr_1fr] md:gap-8 md:pb-20 md:pt-16'>
@@ -112,7 +121,7 @@ function Hero() {
                     </p>
                     <div className='mt-5 grid grid-cols-2 gap-2 sm:mt-6 sm:flex sm:flex-wrap sm:gap-3'>
                         <a
-                            href={`#${VISIBLE_SECTIONS[0].id}`}
+                            href={`#${firstSectionId}`}
                             className='rounded-full bg-moon-ink px-4 py-3 text-center text-sm font-bold text-white shadow-sm transition hover:bg-moon-orange sm:px-6 sm:text-base'
                         >
                             See the menu
@@ -131,7 +140,7 @@ function Hero() {
                 </div>
                 <div className='relative mx-auto flex w-full max-w-[260px] items-end justify-center sm:max-w-md'>
                     <div className='absolute inset-x-6 bottom-0 top-10 rounded-[3rem] bg-moon-caramel/25' />
-                    {HERO_DRINKS.map((item, i) => (
+                    {drinks.map((item, i) => (
                         <div
                             key={item.name}
                             className={`relative isolate aspect-[5/8] overflow-hidden rounded-[2rem] bg-moon-paper shadow-md ring-1 ring-moon-caramel/20 ${i === 1 ? 'z-10 w-[40%]' : 'w-[32%]'} ${
@@ -183,31 +192,49 @@ function Tags({ tags }) {
     );
 }
 
+function SoldOut() {
+    return (
+        <span className='rounded-full bg-moon-ink px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-white'>
+            Sold out
+        </span>
+    );
+}
+
 function BuildYourOwnSection({ section }) {
-    const [item] = section.items;
     return (
         <section id={section.id} className='scroll-mt-28 py-10 sm:py-20 md:scroll-mt-20'>
             <div className='mx-auto max-w-6xl px-4 sm:px-6'>
                 <SectionHeading eyebrow={section.eyebrow} title={section.title} price={section.price} />
                 <p className='mb-6 max-w-xl text-moon-muted sm:mb-8'>{section.blurb}</p>
                 <div className='grid gap-4 md:grid-cols-2 md:gap-6'>
-                    <div className='overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-moon-caramel/20'>
-                        {item.image && (
-                            <div className='relative aspect-[5/4] bg-moon-paper'>
-                                <Image
-                                    src={item.image}
-                                    alt={item.name}
-                                    fill
-                                    sizes='(min-width: 768px) 560px, 100vw'
-                                    className='object-contain p-3 drop-shadow-md'
-                                />
+                    <div className='space-y-4'>
+                        {section.items.map((item) => (
+                            <div
+                                key={item.id}
+                                className='overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-moon-caramel/20'
+                            >
+                                {item.image && (
+                                    <div className={`relative aspect-[5/4] bg-moon-paper ${item.soldOut ? 'opacity-50 grayscale' : ''}`}>
+                                        <Image
+                                            src={item.image}
+                                            alt={item.name}
+                                            fill
+                                            sizes='(min-width: 768px) 560px, 100vw'
+                                            className='object-contain p-3 drop-shadow-md'
+                                        />
+                                    </div>
+                                )}
+                                <div className='space-y-2 p-4 sm:p-5'>
+                                    <div className='flex flex-wrap items-center gap-2'>
+                                        <h3 className='font-display text-xl sm:text-2xl'>{item.name}</h3>
+                                        {item.price && <span className='font-bold text-moon-orange'>{item.price}</span>}
+                                        {item.soldOut && <SoldOut />}
+                                    </div>
+                                    <p className='text-moon-muted'>{item.description}</p>
+                                    <Tags tags={item.tags} />
+                                </div>
                             </div>
-                        )}
-                        <div className='space-y-2 p-4 sm:p-5'>
-                            <h3 className='font-display text-xl sm:text-2xl'>{item.name}</h3>
-                            <p className='text-moon-muted'>{item.description}</p>
-                            <Tags tags={item.tags} />
-                        </div>
+                        ))}
                     </div>
                     <div className='space-y-3 sm:space-y-4'>
                         {section.choices.map((choice, i) => (
@@ -281,9 +308,9 @@ function ItemGridSection({ section }) {
                 >
                     {section.items.map((item) =>
                         hasPhotos ? (
-                            <PhotoCard key={item.name} item={item} section={section} />
+                            <PhotoCard key={item.id} item={item} section={section} />
                         ) : (
-                            <CompactCard key={item.name} item={item} section={section} />
+                            <CompactCard key={item.id} item={item} section={section} />
                         )
                     )}
                 </ul>
@@ -295,7 +322,7 @@ function ItemGridSection({ section }) {
 function PhotoCard({ item, section }) {
     return (
         <li className='group flex overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-moon-caramel/20 transition sm:flex-col sm:hover:-translate-y-1 sm:hover:shadow-md'>
-            <div className='relative aspect-[3/4] w-28 shrink-0 bg-moon-paper sm:aspect-[4/5] sm:w-auto'>
+            <div className={`relative aspect-[3/4] w-28 shrink-0 bg-moon-paper sm:aspect-[4/5] sm:w-auto ${item.soldOut ? 'opacity-50 grayscale' : ''}`}>
                 {item.image ? (
                     <Image
                         src={item.image}
@@ -306,15 +333,20 @@ function PhotoCard({ item, section }) {
                     />
                 ) : (
                     <span className='absolute inset-0 flex items-center justify-center text-4xl sm:text-6xl'>
-                        {item.emoji ?? section.emoji}
+                        {section.emoji}
                     </span>
                 )}
             </div>
             <div className='flex min-w-0 flex-1 flex-col gap-1.5 p-4'>
                 <div className='flex items-start justify-between gap-2'>
                     <h3 className='text-lg font-extrabold leading-tight'>{item.name}</h3>
-                    {item.price && <span className='font-bold text-moon-orange'>{item.price}</span>}
+                    {item.price && <span className='shrink-0 font-bold text-moon-orange'>{item.price}</span>}
                 </div>
+                {item.soldOut && (
+                    <div>
+                        <SoldOut />
+                    </div>
+                )}
                 <p className='text-sm leading-snug text-moon-muted'>{item.description}</p>
                 <div className='mt-auto pt-1'>
                     <Tags tags={item.tags} />
@@ -327,21 +359,23 @@ function PhotoCard({ item, section }) {
 function CompactCard({ item, section }) {
     return (
         <li className='flex gap-3 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-moon-caramel/20 sm:gap-4 sm:p-4'>
-            <div className='relative flex h-16 w-16 sm:h-20 sm:w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-moon-paper text-4xl'>
+            <div className={`relative flex h-16 w-16 sm:h-20 sm:w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-moon-paper text-4xl ${item.soldOut ? 'opacity-50 grayscale' : ''}`}>
                 {item.image ? (
-                    <Image src={item.image} alt={item.name} fill sizes='80px' className='object-cover' />
+                    <Image src={item.image} alt={item.name} fill sizes='80px' className='object-contain p-1 mix-blend-multiply' />
                 ) : (
-                    <span aria-hidden>{item.emoji ?? section.emoji}</span>
+                    <span aria-hidden>{section.emoji}</span>
                 )}
             </div>
             <div className='min-w-0 flex-1'>
                 <div className='flex items-baseline justify-between gap-2'>
                     <h3 className='text-lg font-extrabold leading-tight'>{item.name}</h3>
-                    <span className='shrink-0 font-bold text-moon-orange'>
-                        {item.priceNote && <span className='mr-1 text-xs font-semibold text-moon-muted'>{item.priceNote}</span>}
-                        {item.price}
-                    </span>
+                    {item.price && <span className='shrink-0 font-bold text-moon-orange'>{item.price}</span>}
                 </div>
+                {item.soldOut && (
+                    <div className='mt-1'>
+                        <SoldOut />
+                    </div>
+                )}
                 <p className='mt-1 text-sm leading-snug text-moon-muted'>{item.description}</p>
                 <div className='mt-2'>
                     <Tags tags={item.tags} />

@@ -7,7 +7,7 @@ import { TAX_RATE } from '@/lib/constants';
 import { calculateTotalRevenue } from '@/lib/orders/orderModel';
 import HistorySection from '@/components/HistorySection';
 import LocationPicker from '@/components/LocationPicker';
-import { locationLabel, useDeviceLocation } from '@/lib/locations';
+import { LOCATIONS_ENABLED, locationLabel, useDeviceLocation } from '@/lib/locations';
 import { checkPrinterStatus, printReceipt } from '@/lib/printer';
 import { Printer } from 'lucide-react';
 
@@ -188,7 +188,7 @@ export default function StationPage({ category }) {
             <div className='sticky top-0 z-10 bg-white border-b px-4 py-3 flex items-center gap-3'>
                 <Link href='/order' className='text-gray-400 hover:text-gray-600 text-sm'>← Back</Link>
                 <h1 className='text-lg font-bold'>{station.title}</h1>
-                <span className='text-xs text-gray-400'>{locationLabel(locationId)}</span>
+                {LOCATIONS_ENABLED && <span className='text-xs text-gray-400'>{locationLabel(locationId)}</span>}
                 <div className='ml-auto flex items-center gap-3'>
                     <div className='flex items-center gap-1.5'>
                         <Printer

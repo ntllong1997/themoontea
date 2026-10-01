@@ -11,7 +11,7 @@ import OrderPanel from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
 import LocationPicker from '@/components/LocationPicker';
 import PrinterSettings from '@/components/PrinterSettings';
-import { locationLabel, useDeviceLocation } from '@/lib/locations';
+import { LOCATIONS_ENABLED, locationLabel, useDeviceLocation } from '@/lib/locations';
 import { checkPrinterStatus, printReceipt as eposPrint } from '@/lib/printer';
 import { Banknote, CreditCard, DollarSign, Printer } from 'lucide-react';
 import { DEFAULT_PAYMENT_METHOD, PAYMENT_METHODS } from '@/lib/orders/paymentMethods';
@@ -403,9 +403,11 @@ export default function OrderSystem() {
                     >
                         History
                     </button>
-                    <span className='self-center px-3 text-xs text-gray-400'>
-                        {locationLabel(locationId)}
-                    </span>
+                    {LOCATIONS_ENABLED && (
+                        <span className='self-center px-3 text-xs text-gray-400'>
+                            {locationLabel(locationId)}
+                        </span>
+                    )}
                 </div>
 
                 {mobileTab === 'order' ? (
@@ -464,7 +466,7 @@ export default function OrderSystem() {
                     {/* Panel controls + station links */}
                     <div className='flex items-center gap-2 mb-1 flex-wrap'>
                         <span className='text-sm font-semibold text-gray-500'>History</span>
-                        <span className='text-xs text-gray-400'>{locationLabel(locationId)}</span>
+                        {LOCATIONS_ENABLED && <span className='text-xs text-gray-400'>{locationLabel(locationId)}</span>}
 
                         {CATEGORIES.filter((c) => visiblePanels.has(c.key)).map((c) => (
                             <span
