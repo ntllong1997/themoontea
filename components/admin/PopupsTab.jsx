@@ -1,6 +1,6 @@
 'use client';
 
-// The Pop-ups tab of /admin/menu: the dates on the customer pop-up calendar.
+// The body of /admin/popups: the dates on the customer pop-up calendar.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarPlus, Copy, Loader2, MapPin, Clock, Pencil, Plus, Trash2, X } from 'lucide-react';
