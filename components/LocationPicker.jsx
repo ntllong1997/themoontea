@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { LOCATIONS, locationLabel, useDeviceLocation } from '@/lib/locations';
+import { LOCATIONS, LOCATIONS_ENABLED, locationLabel, useDeviceLocation } from '@/lib/locations';
 
 // Full-screen "which location is this device at?" prompt. Shown the first time
 // the till, a station or the home page opens on a device, and when changing it.
@@ -35,7 +35,7 @@ export function DeviceLocationSwitch() {
     const [locationId, setLocationId] = useDeviceLocation();
     const [isChanging, setIsChanging] = useState(false);
 
-    if (locationId === undefined) return null;
+    if (!LOCATIONS_ENABLED || locationId === undefined) return null;
 
     if (locationId === null || isChanging) {
         return (

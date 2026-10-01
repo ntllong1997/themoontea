@@ -14,6 +14,21 @@ export default {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
+        // The public menu site (/menu), matched to the printed menu board.
+        moon: {
+          cream: "#F8EFE3",
+          paper: "#FDF8F1",
+          caramel: "#C8964F",
+          orange: "#C4742A",
+          ink: "#241810",
+          muted: "#7A6552",
+        },
+      },
+      fontFamily: {
+        // Set by next/font in app/menu/layout.jsx; only defined on /menu.
+        display: ["var(--font-display)", "Georgia", "serif"],
+        script: ["var(--font-script)", "Georgia", "serif"],
+        body: ["var(--font-body)", "system-ui", "sans-serif"],
       },
     },
   },

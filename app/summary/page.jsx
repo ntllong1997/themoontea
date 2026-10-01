@@ -12,7 +12,7 @@ import {
     toDateInput,
     windowFor,
 } from '@/lib/orders/dateRange';
-import { LOCATIONS, locationLabel, useDeviceLocation } from '@/lib/locations';
+import { LOCATIONS, LOCATIONS_ENABLED, locationLabel, useDeviceLocation } from '@/lib/locations';
 import Link from 'next/link';
 
 // Derived from the catalog, so a new category gets a filter tab for free.
@@ -43,7 +43,7 @@ export default function SummaryPage() {
     const [deviceLocationId] = useDeviceLocation();
     const [locationFilter, setLocationFilter] = useState('all');
     useEffect(() => {
-        if (deviceLocationId) setLocationFilter(deviceLocationId);
+        if (LOCATIONS_ENABLED && deviceLocationId) setLocationFilter(deviceLocationId);
     }, [deviceLocationId]);
 
     // Every pill, preset or hand-picked, becomes one [from, to) window. It
@@ -186,13 +186,15 @@ export default function SummaryPage() {
 
                 <Card className='mb-4'>
                     <CardContent>
-                        <div className='flex flex-wrap gap-2 mb-3'>
-                            {LOCATION_FILTERS.map(({ key, label }) => (
-                                <button key={key} onClick={() => setLocationFilter(key)} className={pillClass(locationFilter === key)}>
-                                    {label}
-                                </button>
-                            ))}
-                        </div>
+                        {LOCATIONS_ENABLED && (
+                            <div className='flex flex-wrap gap-2 mb-3'>
+                                {LOCATION_FILTERS.map(({ key, label }) => (
+                                    <button key={key} onClick={() => setLocationFilter(key)} className={pillClass(locationFilter === key)}>
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                         <div className='flex flex-wrap gap-2 mb-3'>
                             {DATE_FILTERS.map(({ key, label }) => (
                                 <button key={key} onClick={() => setDateFilter(key)} className={pillClass(dateFilter === key)}>
@@ -234,8 +236,9 @@ export default function SummaryPage() {
                         {/* Says which days the figures below actually cover, so a
                             screenshot of this page is not ambiguous. */}
                         <p className='text-xs text-gray-400 mt-3'>
-                            Showing {formatRangeLabel(dateWindow)} ·{' '}
-                            {locationFilter === 'all' ? 'All locations' : locationLabel(locationFilter)}
+                            Showing {formatRangeLabel(dateWindow)}
+                            {LOCATIONS_ENABLED &&
+                                ` · ${locationFilter === 'all' ? 'All locations' : locationLabel(locationFilter)}`}
                         </p>
                     </CardContent>
                 </Card>
