@@ -1,9 +1,9 @@
 // The public, customer-facing site: the menu and the pop-up calendar.
-// Items come from the database (managed at /admin/menu); how each category
-// looks lives in lib/site/menu.js, and pop-up dates in lib/site/popups.js.
+// Items and pop-up dates come from the database (managed at /admin/menu);
+// how each category looks lives in lib/site/menu.js.
 import Image from 'next/image';
 import { buildSections } from '@/lib/site/menu';
-import { getPublicMenuItems } from '@/lib/site/menuData';
+import { getPublicMenuItems, getPublicPopups } from '@/lib/site/menuData';
 import PopupCalendar, { NextPopupTeaser } from '@/components/site/PopupCalendar';
 
 // Re-read the menu at most once a minute. Saving on /admin/menu refreshes it
@@ -23,7 +23,8 @@ function heroDrinks(sections) {
 const toppingLabel = (topping) => (topping === 'Nothing' ? 'No boba' : topping);
 
 export default async function MenuPage() {
-    const sections = buildSections(await getPublicMenuItems());
+    const [items, popups] = await Promise.all([getPublicMenuItems(), getPublicPopups()]);
+    const sections = buildSections(items);
     const nav = [
         ...sections.map((section) => ({ href: `#${section.id}`, label: section.navLabel ?? section.title })),
         { href: '#popups', label: 'Pop-ups' },
@@ -31,7 +32,7 @@ export default async function MenuPage() {
     return (
         <div className='bg-[radial-gradient(ellipse_at_top,_#FDF8F1_0%,_#F8EFE3_60%)]'>
             <Header nav={nav} />
-            <Hero drinks={heroDrinks(sections)} firstSectionId={sections[0]?.id ?? 'popups'} />
+            <Hero drinks={heroDrinks(sections)} firstSectionId={sections[0]?.id ?? 'popups'} popups={popups} />
             {sections.map((section) =>
                 section.choices ? (
                     <BuildYourOwnSection key={section.id} section={section} />
@@ -46,7 +47,7 @@ export default async function MenuPage() {
                         We pop up at markets, festivals and events around town. Tap a highlighted day to see
                         where we&apos;ll be, then save it to your calendar.
                     </p>
-                    <PopupCalendar />
+                    <PopupCalendar popups={popups} />
                 </div>
             </section>
             <Footer />
@@ -104,7 +105,7 @@ function Header({ nav }) {
     );
 }
 
-function Hero({ drinks, firstSectionId }) {
+function Hero({ drinks, firstSectionId, popups }) {
     return (
         <section id='top' className='relative overflow-hidden'>
             <div className='mx-auto grid max-w-6xl items-center gap-6 px-4 pb-8 pt-6 sm:px-6 md:grid-cols-[1.1fr_1fr] md:gap-8 md:pb-20 md:pt-16'>
@@ -135,7 +136,7 @@ function Hero({ drinks, firstSectionId }) {
                         </a>
                     </div>
                     <div className='mt-4 sm:mt-5'>
-                        <NextPopupTeaser />
+                        <NextPopupTeaser popups={popups} />
                     </div>
                 </div>
                 <div className='relative mx-auto flex w-full max-w-[260px] items-end justify-center sm:max-w-md'>

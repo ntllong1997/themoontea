@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, CalendarPlus, MapPin, Clock } from 'lucide-react';
 import {
-    POPUPS,
     dateKey,
     directionsUrl,
     formatTime,
@@ -43,10 +42,10 @@ function useToday() {
     return today;
 }
 
-export function NextPopupTeaser() {
+export function NextPopupTeaser({ popups }) {
     const today = useToday();
     if (!today) return null;
-    const [next] = upcomingPopups(POPUPS, today);
+    const [next] = upcomingPopups(popups, today);
     if (!next) return null;
     return (
         <a
@@ -62,7 +61,7 @@ export function NextPopupTeaser() {
     );
 }
 
-export default function PopupCalendar() {
+export default function PopupCalendar({ popups }) {
     const today = useToday();
     const [month, setMonth] = useState(null);
     const [selected, setSelected] = useState(null);
@@ -71,7 +70,7 @@ export default function PopupCalendar() {
         if (today && !month) setMonth(new Date(today.getFullYear(), today.getMonth(), 1));
     }, [today, month]);
 
-    const upcoming = useMemo(() => (today ? upcomingPopups(POPUPS, today) : []), [today]);
+    const upcoming = useMemo(() => (today ? upcomingPopups(popups, today) : []), [today, popups]);
     const byDate = useMemo(() => {
         const map = new Map();
         for (const popup of upcoming) map.set(popup.date, [...(map.get(popup.date) ?? []), popup]);
@@ -186,7 +185,7 @@ export default function PopupCalendar() {
                 ) : (
                     <ul className='space-y-4'>
                         {listed.map((popup) => (
-                            <PopupCard key={`${popup.date}-${popup.start}`} popup={popup} isToday={popup.date === todayKey} />
+                            <PopupCard key={popup.id ?? `${popup.date}-${popup.start}`} popup={popup} isToday={popup.date === todayKey} />
                         ))}
                     </ul>
                 )}

@@ -67,7 +67,7 @@ isn't even installed. Safe to drop.
 | Route | What it is |
 |---|---|
 | `/login` | Staff sign-in. **Every route except `/menu`, `/order/online` and `/login` needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
-| `/admin/menu` | Manage the customer menu: Available / Sold out / Hidden, reorder, add and edit items with a photo |
+| `/admin/menu` | Manage the customer site. **Menu items** tab: Available / Sold out / Hidden, reorder, add and edit items with a photo. **Pop-ups** tab (`?tab=popups`): add, edit, copy and delete pop-up dates |
 | `/` | Redirect to `/vendor` |
 | `/vendor` | Internal hub — links to Order Track, Inventory, Sales Summary |
 | `/order` | **The staff till.** Cart, payment method, receipt printing, today's history |
@@ -97,8 +97,9 @@ table, etc.). It needs no sign-in.
   without touching code; it just gets plain defaults.
 - If Supabase can't be reached, `/menu` falls back to `FALLBACK_ITEMS` in the same file, so
   the page is never empty.
-- **Pop-up dates** live in `lib/site/popups.js` — add `{ date, start, end, name, place }`
-  entries to `POPUPS`. Past dates hide themselves automatically.
+- **Pop-up dates** live in the Supabase table `site_popups`, managed on the Pop-ups tab of
+  `/admin/menu` (same security as menu items: public read, staff-only writes through
+  `app/api/admin/popups/*`). Past dates drop off the public calendar on their own.
 
 ---
 

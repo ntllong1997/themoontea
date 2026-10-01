@@ -1,7 +1,9 @@
 'use client';
 
-// Staff page for the customer menu: mark items sold out or hidden, reorder
-// them, and add or edit items with a photo. Talks to app/api/admin/menu/.
+// Staff page for the customer menu site. Two tabs:
+//   Menu items: mark items sold out or hidden, reorder them, add or edit
+//               items with a photo (app/api/admin/menu/).
+//   Pop-ups:    the dates on the customer pop-up calendar (app/api/admin/popups/).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
@@ -9,6 +11,8 @@ import Link from 'next/link';
 import { ArrowDown, ArrowUp, Camera, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { SECTIONS, STATUSES, categoryTitle, formatPrice } from '@/lib/site/menu';
 import { resizePhoto } from '@/lib/site/resizePhoto';
+import PopupsTab from '@/components/admin/PopupsTab';
+import { api, jsonRequest } from '@/lib/site/adminApi';
 
 const NEW_CATEGORY = '__new__';
 
@@ -18,24 +22,62 @@ const STATUS_STYLE = {
     hidden: 'bg-gray-700 text-white',
 };
 
-async function api(path, options = {}) {
-    const response = await fetch(path, options);
-    if (response.status === 401) {
-        window.location.assign(`/login?next=${encodeURIComponent('/admin/menu')}`);
-        throw new Error('Signed out');
-    }
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error ?? `Something went wrong (${response.status})`);
-    return body;
-}
-
-const jsonRequest = (method, body) => ({
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-});
+const TABS = [
+    { id: 'items', label: 'Menu items' },
+    { id: 'popups', label: 'Pop-ups' },
+];
 
 export default function AdminMenuPage() {
+    const [tab, setTab] = useState('items');
+
+    // Remember the tab in the address (?tab=popups) so a refresh stays put.
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get('tab') === 'popups') setTab('popups');
+    }, []);
+    const choose = (id) => {
+        setTab(id);
+        window.history.replaceState(null, '', id === 'items' ? '/admin/menu' : `/admin/menu?tab=${id}`);
+    };
+
+    return (
+        <main className='min-h-screen bg-gray-50 pb-24'>
+            <header className='sticky top-0 z-20 border-b border-gray-200 bg-white/95 backdrop-blur'>
+                <div className='mx-auto flex max-w-3xl items-center gap-3 px-4 pt-3'>
+                    <Link href='/vendor' className='text-sm text-gray-400 hover:text-gray-600'>
+                        ← Back
+                    </Link>
+                    <h1 className='text-xl font-bold'>Menu Items</h1>
+                    <a
+                        href='/menu'
+                        target='_blank'
+                        rel='noopener noreferrer'
+                        className='ml-auto text-sm font-medium text-blue-600 hover:underline'
+                    >
+                        View menu ↗
+                    </a>
+                </div>
+                <nav className='mx-auto flex max-w-3xl gap-6 px-4'>
+                    {TABS.map((t) => (
+                        <button
+                            key={t.id}
+                            type='button'
+                            onClick={() => choose(t.id)}
+                            aria-pressed={tab === t.id}
+                            className={`border-b-2 py-3 text-sm font-semibold transition-colors ${
+                                tab === t.id ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'
+                            }`}
+                        >
+                            {t.label}
+                        </button>
+                    ))}
+                </nav>
+            </header>
+            {tab === 'items' ? <MenuItemsTab /> : <PopupsTab />}
+        </main>
+    );
+}
+
+function MenuItemsTab() {
     const [items, setItems] = useState(null);
     const [error, setError] = useState('');
     const [editing, setEditing] = useState(null); // an item, or {} for a new one
@@ -109,24 +151,7 @@ export default function AdminMenuPage() {
     }
 
     return (
-        <main className='min-h-screen bg-gray-50 pb-24'>
-            <header className='sticky top-0 z-20 border-b border-gray-200 bg-white/95 backdrop-blur'>
-                <div className='mx-auto flex max-w-3xl items-center gap-3 px-4 py-3'>
-                    <Link href='/vendor' className='text-sm text-gray-400 hover:text-gray-600'>
-                        ← Back
-                    </Link>
-                    <h1 className='text-xl font-bold'>Menu Items</h1>
-                    <a
-                        href='/menu'
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        className='ml-auto text-sm font-medium text-blue-600 hover:underline'
-                    >
-                        View menu ↗
-                    </a>
-                </div>
-            </header>
-
+        <>
             <div className='mx-auto max-w-3xl space-y-6 px-4 pt-4'>
                 <p className='text-sm text-gray-500'>
                     <b className='text-green-700'>Available</b> shows normally. <b className='text-amber-600'>Sold out</b>{' '}
@@ -200,7 +225,7 @@ export default function AdminMenuPage() {
                     }}
                 />
             )}
-        </main>
+        </>
     );
 }
 
