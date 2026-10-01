@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- static crops, already sized for the web */
 import {
     BULDAK_ELOTE,
     CORNDOG,
@@ -14,83 +15,88 @@ export const metadata = {
     description: 'Milk tea, fruit tea, smoothies, coffee, matcha, Korean corndogs and snacks at The Moon Tea.',
 };
 
-/** A little boba cup filled with the drink's colour. */
-function Cup({ tint, size = 56 }) {
-    return (
-        <svg width={size} height={size * 1.25} viewBox='0 0 48 60' aria-hidden='true' className='shrink-0'>
-            <rect x='22.5' y='1' width='3' height='16' rx='1.5' fill='#3b2a20' opacity='0.85' />
-            <path d='M8 14 H40 L36 56 Q35.6 59 32.6 59 H15.4 Q12.4 59 12 56 Z' fill='#fff' opacity='0.7' />
-            <path d='M10 20 H38 L35 55 Q34.7 57.5 32.2 57.5 H15.8 Q13.3 57.5 13 55 Z' fill={tint} />
-            <path d='M10 20 H38 L37.6 24 H10.4 Z' fill='#fff' opacity='0.35' />
-            {[[18, 50], [24, 52], [30, 50], [21, 46], [27, 46]].map(([cx, cy]) => (
-                <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r='2.3' fill='#3b2a20' opacity='0.8' />
-            ))}
-            <rect x='6' y='11' width='36' height='4' rx='2' fill='#3b2a20' opacity='0.85' />
-        </svg>
-    );
-}
+// The photos were cropped from the printed menu, so their backgrounds are these
+// exact colours. Matching them makes each photo sit seamlessly on the page.
+const PAGE_BG = 'bg-[#ffe8d4]';
+const PANEL_BG = 'bg-[#ffeae2]';
 
-function SectionHeading({ title, blurb, className = '' }) {
+function SectionHeading({ title, blurb }) {
     return (
-        <div className={`mb-6 ${className}`}>
-            <h2 className='font-serif text-3xl font-bold uppercase tracking-wide text-[#3b2a20] sm:text-4xl'>{title}</h2>
+        <div className='mb-6'>
+            <h2 className='font-serif text-3xl font-bold uppercase tracking-wide sm:text-4xl'>{title}</h2>
             {blurb && <p className='mt-1 text-[#7a5a45]'>{blurb}</p>}
-            <div className='mt-3 h-0 w-24 border-t-4 border-dotted border-[#3b2a20]' />
+            <div className='mt-3 w-24 border-t-4 border-dotted border-[#3b2a20]' />
         </div>
     );
 }
 
-function DrinkCard({ item }) {
+function DrinkPhoto({ item }) {
     return (
-        <li
-            className={`flex items-center gap-3 rounded-2xl bg-white/70 p-3 sm:gap-4 sm:p-4 shadow-sm ring-1 ring-[#3b2a20]/5 ${
-                item.signature ? 'col-span-2' : ''
-            }`}
-        >
-            <Cup tint={item.tint} size={item.signature ? 56 : 40} />
-            <div className='min-w-0'>
-                <p className={`font-semibold uppercase leading-tight text-[#3b2a20] ${item.signature ? 'text-lg' : 'text-sm sm:text-base'}`}>
-                    {item.name}
-                </p>
-                {item.note && <p className='mt-0.5 text-sm text-[#7a5a45]'>{item.note}</p>}
+        <li className={`group flex flex-col items-center text-center ${item.signature ? 'col-span-2 row-span-2' : ''}`}>
+            <div className={`flex w-full items-end justify-center ${item.signature ? 'h-80 sm:h-[26rem]' : 'h-40 sm:h-48'}`}>
+                <img
+                    src={item.image}
+                    alt={item.name}
+                    loading='lazy'
+                    className='max-h-full max-w-full object-contain transition-transform duration-200 group-hover:-translate-y-1'
+                />
             </div>
+            <p className={`mt-2 font-extrabold uppercase leading-tight ${item.signature ? 'text-2xl' : 'text-sm sm:text-base'}`}>
+                {item.name}
+            </p>
+            {item.note && <p className='mt-0.5 text-xs text-[#7a5a45] sm:text-sm'>{item.note}</p>}
         </li>
     );
 }
 
 function DrinkSection({ section }) {
+    const withPhoto = section.items.filter((item) => item.image);
+    const listOnly = section.items.filter((item) => !item.image);
+
     return (
         <section id={section.id} className='scroll-mt-28'>
             <SectionHeading title={section.title} blurb={section.blurb} />
-            <ul className='grid grid-cols-2 gap-3 lg:grid-cols-4'>
-                {section.items.map((item) => (
-                    <DrinkCard key={item.name} item={item} />
-                ))}
-            </ul>
-            {section.extras && (
-                <div className='mt-4 rounded-2xl border-2 border-dashed border-[#3b2a20]/25 p-4'>
-                    <p className='mb-2 text-sm font-semibold uppercase tracking-wide text-[#7a5a45]'>{section.extras.title}</p>
-                    <ul className='grid grid-cols-2 gap-x-4 gap-y-1 text-[#3b2a20] sm:grid-cols-4'>
-                        {section.extras.items.map((name) => (
-                            <li key={name}>{name}</li>
+            <div className={listOnly.length > 0 && withPhoto.length <= 2 ? 'grid items-end gap-6 sm:grid-cols-2' : ''}>
+                <ul className={`grid gap-x-3 gap-y-6 ${
+                    withPhoto.length <= 2 ? 'grid-cols-2' : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6'
+                }`}>
+                    {withPhoto.map((item) => (
+                        <DrinkPhoto key={item.name} item={item} />
+                    ))}
+                </ul>
+                {listOnly.length > 0 && (
+                    <ul className={`grid gap-x-6 gap-y-2 rounded-2xl border-2 border-dashed border-[#3b2a20]/25 p-5 text-lg ${
+                        withPhoto.length <= 2 ? 'self-center' : 'mt-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+                    }`}>
+                        {listOnly.map((item) => (
+                            <li key={item.name}>{item.name}</li>
                         ))}
                     </ul>
-                </div>
-            )}
+                )}
+            </div>
         </section>
     );
 }
 
 function Chip({ children, className = '' }) {
+    return <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${className}`}>{children}</span>;
+}
+
+function CorndogChoice({ item, height }) {
     return (
-        <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${className}`}>{children}</span>
+        <li className='flex flex-col items-center text-center'>
+            <div className={`flex w-full items-end justify-center ${height}`}>
+                <img src={item.image} alt={item.name} loading='lazy' className='max-h-full max-w-full object-contain' />
+            </div>
+            <p className='mt-2 font-extrabold italic'>{item.name}</p>
+        </li>
     );
 }
 
 export default function MenuPage() {
     return (
-        <div className='min-h-full bg-[#fdeee4] text-[#3b2a20]'>
-            <header className='sticky top-0 z-10 border-b border-[#3b2a20]/10 bg-[#fdeee4]/90 backdrop-blur'>
+        <div className={`min-h-full ${PAGE_BG} text-[#3b2a20]`}>
+            <header className={`sticky top-0 z-10 border-b border-[#3b2a20]/10 bg-[#ffe8d4]/90 backdrop-blur`}>
                 <div className='mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
                     <a href='#top' className='font-serif text-2xl font-bold tracking-wide'>
                         🌙 The Moon Tea
@@ -119,7 +125,7 @@ export default function MenuPage() {
                     <p className='mx-auto mt-4 max-w-xl text-[#7a5a45]'>
                         Every drink can be made your way. Pick your sugar and ice level, then add a topping or two.
                     </p>
-                    <div className='mx-auto mt-6 grid max-w-md grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-left text-sm'>
+                    <div className='mx-auto mt-6 grid max-w-md grid-cols-[auto_1fr] items-center gap-x-4 text-left text-sm'>
                         <span className='font-semibold'>Sugar / Ice</span>
                         <div className='flex overflow-hidden rounded-full ring-1 ring-[#3b2a20]/10'>
                             {SUGAR_ICE_LEVELS.map((level, i) => (
@@ -159,67 +165,71 @@ export default function MenuPage() {
                 </section>
 
                 <section id='corndog' className='scroll-mt-28'>
-                    <h2 className='mb-6 text-4xl font-black text-[#ff5a6e] [text-shadow:2px_2px_0_#3b2a20] sm:text-5xl'>
-                        Korean Corndog
+                    <h2 className='mb-6 text-4xl font-black text-[#ff3b1f] sm:text-5xl'>
+                        <span className='rounded-xl bg-[#ffb8d9] px-3 leading-snug [box-decoration-break:clone]'>Korean Corndog</span>
                     </h2>
                     <div className='grid gap-4 lg:grid-cols-3'>
-                        <div className='rounded-3xl border-4 border-[#e0a24d] bg-white/80 p-6'>
-                            <p className='mb-1 text-sm font-semibold uppercase tracking-wide text-[#7a5a45]'>Step 1</p>
+                        <div className={`rounded-3xl border-[6px] border-[#e0a24d] ${PANEL_BG} p-6`}>
+                            <p className='text-sm font-semibold uppercase tracking-wide text-[#7a5a45]'>Step 1</p>
                             <h3 className='mb-4 text-2xl font-bold'>Pick the inside</h3>
-                            <ul className='space-y-2'>
-                                {CORNDOG.inside.map((name) => (
-                                    <li key={name} className='flex items-center gap-3 font-semibold'>
-                                        <span className='h-3 w-10 rounded-full bg-gradient-to-r from-[#e8604c] to-[#f6d77a]' />
-                                        {name}
-                                    </li>
+                            <ul className='grid grid-cols-3 gap-3'>
+                                {CORNDOG.inside.map((item) => (
+                                    <CorndogChoice key={item.name} item={item} height='h-40' />
                                 ))}
                             </ul>
                         </div>
-                        <div className='rounded-3xl border-4 border-[#e0a24d] bg-white/80 p-6 lg:col-span-2'>
-                            <p className='mb-1 text-sm font-semibold uppercase tracking-wide text-[#7a5a45]'>Step 2</p>
+                        <div className={`rounded-3xl border-[6px] border-[#e0a24d] ${PANEL_BG} p-6 lg:col-span-2`}>
+                            <p className='text-sm font-semibold uppercase tracking-wide text-[#7a5a45]'>Step 2</p>
                             <h3 className='mb-4 text-2xl font-bold'>Pick the coating</h3>
-                            <ul className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
-                                {CORNDOG.outside.map(({ name, tint }) => (
-                                    <li key={name} className='flex items-center gap-3 rounded-2xl bg-[#fdeee4] p-3 font-semibold'>
-                                        <span className='h-10 w-4 shrink-0 rounded-full' style={{ backgroundColor: tint }} />
-                                        {name}
-                                    </li>
+                            <ul className='grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-6'>
+                                {CORNDOG.outside.map((item) => (
+                                    <CorndogChoice key={item.name} item={item} height='h-44' />
                                 ))}
                             </ul>
                         </div>
                     </div>
                 </section>
 
-                <section id='snacks' className='scroll-mt-28'>
-                    <div className='grid gap-4 lg:grid-cols-2'>
-                        <div className='rounded-3xl bg-[#ff5a6e] p-6 text-white sm:p-8'>
-                            <h2 className='text-4xl font-black [text-shadow:2px_2px_0_#3b2a20] sm:text-5xl'>Buldak Elote</h2>
-                            <p className='mt-2 text-white/90'>Spicy carbonara Buldak noodles loaded up in a cup with:</p>
-                            <ul className='mt-4 flex flex-wrap gap-2'>
-                                {BULDAK_ELOTE.map((name) => (
+                <section id='snacks' className='scroll-mt-28 space-y-6'>
+                    <div className='grid items-center gap-6 sm:grid-cols-2'>
+                        <img
+                            src={BULDAK_ELOTE.image}
+                            alt='Buldak Elote'
+                            loading='lazy'
+                            className='mx-auto max-h-96 object-contain [mask-image:radial-gradient(ellipse_at_center,black_60%,transparent_72%)]'
+                        />
+                        <div>
+                            <h2 className='text-4xl font-black text-[#ff3b1f] sm:text-5xl'>
+                                <span className='rounded-xl bg-[#ffb8d9] px-3 leading-snug [box-decoration-break:clone]'>Buldak Elote</span>
+                            </h2>
+                            <p className='mt-4 text-lg text-[#7a5a45]'>Carbonara Buldak noodles loaded up in a cup with:</p>
+                            <ul className='mt-3 flex flex-wrap gap-2'>
+                                {BULDAK_ELOTE.toppings.map((name) => (
                                     <li key={name}>
-                                        <Chip className='bg-white text-[#3b2a20]'>{name}</Chip>
+                                        <Chip className='bg-white font-bold italic'>{name}</Chip>
                                     </li>
                                 ))}
                             </ul>
                         </div>
-                        <div className='rounded-3xl border-4 border-[#e0a24d] bg-white/80 p-6 sm:p-8'>
-                            <SectionHeading title='Snacks' className='!mb-4' />
-                            <ul className='divide-y divide-[#3b2a20]/10'>
-                                {SNACKS.map(({ name, seasonings }) => (
-                                    <li key={name} className='flex flex-wrap items-center justify-between gap-2 py-3'>
-                                        <span className='text-lg font-bold'>{name}</span>
-                                        {seasonings.length > 0 && (
-                                            <span className='flex flex-wrap gap-1.5'>
-                                                {seasonings.map((s) => (
-                                                    <Chip key={s} className='bg-[#fdeee4] !text-xs'>{s}</Chip>
-                                                ))}
-                                            </span>
-                                        )}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
+                    </div>
+
+                    <div className={`rounded-3xl border-[6px] border-[#e0a24d] ${PANEL_BG} p-6 sm:p-8`}>
+                        <SectionHeading title='Snacks' />
+                        <ul className='grid grid-cols-2 gap-6 lg:grid-cols-4'>
+                            {SNACKS.map(({ name, image, seasonings }) => (
+                                <li key={name} className='flex flex-col items-center text-center'>
+                                    <img src={image} alt={name} loading='lazy' className='aspect-square w-full max-w-[14rem] object-contain' />
+                                    <p className='mt-2 text-lg font-bold'>{name}</p>
+                                    {seasonings.length > 0 && (
+                                        <p className='mt-1 flex flex-wrap justify-center gap-1.5'>
+                                            {seasonings.map((s) => (
+                                                <Chip key={s} className='bg-white !text-xs'>{s}</Chip>
+                                            ))}
+                                        </p>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
                     </div>
                 </section>
             </main>
