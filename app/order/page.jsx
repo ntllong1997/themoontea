@@ -274,6 +274,9 @@ export default function OrderSystem() {
         return history
             .map((order) => ({
                 orderNumber: order.orderNumber,
+                source: order.source,
+                note: order.note,
+                customerName: order.customerName,
                 items: order.items
                     .map((item, i) => ({ item, itemIndex: i }))
                     .filter(({ item }) => visiblePanels.has(item.type)),

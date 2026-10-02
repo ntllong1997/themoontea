@@ -28,6 +28,8 @@ export default async function MenuPage() {
     const nav = [
         ...sections.map((section) => ({ href: `#${section.id}`, label: section.navLabel ?? section.title })),
         { href: '#popups', label: 'Pop-ups' },
+        { href: '/loyalty', label: 'Rewards' },
+        { href: '/order/online', label: 'Order ahead' },
     ];
     return (
         <div className='bg-[radial-gradient(ellipse_at_top,_#FDF8F1_0%,_#F8EFE3_60%)]'>
@@ -77,7 +79,7 @@ function Header({ nav }) {
                                 <a
                                     href={link.href}
                                     className={
-                                        link.href === '#popups'
+                                        link.href === '/order/online'
                                             ? 'block rounded-full bg-moon-ink px-3 py-1.5 text-white transition hover:bg-moon-orange'
                                             : 'block rounded-full px-3 py-1.5 transition hover:bg-white'
                                     }
@@ -97,7 +99,7 @@ function Header({ nav }) {
                             <a
                                 href={link.href}
                                 className={
-                                    link.href === '#popups'
+                                    link.href === '/order/online'
                                         ? 'block rounded-full bg-moon-ink px-4 py-2 text-white active:bg-moon-orange'
                                         : 'block rounded-full bg-white px-4 py-2 ring-1 ring-moon-caramel/30 active:bg-moon-caramel active:text-white'
                                 }

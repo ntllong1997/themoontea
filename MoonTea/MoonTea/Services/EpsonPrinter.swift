@@ -235,6 +235,11 @@ final class EpsonPrinter: NSObject {
         let dateString: String
         let cashappURL: String
         let cashTag: String
+        // Website orders. Optional with defaults so print jobs queued by an
+        // older build (persisted by PrintQueueStore) still decode.
+        var isOnline: Bool? = nil
+        var customerName: String? = nil
+        var note: String? = nil
 
         nonisolated struct LineItem: Codable, Sendable {
             let name: String

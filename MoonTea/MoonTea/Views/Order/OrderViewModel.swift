@@ -575,7 +575,10 @@ final class OrderViewModel {
             paymentMethod: methodLabel,
             dateString: df.string(from: Date()),
             cashappURL: url,
-            cashTag: tag
+            cashTag: tag,
+            isOnline: items.first?.isOnline,
+            customerName: items.first?.customerName,
+            note: items.first?.note
         )
 
         do { try await EpsonPrinter.shared.print(payload) }

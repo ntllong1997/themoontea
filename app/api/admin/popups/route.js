@@ -4,7 +4,7 @@ import { requireStaff } from '@/lib/auth/requireStaff';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parsePopupInput, popupFromRow } from '@/lib/site/popups';
 
-const COLUMNS = 'id, date, start_time, end_time, name, place, address, note';
+const COLUMNS = 'id, date, start_time, end_time, name, place, address, note, latitude, longitude';
 
 const failure = (error, status = 500) =>
     NextResponse.json({ error: error?.message ?? String(error) }, { status });

@@ -1,5 +1,7 @@
-export const metadata = { title: 'Order online' };
+import { customerSiteClass } from '@/lib/site/fonts';
 
-export default function Layout({ children }) {
-    return children;
+export const metadata = { title: { absolute: 'Order ahead · The Moon Tea' } };
+
+export default function OnlineOrderLayout({ children }) {
+    return <div className={customerSiteClass}>{children}</div>;
 }

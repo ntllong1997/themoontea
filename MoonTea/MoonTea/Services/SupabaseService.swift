@@ -287,4 +287,48 @@ actor SupabaseService {
         let req = try makeRequest(path: "/rest/v1/rpc/replace_order_items", method: "POST", body: body)
         return try await run(req, as: [Order].self)
     }
+
+    // MARK: - Online orders (print queue)
+
+    /// An online order to print, as `claim_online_orders` returns it.
+    struct OnlineOrderToPrint: Decodable, Sendable {
+        struct Item: Decodable, Sendable {
+            let name: String
+            let qty: Int
+            let price: Double
+            let type: String?
+        }
+        let id: UUID
+        let order_number: Int
+        let customer_name: String
+        let note: String?
+        let items: [Item]
+        let subtotal: Double
+        let tax: Double
+        let total: Double
+        let reward_used: Bool
+    }
+
+    /// Claims up to 5 unprinted online orders for this device. The database
+    /// hands each order to one device only; an order claimed but not marked
+    /// printed within 2 minutes is offered again, so none is ever lost.
+    func claimOnlineOrders(device: String) async throws -> [OnlineOrderToPrint] {
+        struct Params: Encodable {
+            let p_device: String
+            let p_location: Int
+        }
+        let body = try JSONEncoder().encode(Params(p_device: device, p_location: AppConstants.locationID))
+        let req = try makeRequest(path: "/rest/v1/rpc/claim_online_orders", method: "POST", body: body)
+        return try await run(req, as: [OnlineOrderToPrint].self)
+    }
+
+    func markOnlineOrderPrinted(id: UUID, device: String) async throws {
+        struct Params: Encodable {
+            let p_id: UUID
+            let p_device: String
+        }
+        let body = try JSONEncoder().encode(Params(p_id: id, p_device: device))
+        let req = try makeRequest(path: "/rest/v1/rpc/mark_online_order_printed", method: "POST", body: body)
+        _ = try await run(req, as: Bool.self)
+    }
 }

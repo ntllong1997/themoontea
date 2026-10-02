@@ -39,9 +39,20 @@ struct Order: Codable, Hashable, Identifiable, Sendable {
     /// Which shop the order was taken at. Only read back from the server; the
     /// value written is always `AppConstants.locationID`.
     var location: Int?
+    /// "online" for orders placed (and paid) on the website; nil for till orders.
+    /// Read-only here: the iPad never writes these three.
+    var source: String?
+    /// The customer's note from the website ("less ice").
+    var note: String?
+    /// The name the customer gave on the website.
+    var customerName: String?
+
+    var isOnline: Bool { source == "online" }
 
     enum CodingKeys: String, CodingKey {
         case id, orderNumber, name, price, type, timestamp, phone, paymentMethod, quantity, location
+        case source, note
+        case customerName = "customer_name"
     }
 
     init(
@@ -85,6 +96,9 @@ struct Order: Codable, Hashable, Identifiable, Sendable {
         paymentMethod = try c.decodeIfPresent(String.self, forKey: .paymentMethod)
         quantity = try c.decodeIfPresent(Int.self, forKey: .quantity)
         location = try? Self.lenientInt(c, .location)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
+        note = try? c.decodeIfPresent(String.self, forKey: .note)
+        customerName = try? c.decodeIfPresent(String.self, forKey: .customerName)
     }
 
     private static func lenientInt(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) throws -> Int {
@@ -110,6 +124,9 @@ struct OrderGroup: Identifiable, Hashable, Sendable {
     var id: Int { orderNumber }
 
     var phone: String? { items.first?.phone }
+    var isOnline: Bool { items.first?.isOnline ?? false }
+    var note: String? { items.first?.note.flatMap { $0.isEmpty ? nil : $0 } }
+    var customerName: String? { items.first?.customerName.flatMap { $0.isEmpty ? nil : $0 } }
     var subtotal: Double { items.reduce(0) { $0 + $1.price } }
     func total(taxRate: Double) -> Double { subtotal * (1 + taxRate) }
 }

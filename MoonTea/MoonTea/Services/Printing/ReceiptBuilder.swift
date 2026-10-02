@@ -36,6 +36,28 @@ enum ReceiptBuilder {
         printer.addText("Order #\(payload.orderNumber)\n")
         printer.addTextSize(1, height: 1)
         printer.addTextStyle(kFalse, ul: kFalse, em: kFalse, color: kColor1)
+
+        // Website order: say so loudly, with the name to call and their note.
+        let isOnline = payload.isOnline == true
+        if isOnline {
+            printer.addText("\n")
+            printer.addTextSize(2, height: 1)
+            printer.addTextStyle(kTrue, ul: kFalse, em: kTrue, color: kColor1)   // reversed: white on black
+            printer.addText(" ONLINE - PAID \n")
+            printer.addTextStyle(kFalse, ul: kFalse, em: kFalse, color: kColor1)
+            printer.addTextSize(1, height: 1)
+            if let name = payload.customerName, !name.isEmpty {
+                printer.addTextStyle(kFalse, ul: kFalse, em: kTrue, color: kColor1)
+                printer.addText("Name: \(name)\n")
+                printer.addTextStyle(kFalse, ul: kFalse, em: kFalse, color: kColor1)
+            }
+        }
+        if let note = payload.note, !note.isEmpty {
+            printer.addText("\n")
+            printer.addTextStyle(kFalse, ul: kFalse, em: kTrue, color: kColor1)
+            printer.addText("NOTE: \(note)\n")
+            printer.addTextStyle(kFalse, ul: kFalse, em: kFalse, color: kColor1)
+        }
         printer.addText("\n")
         printer.addText(divider)
 
@@ -68,19 +90,22 @@ enum ReceiptBuilder {
         printer.addText("Please show this when\nyou pick up.\n")
         printer.addFeedLine(1)
 
-        printer.addTextStyle(kFalse, ul: kFalse, em: kTrue, color: kColor1)
-        printer.addText("Pay with CashApp\n")
-        printer.addTextStyle(kFalse, ul: kFalse, em: kFalse, color: kColor1)
+        // Already paid online, so no "Pay with CashApp" code.
+        if !isOnline {
+            printer.addTextStyle(kFalse, ul: kFalse, em: kTrue, color: kColor1)
+            printer.addText("Pay with CashApp\n")
+            printer.addTextStyle(kFalse, ul: kFalse, em: kFalse, color: kColor1)
 
-        printer.addSymbol(
-            payload.cashappURL,
-            type: kSymbolQRModel2,
-            level: kLevelM,
-            width: 6,
-            height: 6,
-            size: 0
-        )
-        printer.addText(payload.cashTag + "\n")
+            printer.addSymbol(
+                payload.cashappURL,
+                type: kSymbolQRModel2,
+                level: kLevelM,
+                width: 6,
+                height: 6,
+                size: 0
+            )
+            printer.addText(payload.cashTag + "\n")
+        }
         printer.addFeedLine(2)
         printer.addCut(kCutFeed)
     }

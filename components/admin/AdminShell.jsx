@@ -1,15 +1,16 @@
 'use client';
 
-// Shared frame for the staff pages that edit the customer site: the header,
-// a switch between Menu Items and Pop-up Calendar, and a setup-problem banner.
+// Shared frame for the staff pages behind the customer site: the header, a
+// switch between Menu Items, Pop-up Calendar and Rewards, and a setup banner.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/site/adminApi';
 
 const PAGES = [
-    { id: 'items', href: '/admin/menu', label: '🧋 Menu items' },
-    { id: 'popups', href: '/admin/popups', label: '📅 Pop-up calendar' },
+    { id: 'items', href: '/admin/menu', label: '🧋 Menu' },
+    { id: 'popups', href: '/admin/popups', label: '📅 Pop-ups' },
+    { id: 'loyalty', href: '/admin/loyalty', label: '🎁 Rewards' },
 ];
 
 export default function AdminShell({ active, title, children }) {
@@ -32,7 +33,7 @@ export default function AdminShell({ active, title, children }) {
                     </a>
                 </div>
                 <nav aria-label='Site editor pages' className='mx-auto max-w-3xl px-4 pb-3'>
-                    <div className='grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1'>
+                    <div className='grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1'>
                         {PAGES.map((page) => (
                             <Link
                                 key={page.id}

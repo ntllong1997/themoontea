@@ -175,6 +175,9 @@ export default function StationPage({ category }) {
     const filteredOrders = history
         .map((order) => ({
             orderNumber: order.orderNumber,
+            source: order.source,
+            note: order.note,
+            customerName: order.customerName,
             items: order.items
                 .map((item, i) => ({ item, itemIndex: i }))
                 .filter(({ item }) => item.type === categoryKey),

@@ -13,9 +13,11 @@ struct MoonTeaApp: App {
             case .active:
                 SquareService.shared.handleAppDidBecomeActive()
                 EpsonPrinter.shared.handleAppDidBecomeActive()
+                OnlineOrderPrinter.shared.start()
             case .background:
                 SquareService.shared.handleAppDidBackground()
                 EpsonPrinter.shared.handleAppDidBackground()
+                OnlineOrderPrinter.shared.stop()
             default:
                 break
             }

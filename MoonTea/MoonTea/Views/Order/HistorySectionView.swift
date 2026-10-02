@@ -105,7 +105,25 @@ struct HistorySectionView: View {
 
     private func orderCard(group: OrderGroup, items: [Order]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Website orders are already paid; make them impossible to miss.
+            if group.isOnline {
+                Text("🌐 ONLINE · PAID" + (group.customerName.map { " · \($0)" } ?? ""))
+                    .font(.system(size: isStation ? 16 : 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.purple)
+            }
             orderCardHeader(group: group)
+            if let note = group.note {
+                Text("📝 Note: \(note)")
+                    .font(.system(size: isStation ? 16 : 13, weight: .semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.yellow.opacity(0.35))
+            }
 
             VStack(spacing: isStation ? 6 : 4) {
                 ForEach(items, id: \.id) { item in
@@ -118,7 +136,7 @@ struct HistorySectionView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Theme.cardBorder, lineWidth: 0.5)
+                .stroke(group.isOnline ? Color.purple : Theme.cardBorder, lineWidth: group.isOnline ? 2 : 0.5)
         )
     }
 

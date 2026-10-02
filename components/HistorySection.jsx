@@ -52,13 +52,25 @@ export default function HistorySection({
                         No orders yet.
                     </p>
                 ) : (
-                    orders.map(({ orderNumber, items }) => {
+                    orders.map(({ orderNumber, items, source, note, customerName }) => {
                         const phone = getOrderPhone ? getOrderPhone(orderNumber) : '';
+                        const isOnline = source === 'online';
                         return (
                             <div
                                 key={`${sectionKey}-${orderNumber}`}
-                                className='mb-4 border rounded-lg overflow-hidden'
+                                className={`mb-4 border rounded-lg overflow-hidden ${isOnline ? 'border-2 border-violet-600' : ''}`}
                             >
+                                {/* Website orders are already paid; make them impossible to miss. */}
+                                {isOnline && (
+                                    <div className='bg-violet-700 px-3 py-1.5 text-sm font-bold text-white'>
+                                        🌐 ONLINE · PAID{customerName ? ` · ${customerName}` : ''}
+                                    </div>
+                                )}
+                                {note && (
+                                    <div className='border-b border-amber-300 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950'>
+                                        📝 Note: {note}
+                                    </div>
+                                )}
                                 <div className='flex items-center px-3 py-2 bg-gray-50 border-b gap-2'>
                                     <p className='font-semibold text-sm shrink-0'>
                                         Order #{orderNumber}
