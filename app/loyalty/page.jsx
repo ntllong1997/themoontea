@@ -1,36 +1,31 @@
 'use client';
 
-// Customers check their punch card by phone number.
+// Customers see their punch card after proving their phone number with a
+// texted code. The browser stays signed in for 30 days.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import PhoneVerify from '@/components/site/PhoneVerify';
 import PunchCard from '@/components/site/PunchCard';
 import SimpleHeader from '@/components/site/SimpleHeader';
 
 export default function LoyaltyPage() {
-    const [phone, setPhone] = useState('');
-    const [card, setCard] = useState(null);
+    const [rewards, setRewards] = useState(null);
     const [error, setError] = useState('');
-    const [busy, setBusy] = useState(false);
 
-    async function lookUp(event) {
-        event.preventDefault();
-        setBusy(true);
-        setError('');
-        try {
-            const response = await fetch('/api/loyalty', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone }),
-            });
-            const body = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(body.error ?? 'Please try again.');
-            setCard(body.card);
-        } catch (e) {
-            setCard(null);
-            setError(e.message);
-        }
-        setBusy(false);
+    useEffect(() => {
+        fetch('/api/loyalty', { cache: 'no-store' })
+            .then(async (r) => {
+                const body = await r.json().catch(() => ({}));
+                if (!r.ok) throw new Error(body.error ?? 'Please try again.');
+                setRewards(body);
+            })
+            .catch((e) => setError(e.message));
+    }, []);
+
+    async function signOut() {
+        const response = await fetch('/api/loyalty', { method: 'DELETE' });
+        setRewards(await response.json().catch(() => ({ enabled: true, phone: null })));
     }
 
     return (
@@ -46,49 +41,44 @@ export default function LoyaltyPage() {
                     number when you order, at the stand or online.
                 </p>
 
-                <form onSubmit={lookUp} className='mt-6 space-y-3'>
-                    <label htmlFor='loyalty-phone' className='block text-sm font-bold'>
-                        Phone number
-                    </label>
-                    <input
-                        id='loyalty-phone'
-                        type='tel'
-                        inputMode='tel'
-                        autoComplete='tel'
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder='(956) 555-0123'
-                        className='w-full rounded-2xl border border-moon-caramel/50 bg-white px-4 py-3 text-lg focus:border-moon-ink focus:outline-none focus:ring-2 focus:ring-blue-600'
-                    />
-                    <button
-                        type='submit'
-                        disabled={busy || phone.replace(/\D/g, '').length < 10}
-                        className='w-full rounded-full bg-moon-ink py-3 font-bold text-white transition hover:bg-moon-orange disabled:opacity-40'
-                    >
-                        {busy ? 'Checking…' : 'Check my stamps'}
-                    </button>
-                </form>
-
-                {error && (
-                    <p role='alert' className='mt-4 rounded-2xl bg-red-50 p-3 text-sm text-red-800'>
-                        {error}
-                    </p>
-                )}
-
-                {card && (
-                    <div className='mt-6 space-y-4'>
-                        <PunchCard card={card} />
-                        {card.rewardsAvailable > 0 && (
-                            <p className='text-sm text-moon-muted'>
-                                Claim it by giving this number at the stand, or tick &ldquo;Use my free drink&rdquo; when you{' '}
-                                <Link href='/order/online' className='font-bold text-moon-orange underline'>
-                                    order ahead
-                                </Link>
-                                .
+                <div className='mt-6' aria-live='polite'>
+                    {error && (
+                        <p role='alert' className='rounded-2xl bg-red-50 p-3 text-sm text-red-800'>
+                            {error}
+                        </p>
+                    )}
+                    {!rewards && !error && <p className='text-moon-muted'>Loading…</p>}
+                    {rewards && !rewards.enabled && (
+                        <p className='rounded-2xl bg-white p-4 ring-1 ring-moon-caramel/30'>
+                            Checking your stamps online is coming soon. Your stamps still count: ask at the stand and we&apos;ll look them up.
+                        </p>
+                    )}
+                    {rewards?.enabled && !rewards.phone && (
+                        <PhoneVerify onVerified={setRewards} sendLabel='Text me a code to see my stamps' />
+                    )}
+                    {rewards?.phone && rewards.card && (
+                        <div className='space-y-4'>
+                            <PunchCard card={rewards.card} />
+                            {rewards.card.rewardsAvailable > 0 && (
+                                <p className='text-sm text-moon-muted'>
+                                    Claim it at the stand, or tick &ldquo;Use my free drink&rdquo; when you{' '}
+                                    <Link href='/order/online' className='font-bold text-moon-orange underline'>
+                                        order ahead
+                                    </Link>
+                                    .
+                                </p>
+                            )}
+                            <p className='flex flex-wrap items-center justify-between gap-2 text-sm'>
+                                <span>
+                                    Signed in as <strong>{rewards.display}</strong>
+                                </span>
+                                <button type='button' onClick={signOut} className='font-bold text-moon-orange underline'>
+                                    Sign out
+                                </button>
                             </p>
-                        )}
-                    </div>
-                )}
+                        </div>
+                    )}
+                </div>
 
                 <p className='mt-8 text-xs text-moon-muted'>
                     We only show stamp counts here, never your orders or other details.

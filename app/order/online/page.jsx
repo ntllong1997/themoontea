@@ -13,7 +13,8 @@ import Link from 'next/link';
 import { MapPin, Minus, Plus, Trash2 } from 'lucide-react';
 import { buildCartLine, categoryFor } from '@/lib/menu/catalog';
 import { formatTime, parseDate } from '@/lib/site/popups';
-import { LOYALTY_PUBLIC, normalizePhone } from '@/lib/online/loyalty';
+import { normalizePhone } from '@/lib/online/loyalty';
+import PhoneVerify from '@/components/site/PhoneVerify';
 import PunchCard from '@/components/site/PunchCard';
 import SimpleHeader from '@/components/site/SimpleHeader';
 
@@ -79,7 +80,9 @@ export default function OnlineOrderPage() {
     const [openDrink, setOpenDrink] = useState(null);
     const [drinkChoice, setDrinkChoice] = useState({ boba: '', addOns: { customization: false } });
     const [details, setDetails] = useState({ name: '', phone: '', note: '' });
-    const [loyalty, setLoyalty] = useState(null);
+    // This browser's rewards: { enabled, phone, display, card } (see /api/loyalty).
+    const [rewards, setRewards] = useState(null);
+    const [verifying, setVerifying] = useState(false);
     const [useReward, setUseReward] = useState(false);
     const [paying, setPaying] = useState(false);
     const [payError, setPayError] = useState('');
@@ -92,6 +95,15 @@ export default function OnlineOrderPage() {
             .then((r) => r.json().then((b) => (r.ok ? b : Promise.reject(new Error(b.error)))))
             .then(setStatus)
             .catch((e) => setLoadError(e.message || 'Online ordering is unavailable right now.'));
+        fetch('/api/loyalty', { cache: 'no-store' })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((body) => {
+                if (!body) return;
+                setRewards(body);
+                // A verified phone fills itself in.
+                if (body.display) setDetails((d) => (d.phone ? d : { ...d, phone: body.display }));
+            })
+            .catch(() => {});
     }, []);
 
     const open = status?.ordering.open === true;
@@ -162,23 +174,12 @@ export default function OnlineOrderPage() {
         return { subtotal, tax, total: subtotal + tax, freeDrink };
     }, [priced, useReward, status]);
 
-    // ── loyalty, as soon as a full phone number is typed ────────────────
+    // ── rewards: only for a phone this browser verified by text code ────
     const phoneDigits = normalizePhone(details.phone);
+    const loyalty = rewards?.phone && rewards.phone === phoneDigits ? rewards.card : null;
     useEffect(() => {
-        setLoyalty(null);
         setUseReward(false);
-        if (!LOYALTY_PUBLIC || !phoneDigits) return;
-        const controller = new AbortController();
-        fetch('/api/loyalty', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: phoneDigits }),
-            signal: controller.signal,
-        })
-            .then((r) => (r.ok ? r.json() : null))
-            .then((b) => b && setLoyalty(b.card))
-            .catch(() => {});
-        return () => controller.abort();
+        setVerifying(false);
     }, [phoneDigits]);
 
     // ── pay ─────────────────────────────────────────────────────────────
@@ -213,6 +214,8 @@ export default function OnlineOrderPage() {
             if (!response.ok) throw new Error(body.error ?? 'The payment did not go through. Please try again.');
             setPlaced(body);
             setCart([]);
+            setUseReward(false);
+            if (body.card) setRewards((r) => ({ ...r, card: body.card }));
         } catch (e) {
             setPayError(e.message);
         }
@@ -227,7 +230,7 @@ export default function OnlineOrderPage() {
     }, [placed]);
 
     const header = (
-        <SimpleHeader links={[{ href: '/menu', label: 'Menu' }, ...(LOYALTY_PUBLIC ? [{ href: '/loyalty', label: 'Rewards' }] : [])]} />
+        <SimpleHeader links={[{ href: '/menu', label: 'Menu' }, ...(rewards?.enabled ? [{ href: '/loyalty', label: 'Rewards' }] : [])]} />
     );
 
     // ── screens ─────────────────────────────────────────────────────────
@@ -255,7 +258,7 @@ export default function OnlineOrderPage() {
                             </>
                         )}
                     </p>
-                    {LOYALTY_PUBLIC && placed.card && <PunchCard card={placed.card} />}
+                    {placed.card && <PunchCard card={placed.card} />}
                     <button
                         type='button'
                         onClick={() => setPlaced(null)}
@@ -296,7 +299,7 @@ export default function OnlineOrderPage() {
                         <Link href='/menu#popups' className='rounded-full bg-moon-ink py-3 font-bold text-white hover:bg-moon-orange'>
                             See the pop-up calendar
                         </Link>
-                        {LOYALTY_PUBLIC && (
+                        {rewards?.enabled && (
                             <Link href='/loyalty' className='rounded-full bg-white py-3 font-bold ring-1 ring-moon-caramel/40 hover:bg-moon-paper'>
                                 Check my rewards
                             </Link>
@@ -578,7 +581,7 @@ export default function OnlineOrderPage() {
                             />
                         </label>
                         <label className='block'>
-                            <span className='mb-1 block text-sm font-bold'>{LOYALTY_PUBLIC ? 'Phone (for rewards)' : 'Phone'}</span>
+                            <span className='mb-1 block text-sm font-bold'>{rewards?.enabled ? 'Phone (for rewards)' : 'Phone'}</span>
                             <input
                                 type='tel'
                                 inputMode='tel'
@@ -590,6 +593,21 @@ export default function OnlineOrderPage() {
                             />
                         </label>
                     </div>
+                    {rewards?.enabled && phoneDigits && !loyalty && (
+                        <div className='mt-3 rounded-2xl bg-moon-cream p-3 text-sm'>
+                            {verifying ? (
+                                <PhoneVerify key={phoneDigits} phone={phoneDigits} onVerified={setRewards} />
+                            ) : (
+                                <p className='flex flex-wrap items-center gap-x-2 gap-y-1'>
+                                    <span>🎁 Collecting stamps?</span>
+                                    <button type='button' onClick={() => setVerifying(true)} className='font-bold text-moon-orange underline'>
+                                        Verify this number
+                                    </button>
+                                    <span className='text-moon-muted'>to see your stamps and use a free drink.</span>
+                                </p>
+                            )}
+                        </div>
+                    )}
                     {loyalty && (
                         <div className='mt-3 rounded-2xl bg-moon-cream p-3 text-sm' aria-live='polite'>
                             {loyalty.rewardsAvailable > 0 ? (

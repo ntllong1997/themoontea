@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { checkNearby, parseCoordinates } from '@/lib/online/geo';
-import { LOYALTY_PUBLIC, normalizePhone, punchCard } from '@/lib/online/loyalty';
+import { normalizePhone, punchCard } from '@/lib/online/loyalty';
 import { priceOnlineOrder } from '@/lib/online/onlineMenu';
 import { currentOrderingWindow, loyaltyCard, siteMenuRows } from '@/lib/online/onlineData';
 import { shopDayBounds, shopTimeZone } from '@/lib/online/shopTime';
+import { verifiedPhone } from '@/lib/online/rewardsSession';
 import { chargeCard, refundPayment, squareConfig } from '@/lib/online/square';
 import { ONLINE_CARD_METHOD } from '@/lib/orders/paymentMethods';
 import { toOrderRows } from '@/lib/orders/orderModel';
@@ -78,7 +79,13 @@ export async function POST(request) {
         }
 
         // 3 ── price it
-        const useReward = LOYALTY_PUBLIC && body.useReward === true;
+        // Rewards belong to whoever proved the number by text code: only then
+        // can this order use a free drink or see the punch card.
+        const ownsPhone = (await verifiedPhone(request)) === digits;
+        if (body.useReward === true && !ownsPhone) {
+            return reply(403, { error: 'Please verify your phone number to use your free drink.' });
+        }
+        const useReward = ownsPhone && body.useReward === true;
         const card = useReward ? await loyaltyCard(digits, supabase) : null;
         const priced = priceOnlineOrder(body.lines, await siteMenuRows(supabase), {
             useReward,
@@ -114,7 +121,7 @@ export async function POST(request) {
                 total: Number(existing.total),
                 receiptUrl: existing.square_receipt_url,
                 rewardApplied: existing.reward_used,
-                card: LOYALTY_PUBLIC ? await loyaltyCard(digits, supabase) : null,
+                card: ownsPhone ? await loyaltyCard(digits, supabase) : null,
             });
         }
 
@@ -174,7 +181,7 @@ export async function POST(request) {
                 if (rewardError) console.error('[checkout] redemption not recorded', rewardError);
             }
 
-            const after = LOYALTY_PUBLIC ? await loyaltyCard(digits, supabase).catch(() => punchCard(0, 0)) : null;
+            const after = ownsPhone ? await loyaltyCard(digits, supabase).catch(() => punchCard(0, 0)) : null;
             return reply(200, {
                 orderNumber,
                 total: priced.total,
