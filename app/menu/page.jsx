@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { buildSections } from '@/lib/site/menu';
 import { getPublicMenuItems, getPublicPopups } from '@/lib/site/menuData';
 import PopupCalendar, { NextPopupTeaser } from '@/components/site/PopupCalendar';
+import { LOYALTY_PUBLIC } from '@/lib/online/loyalty';
 
 // Re-read the menu at most once a minute. Saving on /admin/menu refreshes it
 // straight away (revalidatePath), so this is only a safety net.
@@ -28,7 +29,7 @@ export default async function MenuPage() {
     const nav = [
         ...sections.map((section) => ({ href: `#${section.id}`, label: section.navLabel ?? section.title })),
         { href: '#popups', label: 'Pop-ups' },
-        { href: '/loyalty', label: 'Rewards' },
+        ...(LOYALTY_PUBLIC ? [{ href: '/loyalty', label: 'Rewards' }] : []),
         { href: '/order/online', label: 'Order ahead' },
     ];
     return (

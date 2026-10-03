@@ -73,7 +73,7 @@ isn't even installed. Safe to drop.
 
 | Route | What it is |
 |---|---|
-| `/login` | Staff sign-in. **Every route except `/menu`, `/order/online`, `/loyalty` and `/login` (and their `/api/order/*`, `/api/loyalty` APIs) needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
+| `/login` | Staff sign-in. **Every route except `/menu`, `/order/online` and `/login` (and the `/api/order/*` APIs) needs the staff password** (`/loyalty` too, once rewards are public) (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
 | `/admin/menu` | Manage the customer menu: Available / Sold out / Hidden, reorder, add and edit items with a photo |
 | `/admin/popups` | Manage the customer pop-up calendar: add, edit, copy to a new date, delete, and pin the spot online orders are checked against |
 | `/admin/loyalty` | Staff rewards lookup: a phone number's punch card, and "Give a free drink" at the stand |
@@ -81,7 +81,7 @@ isn't even installed. Safe to drop.
 | `/vendor` | Internal hub — links to Order Track, Inventory, Sales Summary |
 | `/order` | **The staff till.** Cart, payment method, receipt printing, today's history |
 | `/order/online` | **Customer order-ahead, paid by card (Square).** Open only during a pinned pop-up, within 1 mile of it. See [Online ordering](#online-ordering) |
-| `/loyalty` | Customer punch card: enter a phone number, see stamps and free drinks |
+| `/loyalty` | Customer punch card: enter a phone number, see stamps and free drinks. **Hidden for now** (staff-only) |
 | `/order/[station]` | Prep-station screen. Valid slugs come from `station.slug` in the catalog — currently `corndog` and `drink`. Anything else 404s |
 | `/orders` | Redirect to `/order` |
 | `/summary` | Sales summary with date-range pills, per-category and per-payment-method breakdown |
@@ -159,6 +159,10 @@ app is always Location 1 either way.)
 - **Printing:** the iPad app polls `claim_online_orders` every 5 seconds while it's open and a
   printer is saved. It prints each order once, then calls `mark_online_order_printed`. An order
   claimed but not printed within 2 minutes is offered again.
+- **Rewards are hidden from customers for now** (`LOYALTY_PUBLIC = false` in `lib/online/loyalty.js`):
+  no Rewards link, `/loyalty` needs the staff password, and online orders can't use a free drink,
+  because a phone number alone doesn't prove who the customer is. Staff still look customers up and
+  give free drinks at `/admin/loyalty`.
 - **Rewards:** every paid Boba drink on a phone number is a stamp; 9 stamps = 1 free drink
   (`lib/online/loyalty.js`). Stamps count from the `orders` table, so past till orders with a
   phone number count too. Free drinks used, online or at the stand, are recorded in

@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { MapPin, Minus, Plus, Trash2 } from 'lucide-react';
 import { buildCartLine, categoryFor } from '@/lib/menu/catalog';
 import { formatTime, parseDate } from '@/lib/site/popups';
-import { normalizePhone } from '@/lib/online/loyalty';
+import { LOYALTY_PUBLIC, normalizePhone } from '@/lib/online/loyalty';
 import PunchCard from '@/components/site/PunchCard';
 import SimpleHeader from '@/components/site/SimpleHeader';
 
@@ -167,7 +167,7 @@ export default function OnlineOrderPage() {
     useEffect(() => {
         setLoyalty(null);
         setUseReward(false);
-        if (!phoneDigits) return;
+        if (!LOYALTY_PUBLIC || !phoneDigits) return;
         const controller = new AbortController();
         fetch('/api/loyalty', {
             method: 'POST',
@@ -226,7 +226,9 @@ export default function OnlineOrderPage() {
         }
     }, [placed]);
 
-    const header = <SimpleHeader links={[{ href: '/menu', label: 'Menu' }, { href: '/loyalty', label: 'Rewards' }]} />;
+    const header = (
+        <SimpleHeader links={[{ href: '/menu', label: 'Menu' }, ...(LOYALTY_PUBLIC ? [{ href: '/loyalty', label: 'Rewards' }] : [])]} />
+    );
 
     // ── screens ─────────────────────────────────────────────────────────
     if (placed) {
@@ -253,7 +255,7 @@ export default function OnlineOrderPage() {
                             </>
                         )}
                     </p>
-                    {placed.card && <PunchCard card={placed.card} />}
+                    {LOYALTY_PUBLIC && placed.card && <PunchCard card={placed.card} />}
                     <button
                         type='button'
                         onClick={() => setPlaced(null)}
@@ -294,9 +296,11 @@ export default function OnlineOrderPage() {
                         <Link href='/menu#popups' className='rounded-full bg-moon-ink py-3 font-bold text-white hover:bg-moon-orange'>
                             See the pop-up calendar
                         </Link>
-                        <Link href='/loyalty' className='rounded-full bg-white py-3 font-bold ring-1 ring-moon-caramel/40 hover:bg-moon-paper'>
-                            Check my rewards
-                        </Link>
+                        {LOYALTY_PUBLIC && (
+                            <Link href='/loyalty' className='rounded-full bg-white py-3 font-bold ring-1 ring-moon-caramel/40 hover:bg-moon-paper'>
+                                Check my rewards
+                            </Link>
+                        )}
                     </div>
                 </div>
             </>
@@ -574,7 +578,7 @@ export default function OnlineOrderPage() {
                             />
                         </label>
                         <label className='block'>
-                            <span className='mb-1 block text-sm font-bold'>Phone (for rewards)</span>
+                            <span className='mb-1 block text-sm font-bold'>{LOYALTY_PUBLIC ? 'Phone (for rewards)' : 'Phone'}</span>
                             <input
                                 type='tel'
                                 inputMode='tel'

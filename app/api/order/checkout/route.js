@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { checkNearby, parseCoordinates } from '@/lib/online/geo';
-import { normalizePhone, punchCard } from '@/lib/online/loyalty';
+import { LOYALTY_PUBLIC, normalizePhone, punchCard } from '@/lib/online/loyalty';
 import { priceOnlineOrder } from '@/lib/online/onlineMenu';
 import { currentOrderingWindow, loyaltyCard, siteMenuRows } from '@/lib/online/onlineData';
 import { shopDayBounds, shopTimeZone } from '@/lib/online/shopTime';
@@ -78,9 +78,10 @@ export async function POST(request) {
         }
 
         // 3 ── price it
-        const card = body.useReward ? await loyaltyCard(digits, supabase) : null;
+        const useReward = LOYALTY_PUBLIC && body.useReward === true;
+        const card = useReward ? await loyaltyCard(digits, supabase) : null;
         const priced = priceOnlineOrder(body.lines, await siteMenuRows(supabase), {
-            useReward: body.useReward === true,
+            useReward,
             rewardsAvailable: card?.rewardsAvailable ?? 0,
         });
         if (priced.error) return reply(400, { error: priced.error });
@@ -113,7 +114,7 @@ export async function POST(request) {
                 total: Number(existing.total),
                 receiptUrl: existing.square_receipt_url,
                 rewardApplied: existing.reward_used,
-                card: await loyaltyCard(digits, supabase),
+                card: LOYALTY_PUBLIC ? await loyaltyCard(digits, supabase) : null,
             });
         }
 
@@ -173,7 +174,7 @@ export async function POST(request) {
                 if (rewardError) console.error('[checkout] redemption not recorded', rewardError);
             }
 
-            const after = await loyaltyCard(digits, supabase).catch(() => punchCard(0, 0));
+            const after = LOYALTY_PUBLIC ? await loyaltyCard(digits, supabase).catch(() => punchCard(0, 0)) : null;
             return reply(200, {
                 orderNumber,
                 total: priced.total,
