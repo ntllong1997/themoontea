@@ -100,6 +100,11 @@ table, etc.). It needs no sign-in.
   the page is never empty.
 - **Pop-up dates** live in the Supabase table `site_popups`, managed at `/admin/popups` (same security as menu items: public read, staff-only writes through
   `app/api/admin/popups/*`). Past dates drop off the public calendar on their own.
+- **Phone calendar feed:** `/menu/popups.ics` is the pop-up calendar as an iCalendar feed
+  (`lib/site/ical.js`), public like `/menu`. The Pop-ups tab has an **Add to iPhone Calendar**
+  button (a `webcal://` link) and a copyable link for Google Calendar. Subscribed calendars check for
+  changes about every hour, so edits show up on their own. Pop-up times are read in the shop's time
+  zone, `SHOP_TIME_ZONE` (default `America/Chicago`). The feed keeps the last 60 days of pop-ups.
 
 ---
 

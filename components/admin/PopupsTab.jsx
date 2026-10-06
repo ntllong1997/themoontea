@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarPlus, Copy, Loader2, MapPin, Clock, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { dateKey, formatTime, parseDate } from '@/lib/site/popups';
 import { api, jsonRequest } from '@/lib/site/adminApi';
+import CalendarSubscribe from '@/components/admin/CalendarSubscribe';
 import Dialog from '@/components/admin/Dialog';
 
 const inputClass =
@@ -46,6 +47,8 @@ export default function PopupsTab() {
                     These show on the pop-up calendar on the customer menu. Past dates disappear from it on their
                     own.
                 </p>
+
+                <CalendarSubscribe />
 
                 {error && (
                     <div role='alert' className='flex items-start gap-3 rounded-2xl bg-red-50 p-4 text-sm text-red-800'>
