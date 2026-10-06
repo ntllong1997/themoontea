@@ -161,6 +161,9 @@ function PopupRow({ popup, isToday, onEdit }) {
                     <p className='flex items-center gap-1 truncate text-sm text-gray-500'>
                         <MapPin className='h-3.5 w-3.5 shrink-0' /> {popup.place}
                     </p>
+                    <p className='text-xs font-semibold text-gray-600'>
+                        {popup.latitude != null ? '🛒 Online ordering on' : 'No pin: in-person only'}
+                    </p>
                 </div>
                 <Pencil className='h-4 w-4 shrink-0 text-gray-500' />
             </button>
@@ -178,9 +181,52 @@ function PopupEditor({ popup, onClose, onDuplicate, onSaved, onDeleted }) {
         place: popup.place ?? '',
         address: popup.address ?? '',
         note: popup.note ?? '',
+        latitude: popup.latitude ?? null,
+        longitude: popup.longitude ?? null,
     });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const [pinning, setPinning] = useState('');
+    const [pinMessage, setPinMessage] = useState('');
+
+    const setPin = (latitude, longitude, message) => {
+        setForm((f) => ({ ...f, latitude: Math.round(latitude * 1e6) / 1e6, longitude: Math.round(longitude * 1e6) / 1e6 }));
+        setPinMessage(message);
+    };
+
+    // Standing at the spot is the most accurate way to pin it.
+    function pinHere() {
+        if (!('geolocation' in navigator)) return setPinMessage('This browser cannot share its location.');
+        setPinning('here');
+        setPinMessage('');
+        navigator.geolocation.getCurrentPosition(
+            ({ coords }) => {
+                setPin(coords.latitude, coords.longitude, `Pinned to where you are now (±${Math.round(coords.accuracy)} m).`);
+                setPinning('');
+            },
+            () => {
+                setPinMessage('Could not get your location. Allow location access, or use "Find from address".');
+                setPinning('');
+            },
+            { enableHighAccuracy: true, timeout: 15000 }
+        );
+    }
+
+    async function pinFromAddress() {
+        const query = [form.address, form.place].filter(Boolean).join(', ');
+        if (!query) return setPinMessage('Type the place or address first.');
+        setPinning('address');
+        setPinMessage('');
+        try {
+            const hit = await api(`/api/admin/geocode?q=${encodeURIComponent(query)}`);
+            setPin(hit.latitude, hit.longitude, `Found: ${hit.label}. Check it on the map.`);
+        } catch (e) {
+            setPinMessage(e.message);
+        }
+        setPinning('');
+    }
+
+    const pinned = form.latitude != null && form.longitude != null;
 
     const set = (key) => (event) => setForm((f) => ({ ...f, [key]: event.target.value }));
 
@@ -274,6 +320,61 @@ function PopupEditor({ popup, onClose, onDuplicate, onSaved, onDeleted }) {
                             placeholder='e.g. Look for the moon flag!'
                         />
                     </label>
+
+                    <fieldset className='rounded-2xl border border-gray-300 p-4'>
+                        <legend className='px-1 text-sm font-semibold'>Location for online ordering</legend>
+                        <p className='text-sm text-gray-600'>
+                            Customers can order ahead only while they&apos;re within 1 mile of this pin. No pin, no online orders.
+                        </p>
+                        <p className='mt-2 text-sm font-semibold' aria-live='polite'>
+                            {pinned ? (
+                                <>
+                                    📍 Pinned at {form.latitude.toFixed(5)}, {form.longitude.toFixed(5)} ·{' '}
+                                    <a
+                                        href={`https://www.google.com/maps/search/?api=1&query=${form.latitude},${form.longitude}`}
+                                        target='_blank'
+                                        rel='noopener noreferrer'
+                                        className='text-blue-700 underline'
+                                    >
+                                        View on map<span className='sr-only'> (opens in a new tab)</span>
+                                    </a>
+                                </>
+                            ) : (
+                                <span className='text-gray-600'>Not pinned: online ordering stays off for this pop-up.</span>
+                            )}
+                        </p>
+                        {pinMessage && <p className='mt-1 text-sm text-gray-700'>{pinMessage}</p>}
+                        <div className='mt-3 flex flex-wrap gap-2'>
+                            <button
+                                type='button'
+                                onClick={pinHere}
+                                disabled={Boolean(pinning)}
+                                className='rounded-xl bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:opacity-80 disabled:opacity-40'
+                            >
+                                {pinning === 'here' ? 'Locating…' : 'Use my location'}
+                            </button>
+                            <button
+                                type='button'
+                                onClick={pinFromAddress}
+                                disabled={Boolean(pinning)}
+                                className='rounded-xl border border-gray-300 px-3 py-2 text-sm font-semibold hover:bg-gray-50 disabled:opacity-40'
+                            >
+                                {pinning === 'address' ? 'Searching…' : 'Find from address'}
+                            </button>
+                            {pinned && (
+                                <button
+                                    type='button'
+                                    onClick={() => {
+                                        setForm((f) => ({ ...f, latitude: null, longitude: null }));
+                                        setPinMessage('Pin removed.');
+                                    }}
+                                    className='rounded-xl px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50'
+                                >
+                                    Remove pin
+                                </button>
+                            )}
+                        </div>
+                    </fieldset>
 
                     {error && <p role='alert' className='rounded-xl bg-red-50 p-3 text-sm text-red-800'>{error}</p>}
 

@@ -44,6 +44,11 @@ Put these in `.env.local` (gitignored via the `.env*` rule).
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | same as above | **yes** |
 | `STAFF_PASSWORD` | `middleware.js`, `app/api/login` — the one password staff type at `/login` | **yes** (without it nobody can sign in) |
 | `SUPABASE_SERVICE_ROLE_KEY` | `lib/supabase/admin.js` — server only, used by `/admin/menu` to save items and photos. Supabase → Project Settings → API | **yes** for `/admin/menu` |
+| `SQUARE_ENVIRONMENT` | `lib/online/square.js` — `sandbox` (test cards, no real money) or `production` | for online ordering (default `sandbox`) |
+| `SQUARE_APPLICATION_ID` | same — Square Developer → your app → Credentials | for online ordering |
+| `SQUARE_LOCATION_ID` | same — Square Developer → your app → Locations | for online ordering |
+| `SQUARE_ACCESS_TOKEN` | same — Credentials → Access token. **Secret, server only** | for online ordering |
+| `SHOP_TIME_ZONE` | `lib/online/shopTime.js` — the time zone pop-up dates and times are in | no (default `America/Chicago`) |
 | `NEXT_PUBLIC_INVENTORY_WEBHOOK_URL` | `app/inventory/page.jsx` — posts inventory submissions | optional (defaults to `''`) |
 | `PRINTER_PORT` | `print-server.js` — COM port from Device Manager → Ports | no (default `COM9`) |
 | `PRINTER_BAUD` | `print-server.js` | no (default `9600`) |
@@ -52,7 +57,9 @@ Put these in `.env.local` (gitignored via the `.env*` rule).
 
 > The first two are the only ones the web app needs to boot; add `STAFF_PASSWORD` and
 > `SUPABASE_SERVICE_ROLE_KEY` too, or staff can't sign in or edit the menu.
-> Never prefix the service-role key with `NEXT_PUBLIC_`: it bypasses all database security. The `PRINTER_*`
+> Never prefix the service-role key or `SQUARE_ACCESS_TOKEN` with `NEXT_PUBLIC_`: the first bypasses all
+> database security, the second can move money. Without all three `SQUARE_*` ids, `/order/online` says
+> online payments aren't set up and takes no orders. The `PRINTER_*`
 > variables are read by the standalone print server process, not by Next.js.
 
 Existing `.env.local` files may also carry `NEXT_PUBLIC_SMS_WEBHOOK_URL`,
@@ -66,13 +73,13 @@ isn't even installed. Safe to drop.
 
 | Route | What it is |
 |---|---|
-| `/login` | Staff sign-in. **Every route except `/menu`, `/order/online` and `/login` needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
+| `/login` | Staff sign-in. **Every route except `/menu`, `/order/online` and `/login` (and the `/api/order/*` APIs) needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
 | `/admin/menu` | Manage the customer menu: Available / Sold out / Hidden, reorder, add and edit items with a photo |
-| `/admin/popups` | Manage the customer pop-up calendar: add, edit, copy to a new date, delete |
+| `/admin/popups` | Manage the customer pop-up calendar: add, edit, copy to a new date, delete, and pin the spot online orders are checked against |
 | `/` | Redirect to `/vendor` |
 | `/vendor` | Internal hub — links to Order Track, Inventory, Sales Summary |
 | `/order` | **The staff till.** Cart, payment method, receipt printing, today's history |
-| `/order/online` | Customer-facing self-order. Writes to the same `orders` table but never prints |
+| `/order/online` | **Customer order-ahead, paid by card (Square).** Open only during a pinned pop-up, within 1 mile of it. See [Online ordering](#online-ordering) |
 | `/order/[station]` | Prep-station screen. Valid slugs come from `station.slug` in the catalog — currently `corndog` and `drink`. Anything else 404s |
 | `/orders` | Redirect to `/order` |
 | `/summary` | Sales summary with date-range pills, per-category and per-payment-method breakdown |
@@ -126,6 +133,34 @@ The two-location split is switched **off**: `LOCATIONS_ENABLED = false` in
 `lib/locations.js`. Every device is Location 1, nothing asks which location it is at, and
 the sales summary covers all orders. Set it back to `true` to restore the picker. (The iPad
 app is always Location 1 either way.)
+
+---
+
+## Online ordering
+
+`/order/online` lets a customer at a pop-up order and pay by card, then pick up at the stand.
+
+- **When:** only while a pop-up in `site_popups` is running *and* has a location pin (set at
+  `/admin/popups`). Online orders close 15 minutes before the pop-up ends.
+- **Where:** the browser's location must be within 1 mile of the pin (`lib/online/geo.js`).
+  The checkout repeats the check. A determined customer can fake their browser location,
+  so this keeps honest people from ordering from home; it isn't a security guarantee.
+- **Price:** the server recomputes every price from `lib/menu/catalog.js` and refuses items
+  marked Sold out or Hidden at `/admin/menu`. The browser never sends a price.
+- **Payment:** Square's Web Payments SDK turns the card into a one-time token in the browser.
+  `app/api/order/checkout` charges it, then saves the order: one `orders` row per unit
+  (`source = 'online'`, `paymentMethod = 'Online Card'`, plus `note` and `customer_name`)
+  and one `online_orders` row. If saving fails after the charge, it removes any rows it
+  wrote and refunds the card. A retried request with the same idempotency key returns the
+  first order instead of charging twice.
+- **Stations** show online orders with a purple **ONLINE · PAID** bar and the customer's note.
+- **Printing:** a web station (`/order/corndog`, `/order/drink`) with its printer connected
+  auto-prints new orders, online ones included, like any till order. The iPad app doesn't print
+  online orders on its own yet.
+
+To go live: create an app at developer.squareup.com, put its **sandbox** ids in Vercel, and test
+with card `4111 1111 1111 1111`. Then switch `SQUARE_ENVIRONMENT` to `production` with the
+production ids and redeploy.
 
 ---
 

@@ -1,8 +1,4 @@
-import { Abril_Fatface, Nunito, Playfair_Display } from 'next/font/google';
-
-const display = Abril_Fatface({ weight: '400', subsets: ['latin'], variable: '--font-display' });
-const script = Playfair_Display({ style: 'italic', subsets: ['latin'], variable: '--font-script' });
-const body = Nunito({ subsets: ['latin'], variable: '--font-body' });
+import { customerSiteClass } from '@/lib/site/fonts';
 
 export const metadata = {
     title: { absolute: 'The Moon Tea · Boba & Bites' },
@@ -16,7 +12,7 @@ export const metadata = {
 
 export default function MenuLayout({ children }) {
     return (
-        <div className={`${display.variable} ${script.variable} ${body.variable} min-h-full bg-moon-cream font-body text-moon-ink`}>
+        <div className={customerSiteClass}>
             {children}
         </div>
     );

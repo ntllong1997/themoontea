@@ -1,233 +1,618 @@
 'use client';
 
-// Customer-facing online ordering.
+// Customers order ahead at a pop-up and pay by card (Square).
 //
-// Orders land in the same `orders` table the staff till and the iPad app use,
-// sharing one daily order-number sequence, so an online order is numbered and
-// displayed exactly like one rung up in store. This page does NOT print —
-// contrast /order, the staff till, which prints locally at checkout.
-//
-// The table has no source/print_status columns, so an online order is not
-// distinguishable from an in-store one once saved, and there is no auto-print
-// queue for staff to claim: online orders appear in history and must be
-// printed manually from there.
+// The page only PREVIEWS prices; the server recomputes everything from the
+// till's catalog, re-checks that ordering is open and that the customer is
+// within a mile of the pop-up, then charges the card. Card details go straight
+// from Square's secure form to Square; this site only ever sees a token.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
-import { createOrder } from '@/lib/db';
-import { useCart } from '@/lib/orders/useCart';
-import { Card, CardContent } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import OrderPanel from '@/components/OrderPanel';
+import { MapPin, Minus, Plus, Trash2 } from 'lucide-react';
+import { buildCartLine, categoryFor } from '@/lib/menu/catalog';
+import { formatTime, parseDate } from '@/lib/site/popups';
+import { normalizePhone } from '@/lib/online/phone';
+import SimpleHeader from '@/components/site/SimpleHeader';
 
-const PHONE_DIGITS = 10;
+const money = (n) => `$${n.toFixed(2)}`;
+const toppingLabel = (t) => (t === 'Nothing' ? 'No boba' : t);
+const lastOrderTime = (end) => {
+    const [h, m] = end.split(':').map(Number);
+    const total = h * 60 + m - 15;
+    return formatTime(`${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`);
+};
 
-const countDigits = (value) => value.replace(/\D/g, '').length;
+/** A cart line's label and unit price, from the catalog (server re-checks). */
+function preview(line) {
+    const cartLine = buildCartLine(categoryFor(line.category), line.selection);
+    if (!cartLine) return null;
+    const label = cartLine.modifiers.length ? `${cartLine.name} (${cartLine.modifiers.join(', ')})` : cartLine.name;
+    return { label, price: cartLine.price, type: cartLine.type };
+}
+
+const sameSelection = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+function useSquareCard(square, enabled) {
+    const [state, setState] = useState({ card: null, error: '' });
+    const started = useRef(false);
+
+    useEffect(() => {
+        if (!square || !enabled || started.current) return;
+        started.current = true;
+        let cancelled = false;
+        (async () => {
+            try {
+                if (!window.Square) {
+                    await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = square.sdkUrl;
+                        script.onload = resolve;
+                        script.onerror = () => reject(new Error('Could not load the secure card form.'));
+                        document.head.appendChild(script);
+                    });
+                }
+                const payments = window.Square.payments(square.applicationId, square.locationId);
+                const card = await payments.card();
+                await card.attach('#square-card');
+                if (!cancelled) setState({ card, error: '' });
+            } catch (error) {
+                if (!cancelled) setState({ card: null, error: error.message || 'Could not load the secure card form.' });
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [square, enabled]);
+
+    return state;
+}
 
 export default function OnlineOrderPage() {
-    const { cart, changeQuantity, clearCart, totals, orderPanelProps } = useCart();
-    const [name, setName] = useState('');
-    const [phone, setPhone] = useState('');
-    const [notes, setNotes] = useState('');
-    const [isSending, setIsSending] = useState(false);
-    const [submitError, setSubmitError] = useState('');
-    const [placedOrder, setPlacedOrder] = useState(null);
+    const [status, setStatus] = useState(null);
+    const [loadError, setLoadError] = useState('');
+    const [where, setWhere] = useState({ state: 'idle' });
+    const [cart, setCart] = useState([]);
+    const [dog, setDog] = useState({ inside: '', outside: '', addOns: { dust: false } });
+    const [openDrink, setOpenDrink] = useState(null);
+    const [drinkChoice, setDrinkChoice] = useState({ boba: '', addOns: { customization: false } });
+    const [details, setDetails] = useState({ name: '', phone: '', note: '' });
+    const [paying, setPaying] = useState(false);
+    const [payError, setPayError] = useState('');
+    const [placed, setPlaced] = useState(null);
+    const [added, setAdded] = useState('');
+    const confirmationHeading = useRef(null);
 
-    const phoneIsValid = countDigits(phone) === PHONE_DIGITS;
-    const canSubmit = cart.length > 0 && name.trim() !== '' && phoneIsValid && !isSending;
+    useEffect(() => {
+        fetch('/api/order/status', { cache: 'no-store' })
+            .then((r) => r.json().then((b) => (r.ok ? b : Promise.reject(new Error(b.error)))))
+            .then(setStatus)
+            .catch((e) => setLoadError(e.message || 'Online ordering is unavailable right now.'));
+    }, []);
 
-    const handleSubmit = useCallback(async () => {
-        if (!canSubmit) return;
-        setIsSending(true);
-        setSubmitError('');
-        try {
-            const created = await createOrder({
-                cartItems: cart,
-                phone,
-                paymentMethod: 'online',
-            });
-            setPlacedOrder(created);
-            clearCart();
-            setName('');
-            setPhone('');
-            setNotes('');
-        } catch (err) {
-            console.error('Online order failed:', err);
-            setSubmitError("We couldn't place your order. Please try again.");
-        } finally {
-            setIsSending(false);
+    const open = status?.ordering.open === true;
+    const { card: squareCard, error: squareError } = useSquareCard(status?.square, open);
+
+    const [corndogMenu, bobaMenu] = status?.menu ?? [];
+
+    // ── location ────────────────────────────────────────────────────────
+    const checkLocation = useCallback(() => {
+        if (!('geolocation' in navigator)) {
+            setWhere({ state: 'error', message: 'This browser cannot share its location.' });
+            return;
         }
-    }, [canSubmit, cart, name, phone, notes, clearCart]);
+        setWhere({ state: 'checking' });
+        navigator.geolocation.getCurrentPosition(
+            async ({ coords }) => {
+                const reading = { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy };
+                try {
+                    const response = await fetch('/api/order/nearby', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(reading),
+                    });
+                    const body = await response.json();
+                    if (!response.ok) throw new Error(body.error);
+                    setWhere(body.nearby ? { state: 'nearby', coords: reading } : { state: 'far', distance: body.distance });
+                } catch (e) {
+                    setWhere({ state: 'error', message: e.message || 'Please try again.' });
+                }
+            },
+            (error) =>
+                setWhere(
+                    error.code === error.PERMISSION_DENIED
+                        ? { state: 'denied' }
+                        : { state: 'error', message: 'We could not find your location. Please try again.' }
+                ),
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+        );
+    }, []);
 
-    if (placedOrder) {
+    // ── cart ────────────────────────────────────────────────────────────
+    const addToCart = useCallback((category, selection) => {
+        setCart((lines) => {
+            const i = lines.findIndex((l) => l.category === category && sameSelection(l.selection, selection));
+            if (i >= 0) return lines.map((l, j) => (j === i ? { ...l, quantity: Math.min(10, l.quantity + 1) } : l));
+            return [...lines, { id: crypto.randomUUID(), category, selection, quantity: 1 }];
+        });
+        setAdded(`${preview({ category, selection })?.label} added to your order.`);
+    }, []);
+
+    const changeQuantity = (id, delta) =>
+        setCart((lines) =>
+            lines
+                .map((l) => (l.id === id ? { ...l, quantity: Math.min(10, l.quantity + delta) } : l))
+                .filter((l) => l.quantity > 0)
+        );
+
+    const priced = useMemo(() => cart.map((l) => ({ ...l, ...preview(l) })), [cart]);
+    const totals = useMemo(() => {
+        const subtotal = priced.reduce((sum, l) => sum + l.price * l.quantity, 0);
+        const tax = Math.round(subtotal * (status?.taxRate ?? 0) * 100) / 100;
+        return { subtotal, tax, total: subtotal + tax };
+    }, [priced, status]);
+
+    const phoneDigits = normalizePhone(details.phone);
+
+    // ── pay ─────────────────────────────────────────────────────────────
+    async function pay(event) {
+        event.preventDefault();
+        setPayError('');
+        if (!details.name.trim()) return setPayError('Please enter your name for the order.');
+        if (!phoneDigits) return setPayError('Please enter a 10-digit phone number.');
+        if (where.state !== 'nearby') return setPayError('Please check your location first (step 1).');
+        if (!squareCard) return setPayError('The card form is still loading. Please wait a moment.');
+        setPaying(true);
+        try {
+            const tokenResult = await squareCard.tokenize();
+            if (tokenResult.status !== 'OK') {
+                throw new Error(tokenResult.errors?.[0]?.message ?? 'Please check your card details.');
+            }
+            const response = await fetch('/api/order/checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    lines: cart.map(({ category, selection, quantity }) => ({ category, selection, quantity })),
+                    name: details.name,
+                    phone: details.phone,
+                    note: details.note,
+                    coords: where.coords,
+                    sourceId: tokenResult.token,
+                    idempotencyKey: crypto.randomUUID(),
+                }),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(body.error ?? 'The payment did not go through. Please try again.');
+            setPlaced(body);
+            setCart([]);
+        } catch (e) {
+            setPayError(e.message);
+        }
+        setPaying(false);
+    }
+
+    useEffect(() => {
+        if (placed) {
+            window.scrollTo({ top: 0 });
+            confirmationHeading.current?.focus();
+        }
+    }, [placed]);
+
+    const header = (
+        <SimpleHeader links={[{ href: '/menu', label: 'Menu' }]} />
+    );
+
+    // ── screens ─────────────────────────────────────────────────────────
+    if (placed) {
         return (
-            <div className='min-h-screen bg-gray-50 p-4'>
-                <Card className='max-w-md mx-auto mt-10'>
-                    <CardContent>
-                        <h1 className='text-xl font-bold mb-2'>Order received 🎉</h1>
-                        <p className='text-sm text-gray-600 mb-4'>
-                            Your order number is{' '}
-                            <span className='font-bold'>{placedOrder.orderNumber}</span>. We&apos;re
-                            making it now — we&apos;ll text you when it&apos;s ready for pickup.
-                        </p>
-                        <p className='text-sm text-gray-600 mb-6'>
-                            Total: <span className='font-semibold'>${placedOrder.total.toFixed(2)}</span>
-                        </p>
-                        <Button className='w-full' onClick={() => setPlacedOrder(null)}>
-                            Place another order
-                        </Button>
-                    </CardContent>
-                </Card>
-            </div>
+            <>
+                {header}
+                <div className='mx-auto max-w-md space-y-5 px-4 py-8'>
+                    <h1 ref={confirmationHeading} tabIndex={-1} className='leading-none outline-none'>
+                        <span className='block font-script text-2xl text-moon-orange'>Thank you!</span>
+                        <span className='font-display text-4xl'>Order #{placed.orderNumber}</span>
+                    </h1>
+                    <p className='text-lg'>
+                        We&apos;re making it now. Come to the stand and give your name and order number.
+                    </p>
+                    <p className='text-moon-muted'>
+                        Paid {money(placed.total)}
+                        {placed.receiptUrl && (
+                            <>
+                                {' · '}
+                                <a href={placed.receiptUrl} target='_blank' rel='noopener noreferrer' className='font-bold text-moon-orange underline'>
+                                    Card receipt<span className='sr-only'> (opens in a new tab)</span>
+                                </a>
+                            </>
+                        )}
+                    </p>
+                    <button
+                        type='button'
+                        onClick={() => setPlaced(null)}
+                        className='w-full rounded-full bg-moon-ink py-3 font-bold text-white hover:bg-moon-orange'
+                    >
+                        Order something else
+                    </button>
+                </div>
+            </>
         );
     }
 
-    return (
-        <div className='min-h-screen bg-gray-50 p-4'>
-            <div className='max-w-3xl mx-auto space-y-4'>
-                <div className='flex items-center gap-3'>
-                    <Link href='/' className='text-gray-400 hover:text-gray-600 text-sm'>
-                        ← Back
-                    </Link>
-                    <h1 className='text-lg font-bold'>Order Online</h1>
+    if (loadError || (status && !open)) {
+        const { reason, next, popup } = status?.ordering ?? {};
+        return (
+            <>
+                {header}
+                <div className='mx-auto max-w-md px-4 py-10 text-center'>
+                    <p className='text-5xl' aria-hidden>🌙</p>
+                    <h1 className='mt-3 font-display text-3xl'>
+                        {reason === 'no_location' ? 'Order at the stand today' : 'Online ordering is closed'}
+                    </h1>
+                    <p className='mt-3 text-moon-muted'>
+                        {loadError ||
+                            (reason === 'payments_not_set_up'
+                                ? 'Online ordering is coming soon.'
+                                : reason === 'no_location'
+                                  ? `We're at ${popup?.place} today, but online ordering isn't set up for this spot. Come say hi at the stand!`
+                                  : 'You can order ahead while we are at a pop-up.')}
+                    </p>
+                    {next && (
+                        <p className='mt-4 rounded-2xl bg-white p-4 text-moon-ink ring-1 ring-moon-caramel/30'>
+                            Next pop-up: <strong>{parseDate(next.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</strong>,{' '}
+                            {formatTime(next.start)}–{formatTime(next.end)} at <strong>{next.place}</strong>
+                        </p>
+                    )}
+                    <div className='mt-6 flex flex-col gap-2'>
+                        <Link href='/menu#popups' className='rounded-full bg-moon-ink py-3 font-bold text-white hover:bg-moon-orange'>
+                            See the pop-up calendar
+                        </Link>
+                    </div>
                 </div>
+            </>
+        );
+    }
 
-                <OrderPanel {...orderPanelProps} />
+    if (!status) {
+        return (
+            <>
+                {header}
+                <p role='status' className='py-20 text-center text-moon-muted'>
+                    Loading the menu…
+                </p>
+            </>
+        );
+    }
 
-                <Card>
-                    <CardContent>
-                        <h2 className='text-xl font-bold mb-4'>Your Order</h2>
+    const { popup } = status.ordering;
+    const dogLine = dog.inside && dog.outside ? preview({ category: 'Corndog', selection: dog }) : null;
+    const dustAvailable = dog.outside === 'Potato';
 
-                        {cart.length === 0 ? (
-                            <p className='text-gray-400 text-sm py-6 text-center'>
-                                Nothing added yet.
+    return (
+        <>
+            {header}
+            <div className='mx-auto max-w-3xl px-4 pb-16 pt-6'>
+                <h1 className='leading-none'>
+                    <span className='block font-script text-2xl text-moon-orange'>Order ahead</span>
+                    <span className='font-display text-4xl'>{popup.name}</span>
+                </h1>
+                <p className='mt-2 text-moon-muted'>
+                    {popup.place} · last online orders at {lastOrderTime(popup.end)}. Pay now, pick up at the stand.
+                </p>
+                <p className='sr-only' aria-live='polite'>
+                    {added}
+                </p>
+
+                {/* 1 ── where are you */}
+                <section aria-labelledby='step-where' className='mt-6 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-moon-caramel/30'>
+                    <h2 id='step-where' className='font-display text-2xl'>
+                        1. Are you at the pop-up?
+                    </h2>
+                    <p className='mt-1 text-sm text-moon-muted'>
+                        Online orders are for customers at the pop-up, within 1 mile. We check once and don&apos;t store your location.
+                    </p>
+                    <div className='mt-3' aria-live='polite'>
+                        {where.state === 'nearby' ? (
+                            <p className='flex items-center gap-2 font-bold text-green-800'>
+                                <MapPin className='h-5 w-5' aria-hidden /> You&apos;re at the pop-up. You can order!
                             </p>
                         ) : (
-                            <div className='space-y-2 mb-4'>
-                                {cart.map((item, index) => (
-                                    <div
-                                        key={`${item.name}-${item.modifiers.join(',')}`}
-                                        className='flex items-center justify-between text-sm border-b pb-2'
-                                    >
-                                        <span>
-                                            {item.modifiers.length > 0
-                                                ? `${item.name} (${item.modifiers.join(', ')})`
-                                                : item.name}
-                                        </span>
-                                        <span className='flex items-center gap-3'>
-                                            <span className='text-gray-600'>
-                                                ${(item.price * item.quantity).toFixed(2)}
-                                            </span>
-                                            <span className='flex items-center gap-2'>
-                                                <button
-                                                    onClick={() => changeQuantity(index, -1)}
-                                                    className='w-6 h-6 rounded border text-gray-600 hover:bg-gray-100'
-                                                    aria-label={`Remove one ${item.name}`}
-                                                >
-                                                    −
-                                                </button>
-                                                <span className='w-4 text-center'>{item.quantity}</span>
-                                                <button
-                                                    onClick={() => changeQuantity(index, 1)}
-                                                    className='w-6 h-6 rounded border text-gray-600 hover:bg-gray-100'
-                                                    aria-label={`Add one ${item.name}`}
-                                                >
-                                                    +
-                                                </button>
-                                            </span>
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        <div className='space-y-3'>
-                            <div>
-                                <label
-                                    htmlFor='customer-name'
-                                    className='block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1'
+                            <>
+                                <button
+                                    type='button'
+                                    onClick={checkLocation}
+                                    disabled={where.state === 'checking'}
+                                    className='inline-flex items-center gap-2 rounded-full bg-moon-ink px-5 py-3 font-bold text-white hover:bg-moon-orange disabled:opacity-50'
                                 >
-                                    Name
-                                </label>
-                                <input
-                                    id='customer-name'
-                                    type='text'
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    placeholder='Your name'
-                                    className='w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500'
-                                />
-                            </div>
-
-                            <div>
-                                <label
-                                    htmlFor='customer-phone'
-                                    className='block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1'
-                                >
-                                    Phone
-                                </label>
-                                <input
-                                    id='customer-phone'
-                                    type='tel'
-                                    value={phone}
-                                    onChange={(e) => setPhone(e.target.value)}
-                                    placeholder='(555) 000-0000'
-                                    className='w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500'
-                                />
-                                {phone !== '' && !phoneIsValid && (
-                                    <p className='text-xs text-red-600 mt-1'>
-                                        Please enter a {PHONE_DIGITS}-digit phone number.
+                                    <MapPin className='h-5 w-5' aria-hidden />
+                                    {where.state === 'checking' ? 'Checking…' : 'Check my location'}
+                                </button>
+                                {where.state === 'far' && (
+                                    <p role='alert' className='mt-3 text-sm text-red-800'>
+                                        You look about {(where.distance / 1609.34).toFixed(1)} miles away. Online orders open when you&apos;re within 1 mile of {popup.place}.
                                     </p>
                                 )}
-                            </div>
-
-                            <div>
-                                <label
-                                    htmlFor='customer-notes'
-                                    className='block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1'
-                                >
-                                    Notes <span className='normal-case text-gray-400'>(optional)</span>
-                                </label>
-                                <textarea
-                                    id='customer-notes'
-                                    value={notes}
-                                    onChange={(e) => setNotes(e.target.value)}
-                                    rows={2}
-                                    placeholder='Less ice, extra sweet…'
-                                    className='w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500'
-                                />
-                            </div>
-                        </div>
-
-                        <div className='mt-4 pt-3 border-t space-y-1 text-sm'>
-                            <div className='flex justify-between text-gray-600'>
-                                <span>Subtotal</span>
-                                <span>${totals.subtotal.toFixed(2)}</span>
-                            </div>
-                            <div className='flex justify-between text-gray-600'>
-                                <span>Tax</span>
-                                <span>${totals.tax.toFixed(2)}</span>
-                            </div>
-                            <div className='flex justify-between font-bold text-base'>
-                                <span>Total</span>
-                                <span>${totals.total.toFixed(2)}</span>
-                            </div>
-                        </div>
-
-                        {submitError && (
-                            <p className='text-sm text-red-600 mt-3'>{submitError}</p>
+                                {where.state === 'denied' && (
+                                    <p role='alert' className='mt-3 text-sm text-red-800'>
+                                        Location is turned off for this site. Allow it in your browser settings and try again, or order at the stand.
+                                    </p>
+                                )}
+                                {where.state === 'error' && (
+                                    <p role='alert' className='mt-3 text-sm text-red-800'>
+                                        {where.message}
+                                    </p>
+                                )}
+                            </>
                         )}
+                    </div>
+                </section>
 
-                        <Button
-                            className='w-full mt-4'
-                            onClick={handleSubmit}
-                            disabled={!canSubmit}
-                        >
-                            {isSending ? 'Placing order…' : 'Place Order'}
-                        </Button>
-                    </CardContent>
-                </Card>
+                {/* 2 ── choose */}
+                <section aria-labelledby='step-choose' className='mt-6'>
+                    <h2 id='step-choose' className='font-display text-2xl'>
+                        2. Choose your food & drinks
+                    </h2>
+
+                    {corndogMenu?.available && (
+                        <div className='mt-4 rounded-3xl bg-moon-caramel p-4 text-moon-ink sm:p-5'>
+                            <div className='flex items-center gap-3'>
+                                {corndogMenu.image && (
+                                    <Image src={corndogMenu.image} alt='' width={96} height={77} className='h-16 w-auto' />
+                                )}
+                                <h3 className='font-display text-2xl'>Korean Corndog · {money(corndogMenu.price)}</h3>
+                            </div>
+                            {corndogMenu.groups.map((group) => (
+                                <fieldset key={group.key} className='mt-4'>
+                                    <legend className='mb-2 font-bold'>Choose {group.label.toLowerCase()}</legend>
+                                    <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
+                                        {group.options.map((option) => (
+                                            <label
+                                                key={option}
+                                                className={`cursor-pointer rounded-2xl bg-white px-3 py-3 text-center font-bold shadow-[0_3px_0_#241810] has-[:checked]:bg-moon-ink has-[:checked]:text-white has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-blue-600`}
+                                            >
+                                                <input
+                                                    type='radio'
+                                                    name={`dog-${group.key}`}
+                                                    value={option}
+                                                    checked={dog[group.key] === option}
+                                                    onChange={() =>
+                                                        setDog((d) => ({
+                                                            ...d,
+                                                            [group.key]: option,
+                                                            addOns: group.key === 'outside' && option !== 'Potato' ? { dust: false } : d.addOns,
+                                                        }))
+                                                    }
+                                                    className='sr-only'
+                                                />
+                                                {option}
+                                            </label>
+                                        ))}
+                                    </div>
+                                </fieldset>
+                            ))}
+                            {dustAvailable && (
+                                <label className='mt-3 flex items-center gap-2 font-bold'>
+                                    <input
+                                        type='checkbox'
+                                        checked={dog.addOns.dust}
+                                        onChange={(e) => setDog((d) => ({ ...d, addOns: { dust: e.target.checked } }))}
+                                        className='h-5 w-5'
+                                    />
+                                    Add Hot Cheeto dust (+$1)
+                                </label>
+                            )}
+                            <button
+                                type='button'
+                                disabled={!dogLine}
+                                onClick={() => {
+                                    addToCart('Corndog', dog);
+                                    setDog({ inside: '', outside: '', addOns: { dust: false } });
+                                }}
+                                className='mt-4 w-full rounded-full bg-moon-ink py-3 font-bold text-white hover:bg-moon-orange disabled:opacity-40'
+                            >
+                                {dogLine ? `Add corndog · ${money(dogLine.price)}` : 'Pick inside and outside'}
+                            </button>
+                        </div>
+                    )}
+
+                    <h3 className='mt-6 font-display text-2xl'>Boba · {money(bobaMenu?.price ?? 0)}</h3>
+                    <ul className='mt-3 grid gap-3 sm:grid-cols-2'>
+                        {bobaMenu?.drinks.map((drink) => {
+                            const isOpen = openDrink === drink.option;
+                            return (
+                                <li key={drink.option} className={`overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-moon-caramel/30 ${drink.available ? '' : 'opacity-60'}`}>
+                                    <div className='flex gap-3 p-3'>
+                                        <div className='relative h-24 w-20 shrink-0 rounded-2xl bg-moon-paper'>
+                                            {drink.image && (
+                                                <Image src={drink.image} alt='' fill sizes='80px' className={`object-contain p-1 mix-blend-multiply ${drink.available ? '' : 'grayscale'}`} />
+                                            )}
+                                        </div>
+                                        <div className='min-w-0 flex-1'>
+                                            <p className='font-extrabold leading-tight'>{drink.name}</p>
+                                            {drink.available ? (
+                                                <button
+                                                    type='button'
+                                                    aria-expanded={isOpen}
+                                                    onClick={() => {
+                                                        setOpenDrink(isOpen ? null : drink.option);
+                                                        setDrinkChoice({ boba: '', addOns: { customization: false } });
+                                                    }}
+                                                    className='mt-2 rounded-full bg-moon-cream px-4 py-2 text-sm font-bold ring-1 ring-moon-caramel/50 hover:bg-moon-paper'
+                                                >
+                                                    {isOpen ? 'Close' : 'Choose'}
+                                                    <span className='sr-only'> {drink.name}</span>
+                                                </button>
+                                            ) : (
+                                                <p className='mt-2 inline-block rounded-full bg-moon-ink px-2.5 py-0.5 text-xs font-bold uppercase text-white'>
+                                                    Sold out
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {isOpen && (
+                                        <div className='border-t border-moon-caramel/20 bg-moon-paper/60 p-3'>
+                                            <fieldset>
+                                                <legend className='mb-2 text-sm font-bold'>Choose your boba</legend>
+                                                <div className='grid grid-cols-2 gap-2'>
+                                                    {bobaMenu.toppings.map((topping) => (
+                                                        <label
+                                                            key={topping}
+                                                            className='cursor-pointer rounded-xl bg-white px-2 py-2 text-center text-sm font-bold ring-1 ring-moon-caramel/40 has-[:checked]:bg-moon-ink has-[:checked]:text-white has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-blue-600'
+                                                        >
+                                                            <input
+                                                                type='radio'
+                                                                name={`boba-${drink.option}`}
+                                                                value={topping}
+                                                                checked={drinkChoice.boba === topping}
+                                                                onChange={() => setDrinkChoice((c) => ({ ...c, boba: topping }))}
+                                                                className='sr-only'
+                                                            />
+                                                            {toppingLabel(topping)}
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </fieldset>
+                                            {drink.customization && (
+                                                <label className='mt-3 flex items-center gap-2 text-sm font-bold'>
+                                                    <input
+                                                        type='checkbox'
+                                                        checked={drinkChoice.addOns.customization}
+                                                        onChange={(e) => setDrinkChoice((c) => ({ ...c, addOns: { customization: e.target.checked } }))}
+                                                        className='h-5 w-5'
+                                                    />
+                                                    {drink.customization}
+                                                </label>
+                                            )}
+                                            <button
+                                                type='button'
+                                                disabled={!drinkChoice.boba}
+                                                onClick={() => {
+                                                    addToCart('Boba', { drink: drink.option, boba: drinkChoice.boba, addOns: drinkChoice.addOns });
+                                                    setOpenDrink(null);
+                                                }}
+                                                className='mt-3 w-full rounded-full bg-moon-ink py-2.5 font-bold text-white hover:bg-moon-orange disabled:opacity-40'
+                                            >
+                                                {drinkChoice.boba ? `Add ${drink.name}` : 'Pick a boba option'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </section>
+
+                {/* 3 ── details & pay */}
+                <form onSubmit={pay} aria-labelledby='step-pay' className='mt-8 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-moon-caramel/30'>
+                    <h2 id='step-pay' className='font-display text-2xl'>
+                        3. Your order
+                    </h2>
+
+                    {priced.length === 0 ? (
+                        <p className='mt-3 text-moon-muted'>Nothing added yet.</p>
+                    ) : (
+                        <ul className='mt-3 divide-y divide-moon-caramel/20'>
+                            {priced.map((line) => (
+                                <li key={line.id} className='flex items-center gap-3 py-2'>
+                                    <span className='min-w-0 flex-1 font-semibold'>{line.label}</span>
+                                    <span className='flex items-center gap-1'>
+                                        <button type='button' onClick={() => changeQuantity(line.id, -1)} aria-label={`One less ${line.label}`} className='rounded-full p-2 ring-1 ring-moon-caramel/40 hover:bg-moon-paper'>
+                                            {line.quantity === 1 ? <Trash2 className='h-4 w-4' aria-hidden /> : <Minus className='h-4 w-4' aria-hidden />}
+                                        </button>
+                                        <span className='w-6 text-center font-bold' aria-label={`Quantity ${line.quantity}`}>
+                                            {line.quantity}
+                                        </span>
+                                        <button type='button' onClick={() => changeQuantity(line.id, 1)} aria-label={`One more ${line.label}`} className='rounded-full p-2 ring-1 ring-moon-caramel/40 hover:bg-moon-paper'>
+                                            <Plus className='h-4 w-4' aria-hidden />
+                                        </button>
+                                    </span>
+                                    <span className='w-16 text-right'>{money(line.price * line.quantity)}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+
+                    <div className='mt-5 grid gap-3 sm:grid-cols-2'>
+                        <label className='block'>
+                            <span className='mb-1 block text-sm font-bold'>Name for the order</span>
+                            <input
+                                value={details.name}
+                                onChange={(e) => setDetails((d) => ({ ...d, name: e.target.value }))}
+                                autoComplete='given-name'
+                                maxLength={40}
+                                className='w-full rounded-2xl border border-moon-caramel/50 px-4 py-3 focus:border-moon-ink focus:outline-none focus:ring-2 focus:ring-blue-600'
+                            />
+                        </label>
+                        <label className='block'>
+                            <span className='mb-1 block text-sm font-bold'>Phone</span>
+                            <input
+                                type='tel'
+                                inputMode='tel'
+                                autoComplete='tel'
+                                value={details.phone}
+                                onChange={(e) => setDetails((d) => ({ ...d, phone: e.target.value }))}
+                                placeholder='(956) 555-0123'
+                                className='w-full rounded-2xl border border-moon-caramel/50 px-4 py-3 focus:border-moon-ink focus:outline-none focus:ring-2 focus:ring-blue-600'
+                            />
+                        </label>
+                    </div>
+                    <label className='mt-3 block'>
+                        <span className='mb-1 block text-sm font-bold'>
+                            Note for the kitchen <span className='font-normal text-moon-muted'>(optional)</span>
+                        </span>
+                        <input
+                            value={details.note}
+                            onChange={(e) => setDetails((d) => ({ ...d, note: e.target.value }))}
+                            maxLength={200}
+                            placeholder='Less ice, extra sauce…'
+                            className='w-full rounded-2xl border border-moon-caramel/50 px-4 py-3 focus:border-moon-ink focus:outline-none focus:ring-2 focus:ring-blue-600'
+                        />
+                    </label>
+
+                    <dl className='mt-5 space-y-1 border-t border-moon-caramel/30 pt-3 text-sm'>
+                        <div className='flex justify-between'>
+                            <dt>Subtotal</dt>
+                            <dd>{money(totals.subtotal)}</dd>
+                        </div>
+                        <div className='flex justify-between'>
+                            <dt>Tax</dt>
+                            <dd>{money(totals.tax)}</dd>
+                        </div>
+                        <div className='flex justify-between text-lg font-extrabold'>
+                            <dt>Total</dt>
+                            <dd>{money(totals.total)}</dd>
+                        </div>
+                    </dl>
+
+                    <fieldset className='mt-5'>
+                        <legend className='mb-2 text-sm font-bold'>Card</legend>
+                        <div id='square-card' className='min-h-[90px]' />
+                        {squareError && (
+                            <p role='alert' className='text-sm text-red-800'>
+                                {squareError}
+                            </p>
+                        )}
+                        {status.square?.environment === 'sandbox' && (
+                            <p className='text-xs text-moon-muted'>Test mode: use card 4111 1111 1111 1111, any future date, any CVV and ZIP.</p>
+                        )}
+                    </fieldset>
+
+                    {payError && (
+                        <p role='alert' className='mt-3 rounded-2xl bg-red-50 p-3 text-sm text-red-800'>
+                            {payError}
+                        </p>
+                    )}
+
+                    <button
+                        type='submit'
+                        disabled={paying || priced.length === 0 || where.state !== 'nearby'}
+                        className='mt-4 w-full rounded-full bg-moon-ink py-4 text-lg font-bold text-white hover:bg-moon-orange disabled:opacity-40'
+                    >
+                        {paying ? 'Paying…' : where.state !== 'nearby' ? 'Check your location to pay' : `Pay ${money(totals.total)}`}
+                    </button>
+                    <p className='mt-2 text-center text-xs text-moon-muted'>Payments are processed securely by Square.</p>
+                </form>
             </div>
-        </div>
+        </>
     );
 }
