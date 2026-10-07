@@ -149,6 +149,8 @@ pop-up calendar.
   - change every week
   - remove just that day
   - stop repeating from that day on
+- **Events:** the week view also shows any pop-up from the pop-up calendar on its day, as a heads-up for
+  the owner. Events don't go into employees' calendars.
 - **Days off** live in `staff_time_off` and hide all of that person's shifts on those days.
 - `lib/schedule/schedule.js` turns all of that into actual workdays (`expandShifts`). The week view
   and the calendar feeds both use it, so they always agree.
