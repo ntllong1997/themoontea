@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { CalendarCheck, ChevronLeft, ChevronRight, Loader2, Palmtree, Pencil, Plus, Repeat, Trash2, X } from 'lucide-react';
+import { CalendarCheck, ChevronLeft, ChevronRight, Loader2, MapPin, Palmtree, Pencil, Plus, Repeat, Trash2, X } from 'lucide-react';
 import { api, jsonRequest } from '@/lib/site/adminApi';
 import { dateKey } from '@/lib/site/popups';
 import { addDays, datesBetween, expandShifts, isOff, weekStart, WEEKDAYS } from '@/lib/schedule/schedule';
@@ -109,6 +109,7 @@ function WeekView({ data, byId, setDialog }) {
     const days = datesBetween(monday, sunday);
     const shifts = useMemo(() => expandShifts({ shifts: data.shifts, timeOff: data.timeOff, from: monday, to: sunday }), [data, monday, sunday]);
     const hours = shifts.reduce((sum, s) => sum + minutes(s.end) - minutes(s.start), 0) / 60;
+    const weekEvents = (data.popups ?? []).filter((p) => p.date >= monday && p.date <= sunday);
 
     return (
         <>
@@ -119,7 +120,8 @@ function WeekView({ data, byId, setDialog }) {
                 <h2 className='flex-1 text-center font-bold' aria-live='polite'>
                     {shortDate(monday)} – {shortDate(sunday)}
                     <span className='block text-xs font-normal text-gray-500'>
-                        {shifts.length} shifts · {hours % 1 ? hours.toFixed(1) : hours} hours
+                        {shifts.length} {shifts.length === 1 ? 'shift' : 'shifts'} · {hours % 1 ? hours.toFixed(1) : hours} {hours === 1 ? 'hour' : 'hours'}
+                        {weekEvents.length > 0 && ` · ${weekEvents.length} ${weekEvents.length === 1 ? 'event' : 'events'}`}
                     </span>
                 </h2>
                 <button type='button' onClick={() => setMonday(addDays(monday, 7))} aria-label='Next week' className='rounded-xl bg-white p-2.5 ring-1 ring-gray-200 hover:bg-gray-100'>
@@ -136,6 +138,7 @@ function WeekView({ data, byId, setDialog }) {
                 {days.map((day) => {
                     const dayShifts = shifts.filter((s) => s.date === day);
                     const off = data.employees.filter((e) => isOff(data.timeOff, e.id, day));
+                    const events = weekEvents.filter((p) => p.date === day);
                     return (
                         <li key={day} className={`rounded-2xl bg-white p-3 shadow-sm ring-1 ${day === today ? 'ring-2 ring-black' : 'ring-gray-200'}`}>
                             <div className='flex items-center gap-2'>
@@ -151,6 +154,17 @@ function WeekView({ data, byId, setDialog }) {
                                     <Plus className='h-4 w-4' aria-hidden /> Shift<span className='sr-only'> on {shortDate(day)}</span>
                                 </button>
                             </div>
+                            {events.map((event) => (
+                                <p key={event.id} className='mt-2 flex items-start gap-2 rounded-xl bg-violet-50 px-3 py-2 text-sm text-violet-950 ring-1 ring-violet-200'>
+                                    <MapPin className='mt-0.5 h-4 w-4 shrink-0' aria-hidden />
+                                    <span>
+                                        <span className='font-semibold'>Event: {event.name}</span>
+                                        <span className='block'>
+                                            {timeRange(event.start, event.end)} · {event.place}
+                                        </span>
+                                    </span>
+                                </p>
+                            ))}
                             {dayShifts.length > 0 && (
                                 <ul className='mt-2 space-y-1.5'>
                                     {dayShifts.map((shift) => (
