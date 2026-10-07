@@ -11,12 +11,12 @@ import {
     getPrices, savePrice,
     getLocations, saveLocation,
     getCaseSizes, saveCaseSize,
-    getDailyCheckItems, saveDailyCheckItem,
 } from '@/lib/inventoryDb';
 import {
     getEmployees, verifyPin,
     createEmployee, updateEmployeePin, deleteEmployee,
 } from '@/lib/employeesDb';
+import DailyCheckTab from '@/components/daily/DailyCheckTab';
 
 // ─── Default data ────────────────────────────────────────────────────────────
 
@@ -609,7 +609,7 @@ function CSVImportModal({ parsed, onConfirm, onCancel }) {
 
 // ─── ManageTab ───────────────────────────────────────────────────────────────
 
-function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockChange, units, onUnitChange, unitTypes, onAddUnitType, onDeleteUnitType, prices, onPriceChange, locations, onLocationChange, caseSizes, onCaseSizeChange, onSaveAll, dailyChecks, onDailyCheckToggle }) {
+function ManageTab({ groups, onChange, pars, onParChange, restocks, onRestockChange, units, onUnitChange, unitTypes, onAddUnitType, onDeleteUnitType, prices, onPriceChange, locations, onLocationChange, caseSizes, onCaseSizeChange, onSaveAll }) {
     const [editCat,        setEditCat]        = useState(null); // { catIdx, value }
     const [editItem,       setEditItem]       = useState(null); // { catIdx, itemIdx, value }
     const [newItem,        setNewItem]        = useState({});   // { [catIdx]: string }
@@ -1247,8 +1247,6 @@ export default function InventoryPage() {
     const [locations,    setLocations]    = useState({});
     const [caseSizes,    setCaseSizes]    = useState({});
     const [caseCounts,   setCaseCounts]   = useState({});
-    const [dailyChecks,     setDailyChecks]     = useState(new Set());
-    const [dailyCheckInput, setDailyCheckInput] = useState('');
     const [buyInCases,   setBuyInCases]   = useState(true);
     const [unitTypes,    setUnitTypes]    = useState(DEFAULT_UNIT_TYPES);
     const [isLoading,    setIsLoading]    = useState(true);
@@ -1287,6 +1285,11 @@ export default function InventoryPage() {
         localStorage.setItem('inventory-collapsed', JSON.stringify(collapsed));
     }, [collapsed]);
 
+    // /inventory?tab=daily opens the Daily Check (the Today board links there).
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get('tab') === 'daily') setTab('daily');
+    }, []);
+
     // Load from Supabase on mount
     useEffect(() => {
         const load = async () => {
@@ -1300,7 +1303,6 @@ export default function InventoryPage() {
                     getPrices(),
                     getLocations(),
                     getCaseSizes(),
-                    getDailyCheckItems(),
                 ]);
                 const val = (i, fallback) => settled[i].status === 'fulfilled' ? settled[i].value : (console.error('Inventory load failed at index', i, settled[i].reason), fallback);
                 const fetchedGroups      = val(0, null);
@@ -1311,7 +1313,6 @@ export default function InventoryPage() {
                 const fetchedPrices      = val(5, {});
                 const fetchedLocations   = val(6, {});
                 const fetchedCaseSizes   = val(7, {});
-                const fetchedDailyChecks = val(8, []);
 
                 if (fetchedGroups) {
                     setGroups(fetchedGroups);
@@ -1337,7 +1338,6 @@ export default function InventoryPage() {
                 }
 
                 setCaseSizes(fetchedCaseSizes);
-                setDailyChecks(fetchedDailyChecks);
 
                 // Restore session
                 try {
@@ -1543,16 +1543,6 @@ export default function InventoryPage() {
         });
     };
 
-    const handleDailyCheckToggle = (itemName) => {
-        setDailyChecks((prev) => {
-            const next = new Set(prev);
-            const enabled = !next.has(itemName);
-            if (enabled) next.add(itemName); else next.delete(itemName);
-            saveDailyCheckItem(itemName, enabled).catch(console.error);
-            return next;
-        });
-    };
-
     const handleAddUnitType = (type) => {
         const t = type.trim().toLowerCase();
         if (!t) return;
@@ -1710,18 +1700,8 @@ export default function InventoryPage() {
     );
 
     const isAdmin = currentUser?.role === 'admin';
-    const dailyLowCount = useMemo(() => {
-        let low = 0;
-        dailyChecks.forEach((name) => {
-            const stock = lastCounts[name] ?? 0;
-            const par   = pars[name] ?? 1;
-            if (stock < par) low++;
-        });
-        return low;
-    }, [dailyChecks, lastCounts, pars]);
-
     const tabs = [
-        { key: 'daily',     label: `Daily Check${dailyLowCount > 0 ? ` ⚠ ${dailyLowCount}` : ''}` },
+        { key: 'daily',     label: 'Daily Check' },
         { key: 'checklist', label: 'Checklist' },
         { key: 'stock',     label: 'Current Stock' },
         ...(isAdmin ? [
@@ -1827,110 +1807,10 @@ export default function InventoryPage() {
 
             <div className='mx-auto max-w-4xl p-3 sm:p-6'>
 
-                {/* ── Checklist Tab ── */}
                 {/* ── Daily Check Tab ── */}
-                {tab === 'daily' && (
-                    <div className='space-y-4'>
-                        {/* Header */}
-                        <div className='rounded-xl bg-white p-4 shadow-sm'>
-                            <div className='flex items-center justify-between'>
-                                <div>
-                                    <h2 className='text-base font-semibold'>Daily Check</h2>
-                                    <p className='text-xs text-gray-400 mt-0.5'>
-                                        {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                                    </p>
-                                </div>
-                                {dailyChecks.size > 0 && (
-                                    <div className='text-right'>
-                                        <p className='text-2xl font-bold text-red-500'>{dailyLowCount}</p>
-                                        <p className='text-xs text-gray-400'>low / out of {dailyChecks.size}</p>
-                                    </div>
-                                )}
-                            </div>
-                            {/* Manual add input */}
-                            <div className='mt-3 flex gap-2'>
-                                <input
-                                    type='text'
-                                    value={dailyCheckInput}
-                                    onChange={(e) => setDailyCheckInput(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            const val = dailyCheckInput.trim();
-                                            if (val && !dailyChecks.has(val)) handleDailyCheckToggle(val);
-                                            setDailyCheckInput('');
-                                        }
-                                    }}
-                                    placeholder='Add item to check daily…'
-                                    className='flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black'
-                                />
-                                <button
-                                    type='button'
-                                    disabled={!dailyCheckInput.trim() || dailyChecks.has(dailyCheckInput.trim())}
-                                    onClick={() => {
-                                        const val = dailyCheckInput.trim();
-                                        if (val && !dailyChecks.has(val)) handleDailyCheckToggle(val);
-                                        setDailyCheckInput('');
-                                    }}
-                                    className='rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-40'
-                                >
-                                    + Add
-                                </button>
-                            </div>
-                        </div>
+                {tab === 'daily' && <DailyCheckTab currentUser={currentUser} />}
 
-                        {dailyChecks.size === 0 ? (
-                            <div className='rounded-xl bg-white p-8 shadow-sm text-center'>
-                                <p className='text-gray-400 text-sm'>No items added yet. Type an item name above to add it.</p>
-                            </div>
-                        ) : (
-                            <div className='rounded-xl bg-white shadow-sm overflow-hidden'>
-                                <ul className='divide-y divide-gray-50'>
-                                    {[...dailyChecks].map((item) => {
-                                        const inInventory = pars[item] !== undefined;
-                                        const stock = lastCounts[item] ?? 0;
-                                        const par   = pars[item] ?? 1;
-                                        const isOut = inInventory && stock === 0;
-                                        const isLow = inInventory && !isOut && stock < par;
-                                        const isOk  = inInventory && stock >= par;
-                                        return (
-                                            <li key={item} className='flex items-center gap-3 px-4 py-3'>
-                                                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${!inInventory ? 'bg-gray-300' : isOut ? 'bg-red-500' : isLow ? 'bg-yellow-400' : 'bg-green-500'}`} />
-                                                <span className='flex-1 text-sm'>{item}</span>
-                                                <div className='flex items-center gap-2 text-xs'>
-                                                    {inInventory ? (
-                                                        <>
-                                                            <span className={`font-semibold ${isOut ? 'text-red-500' : isLow ? 'text-yellow-600' : 'text-green-600'}`}>{stock}</span>
-                                                            <span className='text-gray-300'>/</span>
-                                                            <span className='text-gray-400'>{par} par</span>
-                                                            <span className={`rounded-full px-2 py-0.5 font-medium ${isOut ? 'bg-red-100 text-red-600' : isLow ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
-                                                                {isOut ? 'OUT' : isLow ? 'LOW' : 'OK'}
-                                                            </span>
-                                                        </>
-                                                    ) : (
-                                                        <span className='text-gray-400 italic'>manual</span>
-                                                    )}
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => handleDailyCheckToggle(item)}
-                                                        className='ml-1 p-1 text-gray-300 hover:text-red-500'
-                                                        title='Remove from daily check'
-                                                    >✕</button>
-                                                </div>
-                                            </li>
-                                        );
-                                    })}
-                                </ul>
-                            </div>
-                        )}
-
-                        {dailyChecks.size > 0 && (
-                            <p className='text-center text-xs text-gray-400 pb-2'>
-                                Inventory stock levels update after each count submission. Manual items show no stock level.
-                            </p>
-                        )}
-                    </div>
-                )}
-
+                {/* ── Checklist Tab ── */}
                 {tab === 'checklist' && (
                     <div className='space-y-5'>
                         <div className='rounded-xl bg-white p-4 shadow-sm'>
@@ -2480,7 +2360,6 @@ export default function InventoryPage() {
                         locations={locations} onLocationChange={handleLocationChange}
                         caseSizes={caseSizes} onCaseSizeChange={handleCaseSizeChange}
                         onSaveAll={handleSaveManageAll}
-                        dailyChecks={dailyChecks} onDailyCheckToggle={handleDailyCheckToggle}
                     />
                 )}
 

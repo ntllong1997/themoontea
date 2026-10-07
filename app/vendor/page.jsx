@@ -20,6 +20,16 @@ export default function VendorPage() {
                     <span className='text-xl'>→</span>
                 </Link>
                 <Link
+                    href='/today'
+                    className='flex items-center justify-between rounded-2xl border border-gray-200 bg-white px-6 py-5 text-gray-800 shadow-sm transition-colors hover:bg-gray-50'
+                >
+                    <span>
+                        <span className='block text-lg font-semibold'>Today</span>
+                        <span className='block text-sm text-gray-600'>What to make and do</span>
+                    </span>
+                    <span className='text-xl'>→</span>
+                </Link>
+                <Link
                     href='/inventory'
                     className='flex items-center justify-between rounded-2xl border border-gray-200 bg-white px-6 py-5 text-gray-800 shadow-sm transition-colors hover:bg-gray-50'
                 >

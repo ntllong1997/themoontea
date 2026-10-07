@@ -71,13 +71,14 @@ isn't even installed. Safe to drop.
 | `/admin/popups` | Manage the customer pop-up calendar: add, edit, copy to a new date, delete |
 | `/admin/schedule` | **Staff schedule.** Weekly shifts, one-day changes, days off, and each employee's private calendar link. See [Staff schedule](#staff-schedule) |
 | `/` | Redirect to `/vendor` |
-| `/vendor` | Internal hub — links to Order Track, Inventory, Sales Summary |
+| `/vendor` | Internal hub — links to Order Track, Today, Inventory, Sales Summary and the staff editors |
+| `/today` | **Today board.** What to make (from last night's stock check) and what's been asked for, ticked off as it's done. See [Daily stock check & Today board](#daily-stock-check--today-board) |
 | `/order` | **The staff till.** Cart, payment method, receipt printing, today's history |
 | `/order/online` | Customer-facing self-order. Writes to the same `orders` table but never prints |
 | `/order/[station]` | Prep-station screen. Valid slugs come from `station.slug` in the catalog — currently `corndog` and `drink`. Anything else 404s |
 | `/orders` | Redirect to `/order` |
 | `/summary` | Sales summary with date-range pills, per-category and per-payment-method breakdown |
-| `/inventory` | Inventory counting — par/restock levels, prices, locations, case sizes, employee PIN auth |
+| `/inventory` | Inventory counting — par/restock levels, prices, locations, case sizes, employee PIN auth. Its **Daily Check** tab is the end-of-day stock check (`/inventory?tab=daily` opens it) |
 | `/menu` | **Public customer site.** Menu with photos and descriptions, plus the pop-up calendar. See [Customer site](#customer-site) |
 | `/cashapp` | Manages the list of Cash App cashtags and picks the active one for receipt QR codes (stored in `localStorage`) |
 | `POST /api/receipts/process` | ⚠️ **Stub.** Returns hardcoded `buildMockExtraction()` data. Nothing in the app calls it |
@@ -164,6 +165,36 @@ pop-up calendar.
 
 ---
 
+## Daily stock check & Today board
+
+At closing, staff count a short list in **Inventory → Daily Check** (signed in with their name and
+PIN). The next day's work shows on **`/today`**, linked from `/vendor`.
+
+- **Items** live in `daily_stock_items`. Anyone signed in can change the list with **Edit list**.
+  Each item is either **made in-house** (boba, jelly, batter…) or a **supply** (cups, milk…), with a
+  **target**:
+  - a made item counted under its target goes on tomorrow's **make list**, for the difference
+    (target 4 tubs, 1 left → make 3);
+  - a supply counted under its target shows as **running low** (marked *Out* at 0).
+  - A target of 0 means just count it, never flag it.
+- **Checks** live in `daily_stock_checks`, one per shop day. Every item needs a count before the check can
+  be finished. Redoing tonight's check replaces it. Each check keeps a snapshot of the items as they were,
+  so changing a target later doesn't rewrite history.
+- **Tasks** live in `daily_tasks`: the make list (`kind = 'make'`) and anything someone adds on the
+  board (`kind = 'task'`, for today or a later day). Ticking one off asks who you are once a day
+  per device. A task that isn't done **stays on the board** marked with the day it was for, until
+  someone ticks it off. The one exception: a new check **replaces the make list that isn't done yet**,
+  since the new count is the truth.
+- **Shop day:** the day rolls over at **4am** shop time (`SHOP_TIME_ZONE`), not midnight, so a close that
+  runs late still counts for that night. The server works this out, never the device's clock.
+- The rules are in `lib/daily/dailyStock.js` (unit tested). The three tables have RLS on and no
+  policies. Only the staff-only `app/api/admin/daily/*` routes reach them, through the service-role key
+  (so `SUPABASE_SERVICE_ROLE_KEY` is needed here too).
+- The old Daily Check list (`inventory_daily_check`) was copied in as supplies by the migration, with
+  each item's par level as its target. That table is no longer used.
+
+---
+
 ## Printing
 
 `lib/printer.js` supports two paths and picks the first that's configured:
@@ -227,8 +258,10 @@ exist.
 Supabase-hosted Postgres, accessed straight from the browser with the anon key.
 
 Tables in use: `orders`, the `inventory_*` family (items, par/restock levels, prices,
-locations, case sizes, daily checks, submissions), `employees` (PINs are SHA-256 hashed
+locations, case sizes, submissions), `employees` (PINs are SHA-256 hashed
 client-side), and `receipts` / `receipt_items` (only touched by the stub API route).
+The customer site, the staff schedule and the daily stock check have their own tables (`site_*`,
+`staff_*`, `daily_*`); their sections above say who can reach them.
 
 **The authoritative schema is `supabase/migrations/`.**
 
@@ -258,7 +291,7 @@ with `lib/menu/catalog.js`.
 | `npm run build` | Production build |
 | `npm start` | Serve the production build |
 | `npm run lint` | `next lint` |
-| `npm test` | `node --test lib/**/*.test.js` — covers the catalog, order model, payment methods, and date ranges |
+| `npm test` | `node --test lib/**/*.test.js` — covers the catalog, order model, payment methods, date ranges, schedule, and daily stock check |
 | `npm run print-server` | USB ESC/POS print server on :3333 |
 
 `lib/package.json` exists only to declare `"type": "module"` for `lib/`, so `node --test`

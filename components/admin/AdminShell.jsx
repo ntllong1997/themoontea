@@ -55,7 +55,7 @@ export default function AdminShell({ active, title, children }) {
 }
 
 /** A banner explaining a setup problem (e.g. the service key), if there is one. */
-function SetupCheck() {
+export function SetupCheck() {
     const [problem, setProblem] = useState('');
     useEffect(() => {
         api('/api/admin/status')
