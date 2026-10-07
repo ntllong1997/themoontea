@@ -66,9 +66,10 @@ isn't even installed. Safe to drop.
 
 | Route | What it is |
 |---|---|
-| `/login` | Staff sign-in. **Every route except `/menu`, `/order/online` and `/login` needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
+| `/login` | Staff sign-in. **Every route except `/menu`, `/order/online`, `/login` and the `/staff-calendar/<token>.ics` feeds needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
 | `/admin/menu` | Manage the customer menu: Available / Sold out / Hidden, reorder, add and edit items with a photo |
 | `/admin/popups` | Manage the customer pop-up calendar: add, edit, copy to a new date, delete |
+| `/admin/schedule` | **Staff schedule.** Weekly shifts, one-day changes, days off, and each employee's private calendar link. See [Staff schedule](#staff-schedule) |
 | `/` | Redirect to `/vendor` |
 | `/vendor` | Internal hub — links to Order Track, Inventory, Sales Summary |
 | `/order` | **The staff till.** Cart, payment method, receipt printing, today's history |
@@ -131,6 +132,33 @@ The two-location split is switched **off**: `LOCATIONS_ENABLED = false` in
 `lib/locations.js`. Every device is Location 1, nothing asks which location it is at, and
 the sales summary covers all orders. Set it back to `true` to restore the picker. (The iPad
 app is always Location 1 either way.)
+
+---
+
+## Staff schedule
+
+`/admin/schedule` (linked from `/vendor`) plans who works when at the store. It's separate from the
+pop-up calendar.
+
+- **People** are the `employees` rows Inventory already uses. Adding someone here gives them no
+  Inventory PIN (an admin sets one in Inventory → Employees). Removing someone deletes their shifts,
+  days off and calendar link, and their Inventory sign-in.
+- **Shifts** live in `staff_shifts`. A shift repeats every week on a weekday from a start date
+  (optionally until an end date), or happens once on a date. Tapping a shift offers:
+  - change just that day (the weekly shift skips the date via `skip_dates`, and a one-off shift takes its place)
+  - change every week
+  - remove just that day
+  - stop repeating from that day on
+- **Days off** live in `staff_time_off` and hide all of that person's shifts on those days.
+- `lib/schedule/schedule.js` turns all of that into actual workdays (`expandShifts`). The week view
+  and the calendar feeds both use it, so they always agree.
+- **Calendar links:** each employee has a secret token in `staff_calendar_links`. Their feed at
+  `/staff-calendar/<token>.ics` shows only their shifts ("Work: The Moon Tea"), from 30 days back to
+  120 days ahead. The link is public by design,
+  because phones can't sign in, so the token is the key. **Make a new link** on the Team view stops an
+  old one working.
+- The three schedule tables have RLS on and no policies. Only the staff-only API routes
+  (`app/api/admin/schedule/*`) and the feed route can reach them, through the service-role key.
 
 ---
 
