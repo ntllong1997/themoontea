@@ -1,11 +1,11 @@
 import { addDays, expandShifts, shiftEvents, shiftFromRow, timeOffFromRow } from '@/lib/schedule/schedule';
 import { SHIFT_COLUMNS, TIME_OFF_COLUMNS } from '@/lib/schedule/scheduleData';
 import { buildCalendar, localInstant } from '@/lib/site/ical';
-import { popupFromRow } from '@/lib/site/popups';
 import { shopDateKey, shopTimeZone } from '@/lib/online/shopTime';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-// One employee's shifts as a calendar feed: /staff-calendar/<token>.ics.
+// One employee's store shifts as a calendar feed: /staff-calendar/<token>.ics.
+// Each shift's location is STORE_ADDRESS (optional), so the phone can give directions.
 // The token is the only key, so the link itself is the secret: anyone who has
 // it sees that person's shifts (nothing else). Resetting it on the schedule
 // page stops an old link working.
@@ -35,12 +35,11 @@ export async function GET(request, { params }) {
         const today = shopDateKey(new Date(), timeZone);
         const from = addDays(today, -PAST_DAYS);
         const to = addDays(today, AHEAD_DAYS);
-        const [shifts, timeOff, popups] = await Promise.all([
+        const [shifts, timeOff] = await Promise.all([
             supabase.from('staff_shifts').select(SHIFT_COLUMNS).eq('employee_id', link.employee_id),
             supabase.from('staff_time_off').select(TIME_OFF_COLUMNS).eq('employee_id', link.employee_id),
-            supabase.from('site_popups').select('id, date, start_time, end_time, name, place, address, note').gte('date', from).lte('date', to),
         ]);
-        for (const result of [shifts, timeOff, popups]) if (result.error) throw result.error;
+        for (const result of [shifts, timeOff]) if (result.error) throw result.error;
 
         const occurrences = expandShifts({
             shifts: shifts.data.map(shiftFromRow),
@@ -52,7 +51,7 @@ export async function GET(request, { params }) {
         const body = buildCalendar({
             name: `${name} – The Moon Tea shifts`,
             timeZone,
-            events: shiftEvents(occurrences, popups.data.map(popupFromRow), (date, time) => localInstant(date, time, timeZone)),
+            events: shiftEvents(occurrences, { location: (process.env.STORE_ADDRESS ?? '').trim() }, (date, time) => localInstant(date, time, timeZone)),
         });
         return new Response(body, {
             headers: {

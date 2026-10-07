@@ -44,6 +44,7 @@ Put these in `.env.local` (gitignored via the `.env*` rule).
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | same as above | **yes** |
 | `STAFF_PASSWORD` | `middleware.js`, `app/api/login` — the one password staff type at `/login` | **yes** (without it nobody can sign in) |
 | `SUPABASE_SERVICE_ROLE_KEY` | `lib/supabase/admin.js` — server only, used by `/admin/menu` to save items and photos. Supabase → Project Settings → API | **yes** for `/admin/menu` |
+| `STORE_ADDRESS` | `app/staff-calendar` — the store's address, shown as the location of each shift in employees' calendars | no |
 | `NEXT_PUBLIC_INVENTORY_WEBHOOK_URL` | `app/inventory/page.jsx` — posts inventory submissions | optional (defaults to `''`) |
 | `PRINTER_PORT` | `print-server.js` — COM port from Device Manager → Ports | no (default `COM9`) |
 | `PRINTER_BAUD` | `print-server.js` | no (default `9600`) |
@@ -137,7 +138,8 @@ app is always Location 1 either way.)
 
 ## Staff schedule
 
-`/admin/schedule` (linked from `/vendor`) plans who works when.
+`/admin/schedule` (linked from `/vendor`) plans who works when at the store. It's separate from the
+pop-up calendar.
 
 - **People** are the `employees` rows Inventory already uses. Adding someone here gives them no
   Inventory PIN (an admin sets one in Inventory → Employees). Removing someone deletes their shifts,
@@ -152,8 +154,8 @@ app is always Location 1 either way.)
 - `lib/schedule/schedule.js` turns all of that into actual workdays (`expandShifts`). The week view
   and the calendar feeds both use it, so they always agree.
 - **Calendar links:** each employee has a secret token in `staff_calendar_links`. Their feed at
-  `/staff-calendar/<token>.ics` shows only their shifts, from 30 days back to 120 days ahead. A pop-up
-  on the same day names the event and gives it the pop-up's address. The link is public by design,
+  `/staff-calendar/<token>.ics` shows only their shifts ("Work: The Moon Tea"), from 30 days back to
+  120 days ahead. Each shift's location is `STORE_ADDRESS` when that's set. The link is public by design,
   because phones can't sign in, so the token is the key. **Make a new link** on the Team view stops an
   old one working.
 - The three schedule tables have RLS on and no policies. Only the staff-only API routes

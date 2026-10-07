@@ -1,11 +1,11 @@
 'use client';
 
-// The staff schedule: a week at a glance (tap a shift to change it), and the
+// The store's staff schedule: a week at a glance (tap a shift to change it), and the
 // team (add people, days off, each person's calendar link).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { CalendarCheck, ChevronLeft, ChevronRight, Loader2, MapPin, Palmtree, Pencil, Plus, Repeat, Trash2, X } from 'lucide-react';
+import { CalendarCheck, ChevronLeft, ChevronRight, Loader2, Palmtree, Pencil, Plus, Repeat, Trash2, X } from 'lucide-react';
 import { api, jsonRequest } from '@/lib/site/adminApi';
 import { dateKey } from '@/lib/site/popups';
 import { addDays, datesBetween, expandShifts, isOff, weekStart, WEEKDAYS } from '@/lib/schedule/schedule';
@@ -135,7 +135,6 @@ function WeekView({ data, byId, setDialog }) {
             <ol className='space-y-3'>
                 {days.map((day) => {
                     const dayShifts = shifts.filter((s) => s.date === day);
-                    const popups = data.popups.filter((p) => p.date === day);
                     const off = data.employees.filter((e) => isOff(data.timeOff, e.id, day));
                     return (
                         <li key={day} className={`rounded-2xl bg-white p-3 shadow-sm ring-1 ${day === today ? 'ring-2 ring-black' : 'ring-gray-200'}`}>
@@ -152,12 +151,6 @@ function WeekView({ data, byId, setDialog }) {
                                     <Plus className='h-4 w-4' aria-hidden /> Shift<span className='sr-only'> on {shortDate(day)}</span>
                                 </button>
                             </div>
-                            {popups.map((p) => (
-                                <p key={p.id} className='mt-1 flex items-center gap-1 text-sm text-gray-600'>
-                                    <MapPin className='h-4 w-4 shrink-0' aria-hidden /> {p.name} · {timeRange(p.start, p.end)} · {p.place}
-                                </p>
-                            ))}
-                            {dayShifts.length === 0 && popups.length > 0 && <p className='mt-2 text-sm font-semibold text-amber-800'>⚠️ Pop-up with nobody scheduled</p>}
                             {dayShifts.length > 0 && (
                                 <ul className='mt-2 space-y-1.5'>
                                     {dayShifts.map((shift) => (

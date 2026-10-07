@@ -39,7 +39,7 @@ function NoteField({ form, set }) {
             <span className='mb-1 block text-sm font-semibold'>
                 Note <span className='font-normal text-gray-500'>(optional)</span>
             </span>
-            <input value={form.note} onChange={set('note')} maxLength={120} className={inputClass} placeholder='e.g. Drink station, bring the tent' />
+            <input value={form.note} onChange={set('note')} maxLength={120} className={inputClass} placeholder='e.g. Opening, Closing, Drink station' />
         </label>
     );
 }
