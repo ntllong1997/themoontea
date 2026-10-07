@@ -5,7 +5,6 @@ import { shopDateKey, shopTimeZone } from '@/lib/online/shopTime';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 // One employee's store shifts as a calendar feed: /staff-calendar/<token>.ics.
-// Each shift's location is STORE_ADDRESS (optional), so the phone can give directions.
 // The token is the only key, so the link itself is the secret: anyone who has
 // it sees that person's shifts (nothing else). Resetting it on the schedule
 // page stops an old link working.
@@ -51,7 +50,7 @@ export async function GET(request, { params }) {
         const body = buildCalendar({
             name: `${name} – The Moon Tea shifts`,
             timeZone,
-            events: shiftEvents(occurrences, { location: (process.env.STORE_ADDRESS ?? '').trim() }, (date, time) => localInstant(date, time, timeZone)),
+            events: shiftEvents(occurrences, (date, time) => localInstant(date, time, timeZone)),
         });
         return new Response(body, {
             headers: {

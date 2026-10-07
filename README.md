@@ -44,7 +44,6 @@ Put these in `.env.local` (gitignored via the `.env*` rule).
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | same as above | **yes** |
 | `STAFF_PASSWORD` | `middleware.js`, `app/api/login` — the one password staff type at `/login` | **yes** (without it nobody can sign in) |
 | `SUPABASE_SERVICE_ROLE_KEY` | `lib/supabase/admin.js` — server only, used by `/admin/menu` to save items and photos. Supabase → Project Settings → API | **yes** for `/admin/menu` |
-| `STORE_ADDRESS` | `app/staff-calendar` — the store's address, shown as the location of each shift in employees' calendars | no |
 | `NEXT_PUBLIC_INVENTORY_WEBHOOK_URL` | `app/inventory/page.jsx` — posts inventory submissions | optional (defaults to `''`) |
 | `PRINTER_PORT` | `print-server.js` — COM port from Device Manager → Ports | no (default `COM9`) |
 | `PRINTER_BAUD` | `print-server.js` | no (default `9600`) |
@@ -155,7 +154,7 @@ pop-up calendar.
   and the calendar feeds both use it, so they always agree.
 - **Calendar links:** each employee has a secret token in `staff_calendar_links`. Their feed at
   `/staff-calendar/<token>.ics` shows only their shifts ("Work: The Moon Tea"), from 30 days back to
-  120 days ahead. Each shift's location is `STORE_ADDRESS` when that's set. The link is public by design,
+  120 days ahead. The link is public by design,
   because phones can't sign in, so the token is the key. **Make a new link** on the Team view stops an
   old one working.
 - The three schedule tables have RLS on and no policies. Only the staff-only API routes
