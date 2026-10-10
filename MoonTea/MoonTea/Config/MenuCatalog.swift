@@ -272,6 +272,7 @@ enum MenuCatalog {
                           .init("1 for $5", price: 5.0),
                           .init("3 for $14", price: 14.0),
                           .init("5 for $23", price: 23.0),
+                          .init("6 for $25", price: 25.0),
                       ],
                       role: .modifier),
             ],
