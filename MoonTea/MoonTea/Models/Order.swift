@@ -7,7 +7,7 @@ import Foundation
 /// decoder throw, which silently dropped the whole order — it never appeared in
 /// history and never printed. As an open raw value the row still decodes, and
 /// `MenuCatalog` falls back to the neutral flow for anything it cannot place.
-struct OrderItemType: RawRepresentable, Codable, Hashable, Sendable {
+nonisolated struct OrderItemType: RawRepresentable, Codable, Hashable, Sendable {
     let rawValue: String
 
     init(rawValue: String) { self.rawValue = rawValue }
@@ -26,7 +26,7 @@ struct OrderItemType: RawRepresentable, Codable, Hashable, Sendable {
     static let discount = OrderItemType(rawValue: "Discount")
 }
 
-struct Order: Codable, Hashable, Identifiable, Sendable {
+nonisolated struct Order: Codable, Hashable, Identifiable, Sendable {
     var id: UUID = UUID()
     var orderNumber: Int
     var name: String
@@ -39,9 +39,22 @@ struct Order: Codable, Hashable, Identifiable, Sendable {
     /// Which shop the order was taken at. Only read back from the server; the
     /// value written is always `AppConstants.locationID`.
     var location: Int?
+    /// The order's hidden id, made on the phone and shared by every row of the
+    /// order. It is what makes a queued upload or edit safe to retry. Rows
+    /// written by the website or before this column existed have none.
+    var orderUUID: UUID?
+    /// `OrderStatus` raw value. Absent on rows from before the column existed,
+    /// which the database treats as paid.
+    var status: String?
+    var paidAt: String?
+    var squarePaymentID: String?
 
     enum CodingKeys: String, CodingKey {
         case id, orderNumber, name, price, type, timestamp, phone, paymentMethod, quantity, location
+        case orderUUID = "order_uuid"
+        case status
+        case paidAt = "paid_at"
+        case squarePaymentID = "square_payment_id"
     }
 
     init(
@@ -53,7 +66,11 @@ struct Order: Codable, Hashable, Identifiable, Sendable {
         timestamp: String,
         phone: String? = nil,
         paymentMethod: String? = nil,
-        quantity: Int? = nil
+        quantity: Int? = nil,
+        orderUUID: UUID? = nil,
+        status: OrderStatus? = nil,
+        paidAt: String? = nil,
+        squarePaymentID: String? = nil
     ) {
         self.id = id
         self.orderNumber = orderNumber
@@ -64,6 +81,10 @@ struct Order: Codable, Hashable, Identifiable, Sendable {
         self.phone = phone
         self.paymentMethod = paymentMethod
         self.quantity = quantity
+        self.orderUUID = orderUUID
+        self.status = status?.rawValue
+        self.paidAt = paidAt
+        self.squarePaymentID = squarePaymentID
     }
 
     // PostgREST's REST responses send numerics as native JSON types and
@@ -85,6 +106,10 @@ struct Order: Codable, Hashable, Identifiable, Sendable {
         paymentMethod = try c.decodeIfPresent(String.self, forKey: .paymentMethod)
         quantity = try c.decodeIfPresent(Int.self, forKey: .quantity)
         location = try? Self.lenientInt(c, .location)
+        orderUUID = try? c.decodeIfPresent(UUID.self, forKey: .orderUUID)
+        status = try c.decodeIfPresent(String.self, forKey: .status)
+        paidAt = try c.decodeIfPresent(String.self, forKey: .paidAt)?.replacingOccurrences(of: " ", with: "T")
+        squarePaymentID = try c.decodeIfPresent(String.self, forKey: .squarePaymentID)
     }
 
     private static func lenientInt(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) throws -> Int {
@@ -104,12 +129,24 @@ struct Order: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
-struct OrderGroup: Identifiable, Hashable, Sendable {
+/// A ticket's payment state — the `orders.status` column.
+nonisolated enum OrderStatus: String, Codable, Sendable {
+    /// Sent to the kitchen, not paid yet.
+    case pending
+    case paid
+    /// The customer left before paying. The number stays used.
+    case cancelled
+}
+
+nonisolated struct OrderGroup: Identifiable, Hashable, Sendable {
     let orderNumber: Int
     let items: [Order]
     var id: Int { orderNumber }
 
     var phone: String? { items.first?.phone }
+    var orderUUID: UUID? { items.first?.orderUUID }
+    /// Rows without a status predate the column and were paid when saved.
+    var status: OrderStatus { items.first?.status.flatMap(OrderStatus.init(rawValue:)) ?? .paid }
     var subtotal: Double { items.reduce(0) { $0 + $1.price } }
     func total(taxRate: Double) -> Double { subtotal * (1 + taxRate) }
 }

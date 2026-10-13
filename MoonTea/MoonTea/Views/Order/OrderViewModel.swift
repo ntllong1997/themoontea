@@ -219,6 +219,7 @@ final class OrderViewModel {
             do {
                 let groups = try await SupabaseService.shared.todaysOrderGroups()
                 self.history = groups
+                applyWaitingUploads()
             } catch {
                 print("[order] refresh failed: \(error)")
             }
@@ -246,7 +247,8 @@ final class OrderViewModel {
             recentRefreshRequested = false
             do {
                 let groups = try await SupabaseService.shared.recentOrderGroups(limit: Self.recentHistoryLimit)
-                for group in groups {
+                let waiting = OrderOutbox.shared.waitingOrderUUIDs
+                for group in groups where !Self.isWaiting(group.orderUUID, in: waiting) {
                     for item in group.items { mergeUpdate(item) }
                 }
             } catch {
@@ -303,10 +305,12 @@ final class OrderViewModel {
     private func applyPostgresChange(type: String, record: [String: Any]?, oldRecord: [String: Any]?) {
         switch type {
         case "INSERT":
-            guard let record, let order = Self.decodeOrder(record), Self.isThisLocation(order) else { return }
+            guard let record, let order = Self.decodeOrder(record), Self.isThisLocation(order),
+                  !Self.isWaiting(order.orderUUID, in: OrderOutbox.shared.waitingOrderUUIDs) else { return }
             mergeInsert(orderNumber: order.orderNumber, rows: [order])
         case "UPDATE":
-            guard let record, let order = Self.decodeOrder(record), Self.isThisLocation(order) else { return }
+            guard let record, let order = Self.decodeOrder(record), Self.isThisLocation(order),
+                  !Self.isWaiting(order.orderUUID, in: OrderOutbox.shared.waitingOrderUUIDs) else { return }
             mergeUpdate(order)
         case "DELETE":
             guard let oldRecord, let idString = oldRecord["id"] as? String, let id = UUID(uuidString: idString) else { return }
@@ -322,6 +326,37 @@ final class OrderViewModel {
     /// column and belongs to Location 1.
     private static func isThisLocation(_ order: Order) -> Bool {
         (order.location ?? 1) == AppConstants.locationID
+    }
+
+    /// An order with changes still on the upload list: this phone's copy is
+    /// newer than Supabase's, so server rows for it must not overwrite it.
+    private static func isWaiting(_ orderUUID: UUID?, in waiting: Set<UUID>) -> Bool {
+        guard let orderUUID else { return false }
+        return waiting.contains(orderUUID)
+    }
+
+    /// Lays this phone's not-yet-uploaded changes over `history`, oldest first,
+    /// so a full refresh from Supabase never hides an order (or an edit, or a
+    /// phone change) that hasn't reached it yet.
+    private func applyWaitingUploads() {
+        for entry in OrderOutbox.shared.entries {
+            switch entry.operation {
+            case .insert(let rows), .replace(let rows):
+                replaceGroup(orderNumber: entry.orderNumber, with: rows)
+            case .updatePhone(let phone):
+                setPhone(phone, onOrder: entry.orderNumber)
+            }
+        }
+    }
+
+    private func setPhone(_ phone: String?, onOrder orderNumber: Int) {
+        guard let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) else { return }
+        let rows = history[idx].items.map { row -> Order in
+            var row = row
+            row.phone = phone
+            return row
+        }
+        history[idx] = OrderGroup(orderNumber: orderNumber, items: rows)
     }
 
     private static func decodeOrder(_ dict: [String: Any]) -> Order? {
@@ -348,70 +383,85 @@ final class OrderViewModel {
         // overlaps the network call instead of adding to the time-to-print.
         EpsonPrinter.shared.checkConnection()
 
+        // The order number is the only step that still needs the network.
+        // Everything after it is local: the order is saved on the phone and
+        // uploaded in the background, so a weak signal can no longer lose it.
+        let orderNumber: Int
         do {
-            let orderNumber = try await SupabaseService.shared.nextOrderNumber()
-            let iso = ISO8601DateFormatter()
-            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let timestamp = iso.string(from: Date())
-            let phoneClean = phone.trimmingCharacters(in: .whitespaces)
-            let phoneValue: String? = phoneClean.isEmpty ? nil : phoneClean
-
-            let methodStr = paymentMethod.rawValue
-            var rows: [Order] = []
-            for item in cart {
-                for _ in 0..<item.quantity {
-                    rows.append(.init(
-                        orderNumber: orderNumber,
-                        name: item.name,
-                        price: item.price,
-                        type: item.type,
-                        timestamp: timestamp,
-                        phone: phoneValue,
-                        paymentMethod: methodStr,
-                        quantity: nil
-                    ))
-                }
-            }
-            if couponApplied && cartSubtotal > 0 {
-                rows.append(.init(
-                    orderNumber: orderNumber,
-                    name: CouponConstants.fourOffLabel,
-                    price: -discount,
-                    type: .discount,
-                    timestamp: timestamp,
-                    phone: phoneValue,
-                    paymentMethod: methodStr,
-                    quantity: nil
-                ))
-            }
-
-            // Print straight from the local rows, before persisting. The
-            // receipt needs only the order number and the line items — never
-            // the DB write — so enqueuing it here takes the entire insert round
-            // trip off the critical path between payment and paper. `tryPrint`
-            // only queues (it returns instantly); the actual printing runs in
-            // the background, concurrently with the insert below.
-            await tryPrint(orderNumber: orderNumber, items: rows)
-
-            let inserted = try await SupabaseService.shared.insertOrders(rows)
-
-            // Merge with the server-confirmed rows (real ids), not the local
-            // ones: other devices' postgres_changes echo of this insert carries
-            // those same server ids, so the merge dedups instead of duplicating
-            // the order. (Merging the local rows here would leave the echo
-            // unmatched and double the order in history.)
-            mergeInsert(orderNumber: orderNumber, rows: inserted)
-            cart.removeAll()
-            phone = ""
-            couponApplied = false
-            paymentMethod = .cash
+            orderNumber = try await Self.reserveOrderNumber()
         } catch {
-            // If the failure came after the receipt was queued, the customer
-            // still gets their receipt; the message says the save is what
-            // failed so staff know to re-ring rather than assume nothing
-            // happened.
-            sendError = (error as? LocalizedError)?.errorDescription ?? "Order failed to save."
+            // The customer may already have paid by card, so say exactly what
+            // didn't happen: nothing was saved, and it needs ringing again.
+            sendError = "Couldn't get an order number, so this order was NOT saved. Check the connection and send it again. "
+                + ((error as? LocalizedError)?.errorDescription ?? "")
+            return
         }
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let timestamp = iso.string(from: Date())
+        let phoneClean = phone.trimmingCharacters(in: .whitespaces)
+        let phoneValue: String? = phoneClean.isEmpty ? nil : phoneClean
+        let orderUUID = UUID()
+        let method = paymentMethod.rawValue
+
+        // Charged before this point (CartView), so the ticket is paid.
+        func row(name: String, price: Double, type: OrderItemType) -> Order {
+            Order(
+                orderNumber: orderNumber,
+                name: name,
+                price: price,
+                type: type,
+                timestamp: timestamp,
+                phone: phoneValue,
+                paymentMethod: method,
+                quantity: nil,
+                orderUUID: orderUUID,
+                status: .paid,
+                paidAt: timestamp
+            )
+        }
+        var rows: [Order] = []
+        for item in cart {
+            for _ in 0..<item.quantity {
+                rows.append(row(name: item.name, price: item.price, type: item.type))
+            }
+        }
+        if couponApplied && cartSubtotal > 0 {
+            rows.append(row(name: CouponConstants.fourOffLabel, price: -discount, type: .discount))
+        }
+
+        // Saved on the phone before anything else, so it survives the app
+        // closing. Every row's id is made here and kept through the upload, so
+        // Realtime's echo of it (here and on other devices) dedups by id.
+        OrderOutbox.shared.enqueue(OutboxEntry(
+            orderUUID: orderUUID,
+            orderNumber: orderNumber,
+            operation: .insert(rows: rows)
+        ))
+        mergeInsert(orderNumber: orderNumber, rows: rows)
+        cart.removeAll()
+        phone = ""
+        couponApplied = false
+        paymentMethod = .cash
+
+        // `tryPrint` only queues; printing runs in the background.
+        await tryPrint(orderNumber: orderNumber, items: rows)
+    }
+
+    /// Asks Supabase for the next number, retrying briefly: on a weak signal
+    /// one dropped request is common, and failing here leaves the order unsaved.
+    private static func reserveOrderNumber() async throws -> Int {
+        var lastError: Error?
+        for attempt in 0..<3 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+            do {
+                return try await SupabaseService.shared.nextOrderNumber()
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? SupabaseError.http(0, "no response")
     }
 
     func reprint(orderNumber: Int) async {
@@ -483,37 +533,54 @@ final class OrderViewModel {
         editError = ""
         defer { isSavingEdit = false }
 
+        // The order's id and payment state ride through the edit unchanged.
+        let original = history.first(where: { $0.orderNumber == orderNumber })?.items.first
         let methodStr = editPaymentMethod.rawValue
+        func row(name: String, price: Double, type: OrderItemType, quantity: Int?) -> Order {
+            Order(
+                orderNumber: orderNumber,
+                name: name,
+                price: price,
+                type: type,
+                timestamp: editTimestamp,
+                phone: editPhone,
+                paymentMethod: methodStr,
+                quantity: quantity,
+                orderUUID: original?.orderUUID,
+                status: original?.status.flatMap(OrderStatus.init(rawValue:)),
+                paidAt: original?.paidAt,
+                squarePaymentID: original?.squarePaymentID
+            )
+        }
         var rows: [Order] = []
         for item in editCart {
             for _ in 0..<item.quantity {
-                rows.append(.init(
-                    orderNumber: orderNumber,
-                    name: item.name,
-                    price: item.price,
-                    type: item.type,
-                    timestamp: editTimestamp,
-                    phone: editPhone,
-                    paymentMethod: methodStr,
-                    quantity: nil
-                ))
+                rows.append(row(name: item.name, price: item.price, type: item.type, quantity: nil))
             }
         }
         // Carry the discount rows through, re-stamped with the (possibly
         // changed) payment method so the whole order stays internally consistent.
-        for row in editPreservedRows {
-            rows.append(.init(
-                orderNumber: orderNumber,
-                name: row.name,
-                price: row.price,
-                type: row.type,
-                timestamp: editTimestamp,
-                phone: editPhone,
-                paymentMethod: methodStr,
-                quantity: row.quantity
-            ))
+        for preserved in editPreservedRows {
+            rows.append(row(name: preserved.name, price: preserved.price, type: preserved.type, quantity: preserved.quantity))
         }
 
+        // An order with a hidden id is edited through the upload list, like
+        // new orders: saved here at once, uploaded when there's signal. This
+        // also keeps the edit behind the order's own upload if that hasn't
+        // landed yet.
+        if let orderUUID = original?.orderUUID {
+            OrderOutbox.shared.enqueue(OutboxEntry(
+                orderUUID: orderUUID,
+                orderNumber: orderNumber,
+                operation: .replace(rows: rows)
+            ))
+            replaceGroup(orderNumber: orderNumber, with: rows)
+            cancelEdit()
+            return
+        }
+
+        // Older orders (and the website's) have no hidden id: edit them
+        // directly, which needs the connection.
         do {
             let replaced = try await SupabaseService.shared.replaceOrderItems(orderNumber: orderNumber, rows: rows)
             replaceGroup(orderNumber: orderNumber, with: replaced)
@@ -524,17 +591,20 @@ final class OrderViewModel {
         }
     }
 
-    /// Swaps a group's rows wholesale. The replacement rows carry fresh ids, so
-    /// the old ids' station state is dropped rather than left to leak — the
-    /// order's progress restarts, which is the accepted cost of a full replace.
-    /// Realtime's DELETE/INSERT echo of this same write is a no-op afterwards:
-    /// the old ids are already gone and the new ones already present.
+    /// Swaps a group's rows wholesale. An edit's replacement rows carry fresh
+    /// ids, so the old ids' station state is dropped rather than left to leak —
+    /// the order's progress restarts, which is the accepted cost of a full
+    /// replace. Rows that keep their id (re-laying a not-yet-uploaded order
+    /// after a refresh) keep their state. Realtime's DELETE/INSERT echo of this
+    /// same write is a no-op afterwards: the old ids are already gone and the
+    /// new ones already present.
     private func replaceGroup(orderNumber: Int, with rows: [Order]) {
         guard let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) else {
             mergeInsert(orderNumber: orderNumber, rows: rows)
             return
         }
-        for old in history[idx].items {
+        let keptIDs = Set(rows.map(\.id))
+        for old in history[idx].items where !keptIDs.contains(old.id) {
             itemStates.removeValue(forKey: old.id)
         }
         history[idx] = OrderGroup(orderNumber: orderNumber, items: rows)
@@ -601,6 +671,20 @@ final class OrderViewModel {
 
     func savePhone(orderNumber: Int, phone: String) async {
         phoneError = ""
+        // Orders with a hidden id: saved here at once, uploaded when there's
+        // signal (and always after the order's own upload).
+        if let orderUUID = history.first(where: { $0.orderNumber == orderNumber })?.orderUUID {
+            let value: String? = phone.isEmpty ? nil : phone
+            OrderOutbox.shared.enqueue(OutboxEntry(
+                orderUUID: orderUUID,
+                orderNumber: orderNumber,
+                operation: .updatePhone(phone: value)
+            ))
+            setPhone(value, onOrder: orderNumber)
+            phoneOverrides.removeValue(forKey: orderNumber)
+            return
+        }
+
         phoneOverrides[orderNumber] = phone  // optimistic: show immediately
         do {
             // Patch history directly from the PATCH's returned rows — other

@@ -11,6 +11,9 @@ struct MoonTeaApp: App {
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
+                // Also the first touch at launch, so orders left waiting from
+                // an earlier session start uploading before any screen opens.
+                OrderOutbox.shared.nudge()
                 SquareService.shared.handleAppDidBecomeActive()
                 EpsonPrinter.shared.handleAppDidBecomeActive()
             case .background:

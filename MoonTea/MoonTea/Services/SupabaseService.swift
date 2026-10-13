@@ -70,12 +70,27 @@ actor SupabaseService {
         catch { throw SupabaseError.decoding(error) }
     }
 
+    /// For writes whose response body is not needed (`return=minimal`).
+    private func runNoContent(_ req: URLRequest) async throws {
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw SupabaseError.http(0, "no response") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw SupabaseError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+    }
+
     // MARK: - Orders
 
     /// One line-item row as the `orders` table expects it. Shared by
-    /// `insertOrders` and `replaceOrderItems` so the column list lives in
+    /// `uploadOrderRows` and both `replaceOrderItems` so the column list lives in
     /// exactly one place.
+    ///
+    /// Every key is always written, `null` included: PostgREST takes a bulk
+    /// insert's columns from its rows, so rows of one order must agree on
+    /// their keys. `status` is never null — the column is NOT NULL, and a row
+    /// with none predates it and was paid.
     private struct InsertRow: Encodable {
+        let id: UUID
         let orderNumber: Int
         let name: String
         let price: Double
@@ -85,8 +100,13 @@ actor SupabaseService {
         let paymentMethod: String?
         let quantity: Int?
         let location = AppConstants.locationID
+        let orderUUID: UUID?
+        let status: String
+        let paidAt: String?
+        let squarePaymentID: String?
 
         init(_ order: Order) {
+            id = order.id
             orderNumber = order.orderNumber
             name = order.name
             price = order.price
@@ -95,6 +115,36 @@ actor SupabaseService {
             phone = order.phone
             paymentMethod = order.paymentMethod
             quantity = order.quantity
+            orderUUID = order.orderUUID
+            status = order.status ?? OrderStatus.paid.rawValue
+            paidAt = order.paidAt
+            squarePaymentID = order.squarePaymentID
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id, orderNumber, name, price, type, timestamp, phone, paymentMethod, quantity, location
+            case orderUUID = "order_uuid"
+            case status
+            case paidAt = "paid_at"
+            case squarePaymentID = "square_payment_id"
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(id, forKey: .id)
+            try c.encode(orderNumber, forKey: .orderNumber)
+            try c.encode(name, forKey: .name)
+            try c.encode(price, forKey: .price)
+            try c.encode(type, forKey: .type)
+            try c.encode(timestamp, forKey: .timestamp)
+            try c.encode(phone, forKey: .phone)
+            try c.encode(paymentMethod, forKey: .paymentMethod)
+            try c.encode(quantity, forKey: .quantity)
+            try c.encode(location, forKey: .location)
+            try c.encode(orderUUID, forKey: .orderUUID)
+            try c.encode(status, forKey: .status)
+            try c.encode(paidAt, forKey: .paidAt)
+            try c.encode(squarePaymentID, forKey: .squarePaymentID)
         }
     }
 
@@ -170,7 +220,8 @@ actor SupabaseService {
         }
     }
 
-    /// Fetch all of this location's orders (used by sales summary).
+    /// Fetch all of this location's paid orders (used by sales summary). A
+    /// pending ticket hasn't been paid yet and a cancelled one never was.
     func allOrders() async throws -> [Order] {
         let req = try makeRequest(
             path: "/rest/v1/orders",
@@ -178,6 +229,7 @@ actor SupabaseService {
             query: [
                 .init(name: "select", value: "*"),
                 locationFilter,
+                .init(name: "status", value: "eq.\(OrderStatus.paid.rawValue)"),
                 .init(name: "order", value: "timestamp.desc"),
             ]
         )
@@ -206,18 +258,54 @@ actor SupabaseService {
         return try await run(req, as: Int.self)
     }
 
-    /// Returns the server-confirmed rows (with their real `id`s) so callers can
-    /// use them for optimistic local state that matches what Realtime will echo.
-    func insertOrders(_ orders: [Order]) async throws -> [Order] {
-        let payload = orders.map(InsertRow.init)
-        let body = try JSONEncoder().encode(payload)
-        let req = try makeRequest(
+    /// Uploads one order's rows. Safe to call again with the same rows: each
+    /// row's `id` is made on the phone, so a retry after a timeout that had in
+    /// fact landed hits the primary key and is skipped instead of doubling the
+    /// order. Called only by `OrderOutbox`.
+    func uploadOrderRows(_ orders: [Order]) async throws {
+        let body = try JSONEncoder().encode(orders.map(InsertRow.init))
+        var req = try makeRequest(
             path: "/rest/v1/orders",
             method: "POST",
-            body: body,
-            preferReturn: true
+            query: [.init(name: "on_conflict", value: "id")],
+            body: body
         )
-        return try await run(req, as: [Order].self)
+        req.setValue("resolution=ignore-duplicates,return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
+    }
+
+    /// Replaces every row of one order, found by its hidden `orderUUID`, via
+    /// `replace_order_items_by_uuid`. Unlike `replaceOrderItems(orderNumber:rows:)`
+    /// this is safe to repeat — the rows carry their own ids — so a queued edit
+    /// can be retried until it lands. Called only by `OrderOutbox`.
+    func replaceOrderItems(orderUUID: UUID, rows: [Order]) async throws {
+        guard !rows.isEmpty else {
+            throw SupabaseError.http(400, "Refusing to replace an order with no items.")
+        }
+        struct Params: Encodable {
+            let target_order_uuid: UUID
+            let new_rows: [InsertRow]
+        }
+        let body = try JSONEncoder().encode(Params(target_order_uuid: orderUUID, new_rows: rows.map(InsertRow.init)))
+        var req = try makeRequest(path: "/rest/v1/rpc/replace_order_items_by_uuid", method: "POST", body: body)
+        req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
+    }
+
+    /// Sets the phone on every row of one order, found by its hidden
+    /// `orderUUID`, so it needs no day bounds and is safe to repeat. Called
+    /// only by `OrderOutbox`.
+    func updateOrderPhone(orderUUID: UUID, phone: String?) async throws {
+        struct Patch: Encodable { let phone: String? }
+        let body = try JSONEncoder().encode(Patch(phone: (phone?.isEmpty == false) ? phone : nil))
+        var req = try makeRequest(
+            path: "/rest/v1/orders",
+            method: "PATCH",
+            query: [.init(name: "order_uuid", value: "eq.\(orderUUID.uuidString)")],
+            body: body
+        )
+        req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
     }
 
     /// Returns the updated rows so callers can patch local state in place

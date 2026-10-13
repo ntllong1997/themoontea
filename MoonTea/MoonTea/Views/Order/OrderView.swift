@@ -9,6 +9,7 @@ struct OrderView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            UploadStatusBadge()
             tabBar
 
             if tab == .order {
