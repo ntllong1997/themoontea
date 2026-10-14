@@ -65,7 +65,15 @@ struct HistorySectionView: View {
         }
         .sheet(item: $smsTarget) { target in
             if MessageComposer.canSend {
-                MessageComposer(recipient: target.phone, body: target.body) { _ in
+                MessageComposer(recipient: target.phone, body: target.body) { result in
+                    switch result {
+                    case .sent:
+                        ActivityLog.shared.info(.order, "Customer texted that order is ready", ["order": target.orderNumber])
+                    case .failed:
+                        ActivityLog.shared.warning(.order, "Ready text failed to send", ["order": target.orderNumber])
+                    default:
+                        ActivityLog.shared.info(.order, "Ready text cancelled", ["order": target.orderNumber])
+                    }
                     vm.markNotified(target.orderNumber)
                     smsTarget = nil
                 }
