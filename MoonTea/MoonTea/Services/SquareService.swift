@@ -93,6 +93,7 @@ final class SquareService: NSObject {
         }
         shared.log.info("configure() running — first SDK initialize this process (COLD launch path)")
         didInitializeSDK = true
+        ActivityLog.shared.info(.reader, "Square SDK started")
         MobilePaymentsSDK.initialize(squareApplicationID: Secrets.squareApplicationID)
         shared.connectionState = .unauthorized
         shared.requestLocationPermissionIfNeeded()
@@ -131,7 +132,11 @@ final class SquareService: NSObject {
                 // so we check the NSError domain + code directly.
                 if let error, !Self.isAlreadyAuthorizedError(error) {
                     self.lastError = Self.friendlyAuthorizationError(error)
+                    ActivityLog.shared.error(.reader, "Square authorization failed", [
+                        "error": self.lastError, "code": (error as NSError).code,
+                    ])
                 } else {
+                    ActivityLog.shared.info(.reader, "Square authorized")
                     self.lastError = ""
                     self.syncWithSDK()
                 }
@@ -197,6 +202,9 @@ final class SquareService: NSObject {
     /// status is `.ready` — connecting/unavailable states map to `.connecting`
     /// or `.disconnected`.
     fileprivate func refreshConnectionFromReaders() {
+        let before = (state: connectionState, reader: connectedReaderName, reason: readerUnavailableReason)
+        defer { logConnectionChange(from: before) }
+
         // `readers` always includes a virtual `.tapToPay` entry for the
         // iPhone's own built-in NFC chip ("Tap to Pay on iPhone") — it
         // reports `.ready` independent of any physical Bluetooth reader,
@@ -241,6 +249,27 @@ final class SquareService: NSObject {
         log.info("refresh -> connectionState=\(String(describing: self.connectionState), privacy: .public) reader='\(self.connectedReaderName, privacy: .public)' reason='\(self.readerUnavailableReason, privacy: .public)'")
     }
 
+    /// Records reader connection changes in the activity log. Only actual
+    /// changes: `refreshConnectionFromReaders` runs on every SDK callback.
+    private func logConnectionChange(from before: (state: ConnectionState, reader: String, reason: String)) {
+        guard before.state != connectionState || before.reader != connectedReaderName
+                || before.reason != readerUnavailableReason else { return }
+        let from = String(describing: before.state)
+        switch connectionState {
+        case .ready:
+            ActivityLog.shared.info(.reader, "Card reader ready", ["reader": connectedReaderName, "was": from])
+        case .connecting:
+            ActivityLog.shared.info(.reader, "Card reader connecting", ["was": from])
+        case .disconnected:
+            var details: [String: Any] = ["was": from]
+            if !readerUnavailableReason.isEmpty { details["reason"] = readerUnavailableReason }
+            if !before.reader.isEmpty { details["reader"] = before.reader }
+            ActivityLog.shared.warning(.reader, "Card reader not connected", details)
+        case .notConfigured, .unauthorized:
+            ActivityLog.shared.info(.reader, "Card reader state changed", ["state": String(describing: connectionState), "was": from])
+        }
+    }
+
     /// Gates `reconnectKnownReaders()` behind `autoReconnectCooldown` so a
     /// reader that keeps failing to reconnect (powered off, out of range)
     /// can't re-trigger itself in a tight loop — every failed retry flips
@@ -264,6 +293,9 @@ final class SquareService: NSObject {
         for reader in manager.readers
         where reader.model != .tapToPay && reader.statusInfo.status == .readerUnavailable {
             let result = manager.retryConnection(reader)
+            ActivityLog.shared.info(.reader, "Retrying card reader connection", [
+                "reader": reader.name, "result": result.rawValue,
+            ])
             log.info("retryConnection('\(reader.name, privacy: .public)') -> result=\(result.rawValue, privacy: .public)")
         }
     }
@@ -277,8 +309,10 @@ final class SquareService: NSObject {
             return
         }
         guard let vc = UIApplication.shared.topViewController else { return }
+        ActivityLog.shared.info(.reader, "Opened card reader pairing")
         MobilePaymentsSDK.shared.settingsManager.presentSettings(with: vc) { [weak self] error in
             guard let error else { return }
+            ActivityLog.shared.warning(.reader, "Card reader pairing screen reported an error", ["error": error])
             Task { @MainActor [weak self] in
                 self?.lastError = error.localizedDescription
             }
@@ -288,6 +322,22 @@ final class SquareService: NSObject {
     // MARK: - Charging
 
     func charge(amountCents: Int) async -> ChargeResult {
+        let amount = Double(amountCents) / 100
+        let result = await startCharge(amountCents: amountCents)
+        switch result {
+        case .success(let transactionID):
+            ActivityLog.shared.info(.payment, "Card payment approved", ["amount": amount, "paymentID": transactionID])
+        case .cancelled:
+            ActivityLog.shared.info(.payment, "Card payment cancelled", ["amount": amount])
+        case .failure(let message):
+            ActivityLog.shared.warning(.payment, "Card payment failed", [
+                "amount": amount, "error": message, "readerState": String(describing: connectionState),
+            ])
+        }
+        return result
+    }
+
+    private func startCharge(amountCents: Int) async -> ChargeResult {
         guard isConfigured else {
             return .failure("Square credentials not configured.")
         }
@@ -314,6 +364,9 @@ final class SquareService: NSObject {
             return .failure("Could not find a view controller to present from.")
         }
 
+        ActivityLog.shared.info(.payment, "Card payment started", [
+            "amount": Double(amountCents) / 100, "reader": connectedReaderName,
+        ])
         return await withCheckedContinuation { cont in
             chargeContinuation = cont
             let params = PaymentParameters(
@@ -368,7 +421,9 @@ final class SquareService: NSObject {
     /// un-pair a reader), then re-derives connection state from the SDK.
     func disconnectReaders() {
         let manager = MobilePaymentsSDK.shared.readerManager
-        for reader in manager.readers where reader.model != .tapToPay {
+        let readers = manager.readers.filter { $0.model != .tapToPay }
+        ActivityLog.shared.info(.reader, "Card readers forgotten", ["readers": readers.map(\.name).joined(separator: ", ")])
+        for reader in readers {
             manager.forget(reader)
         }
         refreshConnectionFromReaders()
@@ -380,6 +435,15 @@ final class SquareService: NSObject {
 extension SquareService: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
+        let name: String = switch status {
+        case .notDetermined:       "not asked yet"
+        case .restricted:          "restricted"
+        case .denied:              "denied"
+        case .authorizedAlways:    "always"
+        case .authorizedWhenInUse: "when in use"
+        @unknown default:          "unknown"
+        }
+        ActivityLog.shared.info(.reader, "Location permission", ["status": name])
         Task { @MainActor [weak self] in
             guard let self else { return }
             if status == .denied || status == .restricted {
@@ -401,6 +465,17 @@ extension SquareService: CBCentralManagerDelegate {
         // and report "device cannot be accessed" — Bluetooth being off or
         // the app being denied access never surfaces from the SDK itself.
         let state = central.state
+        let name: String = switch state {
+        case .poweredOn:    "on"
+        case .poweredOff:   "off"
+        case .unauthorized: "not allowed for this app"
+        case .unsupported:  "unsupported"
+        case .resetting:    "resetting"
+        case .unknown:      "unknown"
+        @unknown default:   "unknown"
+        }
+        let level: ActivityLog.Level = state == .poweredOn ? .info : .warning
+        ActivityLog.shared.log(level, .reader, "Bluetooth is \(name)")
         Task { @MainActor [weak self] in
             guard let self else { return }
             switch state {

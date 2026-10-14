@@ -15,6 +15,8 @@ private let kErrInUse      = Int32(EPOS2_ERR_IN_USE.rawValue)
 private let kErrProcessing = Int32(EPOS2_ERR_PROCESSING.rawValue)
 private let kErrDeviceBusy = Int32(EPOS2_ERR_DEVICE_BUSY.rawValue)
 
+private let activity = ActivityLog.shared
+
 /// Owns the Epos2 SDK connection to a TM-m30III over either MFi Bluetooth or
 /// TCP/IP, and nothing else — discovery, connect/reconnect, the keepalive
 /// ping, and the reconnect watchdog. Receipt formatting (`ReceiptBuilder`) and
@@ -125,26 +127,39 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
     /// `isConnected` / keepalive in sync either way — a failed reconnect
     /// used to leave `isConnected` stuck on its last value, so the settings
     /// screen showed "connected" while prints silently failed.
-    private func openConnection(_ printer: Epos2Printer, target: String, timeout: Int) -> Int32 {
+    ///
+    /// `reason` says who asked ("print", "background retry", …) for the
+    /// activity log.
+    private func openConnection(_ printer: Epos2Printer, target: String, timeout: Int, reason: String) -> Int32 {
         if connectedTarget == target, printer.getStatus()?.connection == kTrue {
             DispatchQueue.main.async { self.setConnected(true) }
             return kSuccess
         }
 
         // Link dropped or we're switching printers — reconnect from scratch.
-        if connectedTarget != nil {
+        if let previous = connectedTarget {
+            activity.info(.printer, "Printer link stale, reconnecting", ["target": previous, "reason": reason])
             printer.disconnect()
             connectedTarget = nil
         }
 
+        let started = Date()
         let code = printer.connect(target, timeout: timeout)
+        let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
         if code == kSuccess {
+            activity.info(.printer, "Printer connected", [
+                "target": target, "reason": reason, "ms": elapsedMs,
+            ])
             connectedTarget = target
             DispatchQueue.main.async {
                 self.setConnected(true)
                 self.startKeepalive()
             }
         } else {
+            activity.warning(.printer, "Printer connect failed", [
+                "target": target, "reason": reason, "ms": elapsedMs,
+                "code": Self.codeName(code),
+            ])
             DispatchQueue.main.async { self.setConnected(false) }
         }
         return code
@@ -153,11 +168,12 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
     /// Connects `printer` to `target` if it isn't already connected to it.
     /// Returns false if a connection attempt fails.
     private func ensureConnected(_ printer: Epos2Printer, target: String) -> Bool {
-        openConnection(printer, target: target, timeout: 15_000) == kSuccess
+        openConnection(printer, target: target, timeout: 15_000, reason: "print") == kSuccess
     }
 
     /// Drops the cached connection so the next print reconnects from scratch.
-    private func disconnectPrinter(_ printer: Epos2Printer) {
+    private func disconnectPrinter(_ printer: Epos2Printer, reason: String) {
+        activity.info(.printer, "Printer disconnected", ["target": connectedTarget ?? "", "reason": reason])
         printer.disconnect()
         connectedTarget = nil
         DispatchQueue.main.async {
@@ -201,6 +217,7 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
                   let printer = self.printerInstance,
                   self.connectedTarget != nil else { return }
             if printer.getStatus()?.connection != kTrue {
+                activity.warning(.printer, "Keepalive found the printer link dead", ["target": self.connectedTarget ?? ""])
                 self.connectedTarget = nil
                 DispatchQueue.main.async { self.setConnected(false) }
             }
@@ -233,6 +250,7 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
     // Main thread only.
     private func startReconnectWatchdog() {
         guard !isWatchdogActive, let target = savedTargetProvider?(), !target.isEmpty else { return }
+        activity.info(.printer, "Printer not connected, retrying in the background", ["target": target])
         isWatchdogActive = true
         reconnectAttempt = 0
         // Probe soon rather than waiting a full interval, but not instantly —
@@ -266,6 +284,7 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
     private func reconnectProbeFailed() {
         guard isWatchdogActive else { return }
         reconnectAttempt = min(reconnectAttempt + 1, Self.reconnectBackoff.count - 1)
+        activity.debug(.printer, "Next background printer retry scheduled", ["inSeconds": Int(Self.reconnectBackoff[reconnectAttempt])])
         scheduleReconnectProbe(after: Self.reconnectBackoff[reconnectAttempt])
     }
 
@@ -273,7 +292,7 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
         guard let target = savedTargetProvider?(), !target.isEmpty else { return }
         printQueue.async { [weak self] in
             guard let self, let printer = self.obtainPrinter() else { return }
-            let code = self.openConnection(printer, target: target, timeout: 5_000)
+            let code = self.openConnection(printer, target: target, timeout: 5_000, reason: "background retry")
             guard code != kSuccess else { return }  // success stops the watchdog
             DispatchQueue.main.async { self.reconnectProbeFailed() }
         }
@@ -308,10 +327,12 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
             }
 
             if printer.getStatus()?.connection == kTrue {
+                activity.debug(.printer, "Printer link survived the app being in the background")
                 DispatchQueue.main.async { self.startKeepalive() }
                 return
             }
 
+            activity.warning(.printer, "Printer link dropped while the app was in the background", ["target": self.connectedTarget ?? ""])
             printer.disconnect()
             self.connectedTarget = nil
             DispatchQueue.main.async {
@@ -343,7 +364,7 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
                     cont.resume(returning: false)
                     return
                 }
-                let code = self.openConnection(printer, target: target, timeout: timeoutMs)
+                let code = self.openConnection(printer, target: target, timeout: timeoutMs, reason: "connect")
                 if code != kSuccess {
                     self.onError?(Self.connectFailureMessage(code: code, target: target))
                 }
@@ -359,7 +380,7 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
                     cont.resume()
                     return
                 }
-                self.disconnectPrinter(printer)
+                self.disconnectPrinter(printer, reason: "requested")
                 cont.resume()
             }
         }
@@ -375,6 +396,10 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
 
                 // Clear any leftover commands before composing this receipt.
                 printer.clearCommandBuffer()
+
+                let orderNumber = payload.orderNumber
+                let started = Date()
+                func elapsedMs() -> Int { Int(Date().timeIntervalSince(started) * 1000) }
 
                 guard self.ensureConnected(printer, target: target) else {
                     printer.clearCommandBuffer()
@@ -393,9 +418,12 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
 
                 let sendCode = printer.sendData(15_000)
                 if sendCode != kSuccess {
+                    activity.error(.printer, "Sending receipt to printer failed", [
+                        "order": orderNumber, "code": Self.codeName(sendCode), "ms": elapsedMs(),
+                    ])
                     printer.setReceiveEventDelegate(nil)
                     printer.clearCommandBuffer()
-                    self.disconnectPrinter(printer)
+                    self.disconnectPrinter(printer, reason: "send failed")
                     cont.resume(throwing: Self.epsonError(sendCode, "Print failed."))
                     return
                 }
@@ -407,6 +435,7 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
                 printer.clearCommandBuffer()
 
                 if ackCode == kSuccess {
+                    activity.info(.printer, "Receipt printed", ["order": orderNumber, "ms": elapsedMs()])
                     cont.resume()
                 } else if ackCode == nil {
                     // The completion ack can lag behind the actual print over
@@ -419,13 +448,23 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
                     // actually dead; otherwise the receipt likely printed and
                     // the connection is still good for the next order.
                     if printer.getStatus()?.connection == kTrue {
+                        activity.warning(.printer, "Printer didn't confirm the receipt in time (link still up)", [
+                            "order": orderNumber, "ms": elapsedMs(),
+                        ])
                         cont.resume(throwing: Self.epsonError(-1, "Printer did not confirm the print in time — please check the receipt."))
                     } else {
-                        self.disconnectPrinter(printer)
+                        activity.error(.printer, "Printer stopped responding while printing", [
+                            "order": orderNumber, "ms": elapsedMs(),
+                        ])
+                        self.disconnectPrinter(printer, reason: "no print confirmation")
                         cont.resume(throwing: Self.epsonError(-1, "Printer did not respond in time."))
                     }
                 } else {
-                    self.disconnectPrinter(printer)
+                    // The callback code says why (paper out, cover open, …).
+                    activity.error(.printer, "Printer reported an error for the receipt", [
+                        "order": orderNumber, "callbackCode": ackCode!, "ms": elapsedMs(),
+                    ])
+                    self.disconnectPrinter(printer, reason: "print error")
                     cont.resume(throwing: Self.epsonError(ackCode!, "Print acknowledged with error."))
                 }
             }
@@ -446,12 +485,16 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
             guard !target.isEmpty else { return }
             let name = info.deviceName ?? target
             let port = EpsonPrinter.PortKind(deviceType: Int32(info.deviceType))
+            activity.info(.printer, "Printer found", ["name": name, "target": target, "port": port.label])
             onFound(EpsonPrinter.Discovered(target: target, name: name, port: port))
         }
         discoveryDelegate = delegate
 
         let res = Epos2Discovery.start(opt, delegate: delegate)
-        if res != kSuccess {
+        if res == kSuccess {
+            activity.info(.printer, "Printer scan started")
+        } else {
+            activity.error(.printer, "Printer scan failed to start", ["code": Self.codeName(res)])
             onError?("Discovery failed (code \(res)).")
         }
     }
@@ -462,6 +505,22 @@ final class EpsonBluetoothTransport: NSObject, PrinterTransport {
     }
 
     // MARK: - Errors
+
+    /// An SDK result code as "NAME (n)" for the activity log, for the codes
+    /// this file already knows; others as just the number.
+    private static func codeName(_ code: Int32) -> String {
+        let name: String
+        switch code {
+        case kSuccess:       name = "SUCCESS"
+        case kErrConnect:    name = "ERR_CONNECT"
+        case kErrTimeout:    name = "ERR_TIMEOUT"
+        case kErrInUse:      name = "ERR_IN_USE"
+        case kErrProcessing: name = "ERR_PROCESSING"
+        case kErrDeviceBusy: name = "ERR_DEVICE_BUSY"
+        default:             return String(code)
+        }
+        return "\(name) (\(code))"
+    }
 
     /// Turns an SDK connect failure into something the user can act on.
     private static func connectFailureMessage(code: Int32, target: String) -> String {

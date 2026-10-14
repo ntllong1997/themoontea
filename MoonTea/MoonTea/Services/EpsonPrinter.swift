@@ -139,6 +139,7 @@ final class EpsonPrinter: NSObject {
         guard status == .idle || status == .error else { return }
 
         let target = savedTarget
+        ActivityLog.shared.info(.printer, "Connect to printer tapped", ["target": target])
         status = .connecting
         lastError = ""
         Task { [weak self] in
@@ -169,6 +170,7 @@ final class EpsonPrinter: NSObject {
     // MARK: - Discovery
 
     func startScan() {
+        ActivityLog.shared.info(.printer, "Scan for printers tapped")
         stopScan()
         discovered.removeAll()
         lastError = ""
@@ -202,6 +204,9 @@ final class EpsonPrinter: NSObject {
 
     func save(_ device: Discovered) {
         if status == .scanning { stopScan() }  // choosing a printer ends the scan
+        ActivityLog.shared.info(.printer, "Printer selected", [
+            "name": device.name, "target": device.target, "port": device.port.label,
+        ])
         UserDefaults.standard.set(device.target, forKey: savedTargetKey)
         UserDefaults.standard.set(device.name, forKey: savedNameKey)
         // Connect right away so selecting a printer gives immediate feedback
@@ -210,6 +215,7 @@ final class EpsonPrinter: NSObject {
     }
 
     func clearSaved() {
+        ActivityLog.shared.info(.printer, "Printer forgotten", ["name": savedName, "target": savedTarget])
         UserDefaults.standard.removeObject(forKey: savedTargetKey)
         UserDefaults.standard.removeObject(forKey: savedNameKey)
         lastError = ""

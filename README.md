@@ -70,6 +70,7 @@ isn't even installed. Safe to drop.
 | `/admin/menu` | Manage the customer menu: Available / Sold out / Hidden, reorder, add and edit items with a photo |
 | `/admin/popups` | Manage the customer pop-up calendar: add, edit, copy to a new date, delete |
 | `/admin/schedule` | **Staff schedule.** Weekly shifts, one-day changes, days off, and each employee's private calendar link. See [Staff schedule](#staff-schedule) |
+| `/admin/logs` | **iPad activity log**, live: printer and card-reader connections, prints, payments, orders, station taps. See [iPad activity log](#ipad-activity-log) |
 | `/` | Redirect to `/vendor` |
 | `/vendor` | Internal hub — links to Order Track, Inventory, Sales Summary |
 | `/order` | **The staff till.** Cart, payment method, receipt printing, today's history |
@@ -248,6 +249,41 @@ It's the reason `supabase/migrations/…_add_replace_order_items_rpc.sql` exists
 called from `SupabaseService.swift`), and the reason `MenuCatalog.swift` must stay in sync
 with `lib/menu/catalog.js`.
 
+### iPad activity log
+
+The iPad app records what it does to the `activity_log` table, and staff read it at
+**`/admin/logs`** from any browser (signed in with the staff password). The page updates
+every 3 seconds while it shows today, filters by category, warnings/errors, device, and text
+or order number, and downloads the day as CSV.
+
+What gets logged (`ActivityLog.shared.info/warning/error(...)` in the Swift code):
+
+- **Printer** — scans, printers found and selected, every connect and its result (with the
+  Epson error code and how long it took), links found dead, background reconnect attempts,
+  receipts queued / printed / failed, and print retries.
+- **Card reader** — Square authorization, reader ready / connecting / not connected (with
+  Square's reason), retries, pairing, Bluetooth on/off, location permission.
+- **Payments** — card payments started, approved, cancelled, failed (amount, never card data).
+- **Orders** — sent (number, item count, total, payment method), failed to save, edited,
+  reprinted, phone number saved (never the number), ready text sent.
+- **Stations** — every item status tap.
+- **Order sync / App** — live-update connects and drops, launches, foreground/background.
+
+Entries are written to a file on the iPad first and uploaded in batches a couple of seconds
+later, so nothing is lost offline or if the app is killed — they upload when it's back.
+Each iPad gets a random ID on first launch, shown with its model (e.g. `iPad13,18 · 6f1d`).
+
+**Setup:** run `supabase/migrations/20261014120000_activity_log.sql` in the Supabase SQL
+editor. The page needs `SUPABASE_SERVICE_ROLE_KEY`, like the other admin pages. The iPad
+can only add entries; nobody can read them without the staff sign-in.
+
+**Housekeeping:** nothing deletes old entries. To keep 90 days, run (or schedule with
+`pg_cron`):
+
+```sql
+delete from public.activity_log where created_at < now() - interval '90 days';
+```
+
 ---
 
 ## Scripts
@@ -258,7 +294,7 @@ with `lib/menu/catalog.js`.
 | `npm run build` | Production build |
 | `npm start` | Serve the production build |
 | `npm run lint` | `next lint` |
-| `npm test` | `node --test lib/**/*.test.js` — covers the catalog, order model, payment methods, and date ranges |
+| `npm test` | `node --test lib/**/*.test.js` — covers the catalog, order model, payment methods, date ranges, and the activity log helpers |
 | `npm run print-server` | USB ESC/POS print server on :3333 |
 
 `lib/package.json` exists only to declare `"type": "module"` for `lib/`, so `node --test`

@@ -207,6 +207,22 @@ final class OrderViewModel {
     private var isRefreshingHistory = false
     private var historyRefreshRequested = false
 
+    /// Whether the last order fetch failed. Logged only when it flips, so an
+    /// iPad that's offline for an hour adds two entries rather than one per
+    /// 20s safety poll.
+    private var isOrderSyncFailing = false
+
+    private func noteOrderSync(error: Error?) {
+        if let error {
+            guard !isOrderSyncFailing else { return }
+            isOrderSyncFailing = true
+            ActivityLog.shared.warning(.sync, "Couldn't load orders from Supabase", ["error": error])
+        } else if isOrderSyncFailing {
+            isOrderSyncFailing = false
+            ActivityLog.shared.info(.sync, "Loading orders from Supabase works again")
+        }
+    }
+
     func refreshHistory() async {
         guard !isRefreshingHistory else {
             historyRefreshRequested = true
@@ -219,8 +235,10 @@ final class OrderViewModel {
             do {
                 let groups = try await SupabaseService.shared.todaysOrderGroups()
                 self.history = groups
+                noteOrderSync(error: nil)
             } catch {
                 print("[order] refresh failed: \(error)")
+                noteOrderSync(error: error)
             }
         } while historyRefreshRequested
     }
@@ -249,8 +267,10 @@ final class OrderViewModel {
                 for group in groups {
                     for item in group.items { mergeUpdate(item) }
                 }
+                noteOrderSync(error: nil)
             } catch {
                 print("[order] recent refresh failed: \(error)")
+                noteOrderSync(error: error)
             }
         } while recentRefreshRequested
     }
@@ -348,8 +368,10 @@ final class OrderViewModel {
         // overlaps the network call instead of adding to the time-to-print.
         EpsonPrinter.shared.checkConnection()
 
+        var assignedNumber: Int?
         do {
             let orderNumber = try await SupabaseService.shared.nextOrderNumber()
+            assignedNumber = orderNumber
             let iso = ISO8601DateFormatter()
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let timestamp = iso.string(from: Date())
@@ -401,6 +423,14 @@ final class OrderViewModel {
             // the order. (Merging the local rows here would leave the echo
             // unmatched and double the order in history.)
             mergeInsert(orderNumber: orderNumber, rows: inserted)
+            ActivityLog.shared.info(.order, "Order sent", [
+                "order": orderNumber,
+                "items": cart.reduce(0) { $0 + $1.quantity },
+                "total": total,
+                "payment": methodStr,
+                "coupon": couponApplied ? "yes" : "no",
+                "phone": phoneValue == nil ? "no" : "yes",
+            ])
             cart.removeAll()
             phone = ""
             couponApplied = false
@@ -411,11 +441,16 @@ final class OrderViewModel {
             // failed so staff know to re-ring rather than assume nothing
             // happened.
             sendError = (error as? LocalizedError)?.errorDescription ?? "Order failed to save."
+            var details: [String: Any] = ["error": sendError, "total": total, "payment": paymentMethod.rawValue]
+            // With a number, the receipt was already queued: only the save failed.
+            if let assignedNumber { details["order"] = assignedNumber }
+            ActivityLog.shared.error(.order, "Order failed to save", details)
         }
     }
 
     func reprint(orderNumber: Int) async {
         guard let group = history.first(where: { $0.orderNumber == orderNumber }) else { return }
+        ActivityLog.shared.info(.order, "Reprint requested", ["order": orderNumber])
         await tryPrint(orderNumber: orderNumber, items: group.items)
     }
 
@@ -462,9 +497,17 @@ final class OrderViewModel {
             .map { CartItem(name: $0.name, price: $0.price, type: $0.type, quantity: $0.qty) }
         clearBuilderSelections()
         editingOrderNumber = orderNumber
+        ActivityLog.shared.info(.order, "Started editing order", ["order": orderNumber])
     }
 
     func cancelEdit() {
+        if let editingOrderNumber {
+            ActivityLog.shared.info(.order, "Cancelled editing order", ["order": editingOrderNumber])
+        }
+        endEdit()
+    }
+
+    private func endEdit() {
         editingOrderNumber = nil
         editCart = []
         editPreservedRows = []
@@ -515,12 +558,21 @@ final class OrderViewModel {
         }
 
         do {
+            let previousCount = history.first(where: { $0.orderNumber == orderNumber })?.items.count ?? 0
             let replaced = try await SupabaseService.shared.replaceOrderItems(orderNumber: orderNumber, rows: rows)
             replaceGroup(orderNumber: orderNumber, with: replaced)
-            cancelEdit()
+            ActivityLog.shared.info(.order, "Order edited", [
+                "order": orderNumber,
+                "itemsBefore": previousCount,
+                "itemsAfter": replaced.count,
+                "total": editTotal,
+                "payment": methodStr,
+            ])
+            endEdit()
         } catch {
             editError = (error as? LocalizedError)?.errorDescription ?? "Couldn't save changes."
             print("[order] edit save failed: \(error)")
+            ActivityLog.shared.error(.order, "Order edit failed to save", ["order": orderNumber, "error": editError])
         }
     }
 
@@ -589,7 +641,12 @@ final class OrderViewModel {
     /// ignored, and a Discount's single state makes the tap a no-op.
     func cycleItem(_ id: Order.ID) {
         guard let item = history.lazy.flatMap(\.items).first(where: { $0.id == id }) else { return }
-        itemStates[id] = MenuCatalog.flow(for: item.type).next(after: itemStates[id])
+        let previous = itemStates[id]
+        let next = MenuCatalog.flow(for: item.type).next(after: previous)
+        itemStates[id] = next
+        ActivityLog.shared.info(.station, "Item status changed", [
+            "order": item.orderNumber, "item": item.name, "from": previous ?? "new", "to": next,
+        ])
     }
 
     // MARK: phone editing
@@ -609,7 +666,10 @@ final class OrderViewModel {
             let updated = try await SupabaseService.shared.updateOrderPhone(orderNumber: orderNumber, phone: phone)
             for row in updated { mergeUpdate(row) }
             phoneOverrides.removeValue(forKey: orderNumber)
+            // Never the number itself — the log is readable on any staff device.
+            ActivityLog.shared.info(.order, phone.isEmpty ? "Phone number removed" : "Phone number saved", ["order": orderNumber])
         } catch {
+            ActivityLog.shared.warning(.order, "Phone number failed to save", ["order": orderNumber, "error": error])
             // Keep the optimistic override so the phone stays visible this session.
             // The alert tells the user it wasn't persisted to the database.
             phoneError = "Couldn't save phone number. Check your connection and try again."
