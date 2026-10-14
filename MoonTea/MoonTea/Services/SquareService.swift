@@ -319,7 +319,9 @@ final class SquareService: NSObject {
             let params = PaymentParameters(
                 paymentAttemptID: UUID().uuidString,
                 amountMoney: Money(amount: UInt(amountCents), currency: .USD),
-                processingMode: .autoDetect
+                // Never store a card payment to process later: offline
+                // payments can be declined after the customer has left.
+                processingMode: .onlineOnly
             )
             let prompt = PromptParameters(mode: .default, additionalMethods: .all)
             MobilePaymentsSDK.shared.paymentManager.startPayment(

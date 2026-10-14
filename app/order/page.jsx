@@ -13,8 +13,7 @@ import LocationPicker from '@/components/LocationPicker';
 import PrinterSettings from '@/components/PrinterSettings';
 import { LOCATIONS_ENABLED, locationLabel, useDeviceLocation } from '@/lib/locations';
 import { checkPrinterStatus, printReceipt as eposPrint } from '@/lib/printer';
-import { Banknote, CreditCard, DollarSign, Printer } from 'lucide-react';
-import { DEFAULT_PAYMENT_METHOD, PAYMENT_METHODS } from '@/lib/orders/paymentMethods';
+import { Printer } from 'lucide-react';
 import {
     CATEGORIES,
     CATEGORY_KEYS,
@@ -25,11 +24,11 @@ import {
     nextStateFor,
 } from '@/lib/menu/catalog';
 
-// Mirrors the iPad's payment icons (banknote / creditcard / dollarsign.circle).
-const PAYMENT_ICONS = {
-    Cash: Banknote,
-    Card: CreditCard,
-    CashApp: DollarSign,
+// How each ticket status reads on the order-taker's history.
+const STATUS_BADGES = {
+    pending: { label: 'Unpaid', className: 'text-amber-700 bg-amber-100' },
+    paid: { label: 'Paid', className: 'text-green-700 bg-green-100' },
+    cancelled: { label: 'Cancelled', className: 'text-gray-500 bg-gray-100' },
 };
 
 // The print server prints one line per {name, price}, and modifiers now live
@@ -55,7 +54,6 @@ export default function OrderSystem() {
     // Recorded, not charged — the till takes no payment, this only attributes
     // the sale so the summary is accurate. Mirrors the iPad's picker, and
     // writes the same casing the iPad does.
-    const [paymentMethod, setPaymentMethod] = useState(DEFAULT_PAYMENT_METHOD);
 
     // One map for every category — the state names differ per category, so the
     // value is resolved against the item's own flow when it is read.
@@ -65,7 +63,6 @@ export default function OrderSystem() {
     const [mobileTab, setMobileTab] = useState('order');
     const [printerStatus, setPrinterStatus] = useState('disconnected'); // 'disconnected'|'connecting'|'connected'|'error'
     const [sendError, setSendError] = useState('');
-    const [printWarning, setPrintWarning] = useState('');
 
     // Resizable columns
     const [colSplit, setColSplit] = useState(40);
@@ -131,6 +128,9 @@ export default function OrderSystem() {
         return () => clearInterval(id);
     }, [refreshPrinterStatus]);
 
+    // Orders taken here are pre-orders: saved as unpaid, then paid on an
+    // iPhone before the customer gets them. The receipt prints there, on
+    // payment, so nothing prints here on send.
     const handleSendOrder = useCallback(async () => {
         if (orders.length === 0) return;
         setSendError('');
@@ -138,35 +138,20 @@ export default function OrderSystem() {
             const created = await createOrder({
                 cartItems: orders,
                 phone,
-                paymentMethod,
                 locationId,
+                status: 'pending',
             });
 
             setHistory((prev) => [created, ...prev]);
             clearCart();
             setPhone('');
-            // Back to the default for the next customer, as the iPad does.
-            setPaymentMethod(DEFAULT_PAYMENT_METHOD);
             setMobileTab('history');
             tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-            if (printerStatus === 'connected') {
-                try {
-                    await eposPrint({
-                        orderNumber: created.orderNumber,
-                        items: toPrintableItems(created.items),
-                        taxRate: TAX_RATE,
-                    });
-                } catch (printErr) {
-                    console.error('[print] failed:', printErr);
-                    setPrintWarning('Receipt failed to print — order was saved.');
-                    setTimeout(() => setPrintWarning(''), 5000);
-                }
-            }
         } catch (err) {
             console.error('Send order failed:', err);
             setSendError('Order failed to save — please try again.');
         }
-    }, [orders, phone, paymentMethod, printerStatus, locationId]);
+    }, [orders, phone, locationId]);
 
     // Advances a unit through its own category's cycle. An item whose type this
     // build does not recognise still advances, on the catalog's neutral flow.
@@ -215,6 +200,13 @@ export default function OrderSystem() {
     const getOrderActions = useCallback(
         ({ orderNumber, items }) => {
             const orderPhone = getOrderPhone(orderNumber);
+            const order = history.find((o) => o.orderNumber === orderNumber);
+            const status = STATUS_BADGES[order?.status] ?? STATUS_BADGES.paid;
+            const statusBadge = (
+                <span className={`text-xs font-semibold px-2 py-1 rounded ${status.className}`}>
+                    {status.label}
+                </span>
+            );
 
             const printBtn = printerStatus === 'connected' ? (
                 <button
@@ -229,6 +221,7 @@ export default function OrderSystem() {
             if (notifiedOrders.has(orderNumber)) {
                 return (
                     <div className='flex items-center gap-1'>
+                        {statusBadge}
                         {printBtn}
                         <span className='text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded'>
                             Notified ✓
@@ -237,14 +230,21 @@ export default function OrderSystem() {
                 );
             }
 
-            if (!orderPhone) return printBtn;
+            if (!orderPhone) {
+                return (
+                    <div className='flex items-center gap-1'>
+                        {statusBadge}
+                        {printBtn}
+                    </div>
+                );
+            }
 
-            const order = history.find((o) => o.orderNumber === orderNumber);
             const itemList = (order?.items ?? []).map((item) => `• ${item.displayName}`).join('\n');
             const smsBody = `🌙 The Moon Tea\nOrder #${orderNumber} is ready for pickup! 🎉\n\n${itemList}\n\nSee you soon! 🧡`;
             const smsHref = `sms:${orderPhone}?body=${encodeURIComponent(smsBody)}`;
             return (
                 <div className='flex items-center gap-1'>
+                    {statusBadge}
                     {printBtn}
                     <a
                         href={smsHref}
@@ -306,37 +306,6 @@ export default function OrderSystem() {
                     />
                 </div>
 
-                <div className='mb-4'>
-                    <label className='block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1'>
-                        Payment
-                    </label>
-                    <div className='flex gap-2'>
-                        {PAYMENT_METHODS.map(({ key, label }) => {
-                            const Icon = PAYMENT_ICONS[key];
-                            const isActive = paymentMethod === key;
-                            return (
-                                <button
-                                    key={key}
-                                    type='button'
-                                    onClick={() => setPaymentMethod(key)}
-                                    aria-pressed={isActive}
-                                    className={`flex-1 flex items-center justify-center gap-1.5 rounded border px-2 py-2 text-xs font-medium transition-colors ${
-                                        isActive
-                                            ? 'bg-black text-white border-black'
-                                            : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    <Icon size={14} />
-                                    {label}
-                                </button>
-                            );
-                        })}
-                    </div>
-                    <p className='text-xs text-gray-400 mt-1'>
-                        Recorded for the sales summary — no payment is taken here.
-                    </p>
-                </div>
-
                 {orders.length === 0 ? (
                     <p className='text-gray-400 text-sm py-6 text-center'>No items added yet.</p>
                 ) : (
@@ -375,12 +344,12 @@ export default function OrderSystem() {
                 {sendError && (
                     <p className='mt-2 text-xs text-red-600 font-medium text-center'>{sendError}</p>
                 )}
-                {printWarning && (
-                    <p className='mt-2 text-xs text-amber-600 font-medium text-center'>{printWarning}</p>
-                )}
                 <Button onClick={handleSendOrder} className='mt-3 w-full' disabled={orders.length === 0}>
                     Send Order
                 </Button>
+                <p className='text-xs text-gray-400 mt-1 text-center'>
+                    Sent as unpaid. The customer pays at the payment phone.
+                </p>
             </CardContent>
         </Card>
     );

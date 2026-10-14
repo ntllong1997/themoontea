@@ -2,8 +2,8 @@ import SwiftUI
 
 // Cart presentation pieces shared by the counter's `CartView` and the
 // `EditOrderSheet` used to correct an already-submitted order. They take plain
-// values and closures rather than an `OrderViewModel`, so the same row and
-// picker serve the live cart and an edit draft without either knowing about
+// values and closures rather than an `OrderViewModel`, so the same row serves
+// the live cart and an edit draft without either knowing about
 // the other.
 
 struct StepperButton: View {
@@ -60,41 +60,6 @@ struct CartLineItemRow: View {
         .overlay(alignment: .bottom) {
             Rectangle().frame(height: 0.5).foregroundStyle(Theme.cardBorder)
         }
-    }
-}
-
-struct PaymentMethodPicker: View {
-    @Binding var selection: PaymentMethod
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("PAYMENT")
-                .font(.system(size: 11, weight: .medium))
-                .tracking(0.5)
-                .foregroundStyle(Theme.mutedText)
-            HStack(spacing: 6) {
-                ForEach(PaymentMethod.allCases) { method in
-                    let active = selection == method
-                    Button { selection = method } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: method.icon).font(.system(size: 18))
-                            Text(method.displayName).font(.system(size: 12, weight: .medium))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(active ? Color.black : Color(.secondarySystemBackground))
-                        .foregroundStyle(active ? .white : Theme.strongText)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Theme.cardBorder, lineWidth: active ? 0 : 0.5)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(.vertical, 4)
     }
 }
 

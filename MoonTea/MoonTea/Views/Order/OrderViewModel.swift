@@ -6,7 +6,6 @@ final class OrderViewModel {
     // Cart selection
     var cart: [CartItem] = []
     var phone: String = ""
-    var paymentMethod: PaymentMethod = .cash
     var couponApplied: Bool = false
 
     // Builder selection per orderable category, keyed by category key. Nothing
@@ -26,6 +25,8 @@ final class OrderViewModel {
 
     var sendError: String = ""
     var isSending: Bool = false
+    /// The ticket this phone sent last, for the counter's "Pay now" shortcut.
+    var lastSentOrderNumber: Int?
     var phoneError: String = ""
 
     // Editing an already-submitted order. Kept in its own draft state rather
@@ -33,7 +34,6 @@ final class OrderViewModel {
     // clobbered by opening a past order to correct it.
     var editingOrderNumber: Int?
     var editCart: [CartItem] = []
-    var editPaymentMethod: PaymentMethod = .cash
     var editError: String = ""
     var isSavingEdit: Bool = false
     /// Discount rows carried through an edit untouched — the coupon is
@@ -55,8 +55,9 @@ final class OrderViewModel {
     var tax: Double { subtotal * AppConstants.taxRate }
     var total: Double { subtotal + tax }
 
+    /// Paid tickets only: a pending ticket isn't money yet, a cancelled one never was.
     var totalRevenueToday: Double {
-        history.reduce(0) { $0 + $1.total(taxRate: AppConstants.taxRate) }
+        history.filter { $0.status == .paid }.reduce(0) { $0 + $1.total(taxRate: AppConstants.taxRate) }
     }
 
     // MARK: builder
@@ -345,8 +346,26 @@ final class OrderViewModel {
                 replaceGroup(orderNumber: entry.orderNumber, with: rows)
             case .updatePhone(let phone):
                 setPhone(phone, onOrder: entry.orderNumber)
+            case .updatePayment(let change):
+                setPayment(change, onOrder: entry.orderNumber)
             }
         }
+    }
+
+    /// Writes a ticket's payment state onto every row of it. Row ids are kept,
+    /// so the stations' progress on the ticket survives being paid.
+    func setPayment(_ change: PaymentChange, onOrder orderNumber: Int) {
+        guard let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) else { return }
+        let rows = history[idx].items.map { row -> Order in
+            var row = row
+            row.status = change.status.rawValue
+            row.paymentMethod = change.paymentMethod
+            row.paidAt = change.paidAt
+            row.squarePaymentID = change.squarePaymentID
+            row.paymentLog = change.paymentLog
+            return row
+        }
+        history[idx] = OrderGroup(orderNumber: orderNumber, items: rows)
     }
 
     private func setPhone(_ phone: String?, onOrder orderNumber: Int) {
@@ -371,17 +390,13 @@ final class OrderViewModel {
 
     // MARK: send order
 
+    /// Sends the cart to the kitchen as a pending ticket. Payment comes later,
+    /// on the payment page, and the receipt prints then.
     func sendOrder() async {
         guard !cart.isEmpty else { return }
         isSending = true
         sendError = ""
         defer { isSending = false }
-
-        // The customer has already paid, so the receipt is what we optimise
-        // for. Warm the printer link now, in parallel with the order-number
-        // round trip below, so a reconnect handshake (if the link went idle)
-        // overlaps the network call instead of adding to the time-to-print.
-        EpsonPrinter.shared.checkConnection()
 
         // The order number is the only step that still needs the network.
         // Everything after it is local: the order is saved on the phone and
@@ -390,22 +405,16 @@ final class OrderViewModel {
         do {
             orderNumber = try await Self.reserveOrderNumber()
         } catch {
-            // The customer may already have paid by card, so say exactly what
-            // didn't happen: nothing was saved, and it needs ringing again.
-            sendError = "Couldn't get an order number, so this order was NOT saved. Check the connection and send it again. "
+            sendError = "Couldn't get a ticket number, so this order was NOT sent. Check the connection and send it again. "
                 + ((error as? LocalizedError)?.errorDescription ?? "")
             return
         }
 
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let timestamp = iso.string(from: Date())
+        let timestamp = Self.nowTimestamp()
         let phoneClean = phone.trimmingCharacters(in: .whitespaces)
         let phoneValue: String? = phoneClean.isEmpty ? nil : phoneClean
         let orderUUID = UUID()
-        let method = paymentMethod.rawValue
 
-        // Charged before this point (CartView), so the ticket is paid.
         func row(name: String, price: Double, type: OrderItemType) -> Order {
             Order(
                 orderNumber: orderNumber,
@@ -414,11 +423,9 @@ final class OrderViewModel {
                 type: type,
                 timestamp: timestamp,
                 phone: phoneValue,
-                paymentMethod: method,
-                quantity: nil,
                 orderUUID: orderUUID,
-                status: .paid,
-                paidAt: timestamp
+                status: .pending,
+                paymentLog: []
             )
         }
         var rows: [Order] = []
@@ -440,13 +447,16 @@ final class OrderViewModel {
             operation: .insert(rows: rows)
         ))
         mergeInsert(orderNumber: orderNumber, rows: rows)
+        lastSentOrderNumber = orderNumber
         cart.removeAll()
         phone = ""
         couponApplied = false
-        paymentMethod = .cash
+    }
 
-        // `tryPrint` only queues; printing runs in the background.
-        await tryPrint(orderNumber: orderNumber, items: rows)
+    static func nowTimestamp() -> String {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return iso.string(from: Date())
     }
 
     /// Asks Supabase for the next number, retrying briefly: on a weak signal
@@ -501,13 +511,15 @@ final class OrderViewModel {
         return keyOrder.compactMap { buckets[$0] }
     }
 
+    /// Only pending tickets: a paid ticket's items are never edited — mark it
+    /// unpaid, edit, and take payment again.
     func beginEdit(orderNumber: Int) {
-        guard let group = history.first(where: { $0.orderNumber == orderNumber }) else { return }
+        guard let group = history.first(where: { $0.orderNumber == orderNumber }),
+              group.status == .pending, group.orderUUID != nil else { return }
         editError = ""
         editPreservedRows = group.items.filter { $0.type == .discount }
         editTimestamp = group.items.first?.timestamp ?? ""
         editPhone = group.items.first?.phone
-        editPaymentMethod = PaymentMethod(rawValue: group.items.first?.paymentMethod ?? "") ?? .cash
         editCart = Self.collapseToLineItems(group.items.filter { $0.type != .discount })
             .map { CartItem(name: $0.name, price: $0.price, type: $0.type, quantity: $0.qty) }
         clearBuilderSelections()
@@ -524,18 +536,18 @@ final class OrderViewModel {
         clearBuilderSelections()
     }
 
-    /// Rewrites the order's rows in one transaction. The original timestamp is
-    /// reused so the edited order keeps its place in the day's ordering and
-    /// stays inside the day bounds the replace is scoped to.
+    /// Rewrites the ticket's rows through the upload list: saved here at once,
+    /// uploaded when there's signal, and always behind the ticket's own upload.
+    /// The original timestamp is reused so the ticket keeps its place in the day.
     func saveEdit() async {
-        guard let orderNumber = editingOrderNumber, !editCart.isEmpty else { return }
+        guard let orderNumber = editingOrderNumber, !editCart.isEmpty,
+              let original = history.first(where: { $0.orderNumber == orderNumber })?.items.first,
+              let orderUUID = original.orderUUID else { return }
         isSavingEdit = true
         editError = ""
         defer { isSavingEdit = false }
 
-        // The order's id and payment state ride through the edit unchanged.
-        let original = history.first(where: { $0.orderNumber == orderNumber })?.items.first
-        let methodStr = editPaymentMethod.rawValue
+        // The ticket's id and payment state ride through the edit unchanged.
         func row(name: String, price: Double, type: OrderItemType, quantity: Int?) -> Order {
             Order(
                 orderNumber: orderNumber,
@@ -544,12 +556,13 @@ final class OrderViewModel {
                 type: type,
                 timestamp: editTimestamp,
                 phone: editPhone,
-                paymentMethod: methodStr,
+                paymentMethod: original.paymentMethod,
                 quantity: quantity,
-                orderUUID: original?.orderUUID,
-                status: original?.status.flatMap(OrderStatus.init(rawValue:)),
-                paidAt: original?.paidAt,
-                squarePaymentID: original?.squarePaymentID
+                orderUUID: orderUUID,
+                status: original.orderStatus,
+                paidAt: original.paidAt,
+                squarePaymentID: original.squarePaymentID,
+                paymentLog: original.paymentLog
             )
         }
         var rows: [Order] = []
@@ -558,37 +571,18 @@ final class OrderViewModel {
                 rows.append(row(name: item.name, price: item.price, type: item.type, quantity: nil))
             }
         }
-        // Carry the discount rows through, re-stamped with the (possibly
-        // changed) payment method so the whole order stays internally consistent.
+        // Carry the discount rows through untouched.
         for preserved in editPreservedRows {
             rows.append(row(name: preserved.name, price: preserved.price, type: preserved.type, quantity: preserved.quantity))
         }
 
-        // An order with a hidden id is edited through the upload list, like
-        // new orders: saved here at once, uploaded when there's signal. This
-        // also keeps the edit behind the order's own upload if that hasn't
-        // landed yet.
-        if let orderUUID = original?.orderUUID {
-            OrderOutbox.shared.enqueue(OutboxEntry(
-                orderUUID: orderUUID,
-                orderNumber: orderNumber,
-                operation: .replace(rows: rows)
-            ))
-            replaceGroup(orderNumber: orderNumber, with: rows)
-            cancelEdit()
-            return
-        }
-
-        // Older orders (and the website's) have no hidden id: edit them
-        // directly, which needs the connection.
-        do {
-            let replaced = try await SupabaseService.shared.replaceOrderItems(orderNumber: orderNumber, rows: rows)
-            replaceGroup(orderNumber: orderNumber, with: replaced)
-            cancelEdit()
-        } catch {
-            editError = (error as? LocalizedError)?.errorDescription ?? "Couldn't save changes."
-            print("[order] edit save failed: \(error)")
-        }
+        OrderOutbox.shared.enqueue(OutboxEntry(
+            orderUUID: orderUUID,
+            orderNumber: orderNumber,
+            operation: .replace(rows: rows)
+        ))
+        replaceGroup(orderNumber: orderNumber, with: rows)
+        cancelEdit()
     }
 
     /// Swaps a group's rows wholesale. An edit's replacement rows carry fresh

@@ -25,8 +25,13 @@ could be charged with no order saved.
   any phone has seen.
 - All phones share every order and status with each other over the booth WiFi.
   Each phone uploads to Supabase whenever it has signal.
-- **No event mode**, **no customer online ordering** at events. The web till
-  keeps working as today (its orders are saved as paid).
+- **No event mode**, **no customer online ordering** at events.
+- **Taking orders and taking payment are separate jobs** (decided 2026-10-14).
+  Staff without an iPhone take orders on the web till from their own phone;
+  those are **pre-orders**, saved as Pending with an `order_uuid`, and the
+  customer pays at an iPhone before getting the order. The web till has no
+  payment buttons and prints nothing on send. (The customer self-order page
+  `/order/online` is unchanged and still saves as paid with method `online`.)
 
 **Order → tickets → payment flow**
 1. **Order page:** items + phone → Send → ticket saved as **Pending**. The
@@ -58,9 +63,9 @@ printer after each print so several tills can share it.
 
 | Step | What | Status |
 |---|---|---|
-| 1 | Database: order_uuid, status, paid_at, square_payment_id; never-repeating number counter; uuid-keyed edits | ✅ Written and tested on a local copy of the schema. **Not applied to Supabase yet** |
-| 2 | App: save orders on the phone first, upload list (`OrderOutbox`), sync badge | ✅ Written. **Not compiled yet** — build in Xcode and test |
-| 3 | App: order → tickets → payment pages, Cancel, payment corrections + log, online-only card, receipt on paid | Not started |
+| 1 | Database: order_uuid, status, paid_at, square_payment_id; never-repeating number counter; uuid-keyed edits | ✅ Applied to *Themoontea* 2026-10-14 and tested there in a rolled-back transaction |
+| 2 | App: save orders on the phone first, upload list (`OrderOutbox`), sync badge | ✅ Written, builds in the simulator. Not tested on a phone |
+| 3 | App: order → tickets → payment pages, Cancel, payment corrections + log, online-only card, receipt on paid; web till sends pre-orders | ✅ Written; app builds in the simulator, web builds and its unit tests pass. Migration `20261014120000_ticket_payment_log.sql` applied 2026-10-14. Not tested on a phone |
 | 4 | App: main phone numbering + booth sync between phones (Multipeer / local network) | Not started |
 | 5 | Printer: release the connection after each print for sharing | Not started |
 
@@ -71,16 +76,46 @@ Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
 - `MoonTea/MoonTea/Views/Order/OrderViewModel.swift`, `Services/SupabaseService.swift`, `Models/Order.swift`
 - `lib/db.js` (web sales summary counts paid only)
 
+## Step 3: what was built
+
+- **Order tab:** "Send to kitchen" saves the ticket as Pending (no payment
+  method, no receipt). A "Ticket #N sent — Pay now" banner opens the payment
+  page for the ticket just sent.
+- **Tickets tab** (was History): filter All / Pending / Paid / Cancelled with
+  counts. Pending: Edit, Cancel (confirm), Pay. Paid/Cancelled: Payment, which
+  opens the correction page. Website pre-orders have an `order_uuid` and get
+  the same actions; only tickets saved before that column existed show none.
+  "Paid total" counts paid tickets only. Each phone sets a till name here.
+- **Payment page** (`PaymentSheet`): Card (reader on this phone only),
+  Square app, Cash, Cash App; no default; each non-reader choice asks to
+  confirm. Paying prints the receipt. Square app and reader cards are both
+  stored as `Card`; `square_payment_id` marks the reader's.
+- **Correction page** (`PaymentCorrectionSheet`): change method, mark unpaid,
+  restore a cancelled ticket, and the payment history. Reader-charged tickets
+  warn that refunds happen in Square Dashboard.
+- **Payment log:** new `orders.payment_log` jsonb column, every row of the
+  order, entries `{at, till, from, to}`. Every payment change (including the
+  first payment and cancel) is logged.
+- Payment changes go through the upload list as one PATCH of the whole
+  payment state by `order_uuid` (safe to repeat; keeps row ids, so station
+  progress survives payment). Stations show Unpaid / Paid / Cancelled live;
+  cancelled tickets are dimmed.
+- Card payments use `processingMode: .onlineOnly`.
+- Not done: the app's Sales page still shows paid only and doesn't list
+  pending/cancelled separately.
+
 ## Before the next step
 
-1. **Apply the migration** to the Supabase project *Themoontea* before installing
-   this app build or merging the web change (the app's uploads and the web
-   summary use the new columns). Until it is applied, app uploads wait safely on
-   the phone.
+1. ~~Apply both migrations~~ — done 2026-10-14. **Deploy the web change** with
+   the app build: an iPhone still on an older build would save web pre-orders'
+   payment wrongly, and the old web till would keep saving orders as paid.
 2. Build in Xcode, fix any compile errors, then test: take an order (badge turns
    green); airplane mode → edit it and change the phone (badge orange, order
    still shown); force-quit and reopen; airplane mode off → everything uploads.
-3. Then start step 3.
+3. Test step 3: send → Pending on the stations; pay by each method (receipt
+   prints, Paid on every phone); cancel; change method; mark unpaid → edit →
+   pay; restore a cancelled ticket; check the payment history on another phone.
+4. Then start step 4.
 
 Still needs signal until step 4: getting the ticket number (retried 3 times).
 

@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Reopens an already-submitted order so a mis-rung item or payment method can
-/// be corrected without ringing a second order (which would burn an order
-/// number and double-count revenue).
+/// Reopens a pending ticket so a mis-rung item can be corrected without ringing
+/// a second order (which would burn an order number and double-count revenue).
+/// Paid tickets are never edited here: mark them unpaid first.
 ///
 /// Saving replaces every row of the order in one transaction, so the order
 /// number and its position in the day are preserved but the rows themselves are
@@ -76,8 +76,6 @@ struct EditOrderSheet: View {
                         )
                     }
                 }
-
-                PaymentMethodPicker(selection: $vm.editPaymentMethod)
 
                 Divider().padding(.vertical, 4)
 

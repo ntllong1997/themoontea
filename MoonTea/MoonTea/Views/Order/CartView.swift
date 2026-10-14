@@ -4,13 +4,17 @@ struct CartView: View {
     @Bindable var vm: OrderViewModel
     @Environment(AppRouter.self) private var router
     @State private var printer = EpsonPrinter.shared
-    @State private var showPaymentSheet = false
-    @State private var square = SquareService.shared
+    @State private var payTarget: PayTarget?
     @FocusState private var phoneFieldFocused: Bool
 
     private var phoneIsValid: Bool {
         let digits = vm.phone.filter(\.isNumber).count
         return digits == 0 || digits == 10
+    }
+
+    private struct PayTarget: Identifiable {
+        let orderNumber: Int
+        var id: Int { orderNumber }
     }
 
     var body: some View {
@@ -51,7 +55,6 @@ struct CartView: View {
                 }
 
                 couponToggle
-                paymentPicker
 
                 Divider().padding(.vertical, 4)
 
@@ -66,10 +69,11 @@ struct CartView: View {
                 }
 
                 sendButton
+                sentBanner
             }
         }
-        .sheet(isPresented: $showPaymentSheet) {
-            PaymentConfirmationSheet(vm: vm, isPresented: $showPaymentSheet)
+        .sheet(item: $payTarget) { target in
+            PaymentSheet(vm: vm, orderNumber: target.orderNumber)
         }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -81,43 +85,42 @@ struct CartView: View {
 
     // MARK: - Send button
 
-    private var readerReady: Bool { square.connectionState == .ready }
-
+    /// Sends the ticket to the stations as pending. Payment is taken after,
+    /// from "Pay now" below or the Tickets tab.
     private var sendButton: some View {
-        VStack(spacing: 6) {
-            Button {
-                if vm.paymentMethod == .card && readerReady {
-                    showPaymentSheet = true
-                } else {
-                    Task { await vm.sendOrder() }
-                }
-            } label: {
+        Button {
+            Task { await vm.sendOrder() }
+        } label: {
+            Group {
                 if vm.isSending {
                     ProgressView().tint(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
                 } else {
-                    HStack(spacing: 8) {
-                        Text("Send Order")
-                        if vm.paymentMethod == .card && readerReady {
-                            Image(systemName: "wave.3.right.circle.fill")
-                                .font(.system(size: 13))
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                    Text("Send to kitchen")
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.black)
-            .disabled(vm.cart.isEmpty || vm.isSending || !phoneIsValid)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.black)
+        .disabled(vm.cart.isEmpty || vm.isSending || !phoneIsValid)
+    }
 
-            if vm.paymentMethod == .card && !readerReady {
-                Text("No reader connected — order will be recorded without charging")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.mutedText)
-                    .multilineTextAlignment(.center)
+    /// Shortcut to pay the ticket just sent, while it is still unpaid.
+    @ViewBuilder
+    private var sentBanner: some View {
+        if let number = vm.lastSentOrderNumber, let ticket = vm.ticket(number), ticket.status == .pending {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.success)
+                Text("Ticket #\(number) sent").font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Pay now") { payTarget = PayTarget(orderNumber: number) }
+                    .font(.system(size: 14, weight: .semibold))
+                    .buttonStyle(.bordered)
             }
+            .padding(10)
+            .background(Theme.success.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 
@@ -157,10 +160,6 @@ struct CartView: View {
         .padding(.vertical, 4)
     }
 
-    private var paymentPicker: some View {
-        PaymentMethodPicker(selection: $vm.paymentMethod)
-    }
-
     private var printerRow: some View {
         Button { router.push(.printer) } label: {
             HStack {
@@ -198,183 +197,6 @@ struct CartView: View {
         }
     }
 
-}
-
-// MARK: - Card payment sheet
-
-private struct PaymentConfirmationSheet: View {
-    @Bindable var vm: OrderViewModel
-    @Binding var isPresented: Bool
-    @State private var square = SquareService.shared
-    @State private var isCharging = false
-    @State private var chargeError: String = ""
-    @Environment(AppRouter.self) private var router
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 28) {
-                    cardIcon
-                    amountDisplay
-                    readerStatusRow
-                    if !chargeError.isEmpty { errorRow }
-                    actionButton
-                }
-                .padding(28)
-            }
-            .navigationTitle("Card Payment")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { isPresented = false }
-                        .disabled(isCharging)
-                }
-            }
-        }
-    }
-
-    // MARK: - Subviews
-
-    private var cardIcon: some View {
-        Image(systemName: square.connectionState == .ready ? "creditcard.fill" : "creditcard.trianglebadge.exclamationmark")
-            .font(.system(size: 64))
-            .foregroundStyle(square.connectionState == .ready ? Color.blue.opacity(0.85) : Color.orange)
-            .symbolEffect(.pulse, isActive: isCharging)
-    }
-
-    private var amountDisplay: some View {
-        VStack(spacing: 4) {
-            Text("AMOUNT DUE")
-                .font(.system(size: 11, weight: .medium))
-                .tracking(1)
-                .foregroundStyle(.secondary)
-            Text("$\(vm.total.fmt2)")
-                .font(.system(size: 54, weight: .bold))
-        }
-    }
-
-    private var readerStatusRow: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(readerStatusColor)
-                .frame(width: 8, height: 8)
-            Text(readerStatusText)
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-            Spacer()
-            if square.connectionState != .ready {
-                Button("Set up") {
-                    isPresented = false
-                    router.push(.reader)
-                }
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.blue)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
-    private var errorRow: some View {
-        Text(chargeError)
-            .font(.system(size: 13))
-            .foregroundStyle(.red)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 8)
-    }
-
-    // MARK: - Action button
-
-    @ViewBuilder
-    private var actionButton: some View {
-        if square.connectionState == .ready {
-            Button {
-                Task { await charge() }
-            } label: {
-                Group {
-                    if isCharging {
-                        ProgressView().tint(.white)
-                    } else {
-                        HStack(spacing: 8) {
-                            Image(systemName: "wave.3.right.circle.fill")
-                            Text("Tap / Insert Card")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .foregroundStyle(.white)
-                .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(isCharging)
-        } else {
-            Button {
-                isPresented = false
-                router.push(.reader)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.right.circle.fill")
-                    Text("Open Reader Settings")
-                        .fontWeight(.semibold)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .foregroundStyle(.white)
-                .background(Color.orange)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    // MARK: - Charge
-
-    private func charge() async {
-        isCharging = true
-        chargeError = ""
-        // Warm the printer link while the card is being processed — the charge
-        // takes a few seconds, which is more than enough to absorb a reconnect
-        // handshake, so the receipt can fire the instant payment succeeds.
-        EpsonPrinter.shared.checkConnection()
-        let amountCents = Int((vm.total * 100).rounded())
-        let result = await square.charge(amountCents: amountCents)
-        isCharging = false
-        switch result {
-        case .success:
-            isPresented = false
-            await vm.sendOrder()
-        case .cancelled:
-            break   // sheet stays open, customer can retry
-        case .failure(let msg):
-            chargeError = msg
-        }
-    }
-
-    // MARK: - Helpers
-
-    private var readerStatusColor: Color {
-        switch square.connectionState {
-        case .ready:         .green
-        case .connecting:    .yellow
-        case .disconnected:  .red
-        case .unauthorized, .notConfigured: .orange
-        }
-    }
-
-    private var readerStatusText: String {
-        switch square.connectionState {
-        case .notConfigured:  "Square not configured"
-        case .unauthorized:   "Square not authorized"
-        case .disconnected:   "No reader connected"
-        case .connecting:     "Connecting to reader…"
-        case .ready:          "Reader ready"
-        }
-    }
 }
 
 // MARK: -

@@ -48,6 +48,9 @@ nonisolated struct Order: Codable, Hashable, Identifiable, Sendable {
     var status: String?
     var paidAt: String?
     var squarePaymentID: String?
+    /// Every payment change made to the ticket, oldest first. Copied onto
+    /// every row of the order, like `status`.
+    var paymentLog: [PaymentLogEntry]?
 
     enum CodingKeys: String, CodingKey {
         case id, orderNumber, name, price, type, timestamp, phone, paymentMethod, quantity, location
@@ -55,6 +58,7 @@ nonisolated struct Order: Codable, Hashable, Identifiable, Sendable {
         case status
         case paidAt = "paid_at"
         case squarePaymentID = "square_payment_id"
+        case paymentLog = "payment_log"
     }
 
     init(
@@ -70,7 +74,8 @@ nonisolated struct Order: Codable, Hashable, Identifiable, Sendable {
         orderUUID: UUID? = nil,
         status: OrderStatus? = nil,
         paidAt: String? = nil,
-        squarePaymentID: String? = nil
+        squarePaymentID: String? = nil,
+        paymentLog: [PaymentLogEntry]? = nil
     ) {
         self.id = id
         self.orderNumber = orderNumber
@@ -85,6 +90,7 @@ nonisolated struct Order: Codable, Hashable, Identifiable, Sendable {
         self.status = status?.rawValue
         self.paidAt = paidAt
         self.squarePaymentID = squarePaymentID
+        self.paymentLog = paymentLog
     }
 
     // PostgREST's REST responses send numerics as native JSON types and
@@ -110,6 +116,16 @@ nonisolated struct Order: Codable, Hashable, Identifiable, Sendable {
         status = try c.decodeIfPresent(String.self, forKey: .status)
         paidAt = try c.decodeIfPresent(String.self, forKey: .paidAt)?.replacingOccurrences(of: " ", with: "T")
         squarePaymentID = try c.decodeIfPresent(String.self, forKey: .squarePaymentID)
+        paymentLog = Self.lenientLog(c)
+    }
+
+    /// REST sends the jsonb column as an array; tolerate a JSON string too, and
+    /// never let a malformed log drop the whole order.
+    private static func lenientLog(_ c: KeyedDecodingContainer<CodingKeys>) -> [PaymentLogEntry]? {
+        if let log = try? c.decodeIfPresent([PaymentLogEntry].self, forKey: .paymentLog) { return log }
+        guard let text = try? c.decodeIfPresent(String.self, forKey: .paymentLog),
+              let data = text.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([PaymentLogEntry].self, from: data)
     }
 
     private static func lenientInt(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) throws -> Int {
@@ -136,6 +152,31 @@ nonisolated enum OrderStatus: String, Codable, Sendable {
     case paid
     /// The customer left before paying. The number stays used.
     case cancelled
+
+    /// How the ticket card and payment log name the state.
+    var label: String {
+        switch self {
+        case .pending:   "Unpaid"
+        case .paid:      "Paid"
+        case .cancelled: "Cancelled"
+        }
+    }
+}
+
+nonisolated extension Order {
+    /// Rows without a status predate the column and were paid when saved.
+    var orderStatus: OrderStatus { status.flatMap(OrderStatus.init(rawValue:)) ?? .paid }
+}
+
+/// One payment change on a ticket, shown as "Cash → Card, Till B, 2:14 PM".
+nonisolated struct PaymentLogEntry: Codable, Hashable, Sendable {
+    /// ISO8601 time of the change.
+    let at: String
+    /// The name of the till that made it (`TillSettings.name`).
+    let till: String
+    /// Payment state before and after: "Unpaid", "Cancelled" or a method label.
+    let from: String
+    let to: String
 }
 
 nonisolated struct OrderGroup: Identifiable, Hashable, Sendable {
@@ -146,7 +187,19 @@ nonisolated struct OrderGroup: Identifiable, Hashable, Sendable {
     var phone: String? { items.first?.phone }
     var orderUUID: UUID? { items.first?.orderUUID }
     /// Rows without a status predate the column and were paid when saved.
-    var status: OrderStatus { items.first?.status.flatMap(OrderStatus.init(rawValue:)) ?? .paid }
+    var status: OrderStatus { items.first?.orderStatus ?? .paid }
+    var paymentMethod: PaymentMethod? { items.first?.paymentMethod.flatMap(PaymentMethod.init(rawValue:)) }
+    var squarePaymentID: String? { items.first?.squarePaymentID }
+    var paymentLog: [PaymentLogEntry] { items.first?.paymentLog ?? [] }
+    /// Charged through the reader in this app, so the money really moved in
+    /// Square and correcting it here does not refund it.
+    var isChargedInApp: Bool { status == .paid && paymentMethod == .card && squarePaymentID != nil }
+
+    /// The ticket's payment state as the log and the ticket card show it.
+    var paymentStateLabel: String {
+        guard status == .paid else { return status.label }
+        return paymentMethod?.displayName ?? items.first?.paymentMethod ?? status.label
+    }
     var subtotal: Double { items.reduce(0) { $0 + $1.price } }
     func total(taxRate: Double) -> Double { subtotal * (1 + taxRate) }
 }

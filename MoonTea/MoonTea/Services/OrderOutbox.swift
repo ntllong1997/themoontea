@@ -10,6 +10,8 @@ nonisolated struct OutboxEntry: Codable, Identifiable, Sendable {
         /// An edit: the order's full new set of rows.
         case replace(rows: [Order])
         case updatePhone(phone: String?)
+        /// Paid, unpaid, cancelled, restored or a corrected payment method.
+        case updatePayment(change: PaymentChange)
     }
 
     var id = UUID()
@@ -128,6 +130,8 @@ final class OrderOutbox {
             try await SupabaseService.shared.replaceOrderItems(orderUUID: entry.orderUUID, rows: rows)
         case .updatePhone(let phone):
             try await SupabaseService.shared.updateOrderPhone(orderUUID: entry.orderUUID, phone: phone)
+        case .updatePayment(let change):
+            try await SupabaseService.shared.updateOrderPayment(orderUUID: entry.orderUUID, change: change)
         }
     }
 }
