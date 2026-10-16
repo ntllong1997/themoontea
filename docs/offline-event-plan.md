@@ -14,17 +14,35 @@ could be charged with no order saved.
 
 ## Decisions (agreed with the owner)
 
-**Devices and network**
-- 3–5 staff iPhones (iPhone 11 or newer, iOS 26) running the app via TestFlight.
-- A small travel router at the booth makes a local WiFi; it needs no internet.
-- One **main phone**, always on and plugged in, set once in the app's settings.
-  It hands out ticket numbers 1, 2, 3… in order to every till over the booth WiFi.
-- If the main phone is unreachable, tills show "Main phone not connected" and
-  wait. **No automatic takeover** (numbers must stay in order). An optional
+**Devices and network** (updated 2026-10-16: no router for now)
+- 2+ iPhones (iPhone 11 or newer, iOS 26) running the app.
+- **Main phone = the owner's iPhone**: has cell data, app always open, plugged
+  in. It takes orders too, hands out ticket numbers 1, 2, 3… in order, receives
+  every other phone's orders, **uploads everyone's orders** to Supabase (through
+  its upload list, so a weak signal only delays it), and is the **print hub**
+  (the Epson stays connected to it by Bluetooth).
+- **Other phones may have no signal at all.** They connect to the main phone
+  **directly, phone to phone** (Multipeer Connectivity: peer-to-peer WiFi +
+  Bluetooth, no router, no WiFi network). WiFi and Bluetooth must be ON, app
+  open, within roughly 10–30 ft.
+- A phone that takes an order **keeps it saved until the main phone confirms
+  it received it** ("got it"), then the main phone owns the upload.
+- Uploads are safe from any phone: row ids and order_uuid make a duplicate
+  upload a no-op, so any phone that does have signal may also upload.
+- If the main phone is unreachable, other tills show "Main phone not connected"
+  and wait. **No automatic takeover** (numbers must stay in order). An optional
   manual "Make this the main phone" button may continue from the highest number
   any phone has seen.
-- All phones share every order and status with each other over the booth WiFi.
-  Each phone uploads to Supabase whenever it has signal.
+- Optional, steadier: the main phone turns on **Personal Hotspot** and the
+  others join it — same app, local traffic works even when cell signal is bad.
+  A travel router may be added later; the app should work the same on it.
+- Phones without signal take orders and **cash**. **Card payments happen on the
+  main phone** (Square Reader, online only). Receipts for tickets paid on
+  another phone are sent to the main phone, which prints them.
+- Until the paid Apple Developer Program is approved, phones are installed
+  from Xcode with a free account (the install expires after 7 days; install
+  1–2 days before an event). Nothing in steps 1–5 needs the paid program;
+  only TestFlight and Tap to Pay do.
 - **No event mode**, **no customer online ordering** at events.
 - **Taking orders and taking payment are separate jobs** (decided 2026-10-14).
   Staff without an iPhone take orders on the web till from their own phone;
@@ -56,8 +74,9 @@ could be charged with no order saved.
 - **No default payment method** — staff tap the one used.
 - Sales summary counts **Paid only**; Pending and Cancelled shown separately.
 
-**Printer:** one shared Epson on the router (Ethernet), and the app releases the
-printer after each print so several tills can share it.
+**Printer:** the Epson stays on Bluetooth to the main phone, which prints every
+receipt (print hub). If a router is added later: Epson on Ethernet, and the app
+releases the printer after each print so several tills can share it.
 
 ## Build plan and status
 
@@ -66,8 +85,8 @@ printer after each print so several tills can share it.
 | 1 | Database: order_uuid, status, paid_at, square_payment_id; never-repeating number counter; uuid-keyed edits | ✅ Applied to *Themoontea* 2026-10-14 and tested there in a rolled-back transaction |
 | 2 | App: save orders on the phone first, upload list (`OrderOutbox`), sync badge | ✅ Written, builds in the simulator. Not tested on a phone |
 | 3 | App: order → tickets → payment pages, Cancel, payment corrections + log, online-only card, receipt on paid; web till sends pre-orders | ✅ Written; app builds in the simulator, web builds and its unit tests pass. Migration `20261014120000_ticket_payment_log.sql` applied 2026-10-14. Not tested on a phone |
-| 4 | App: main phone numbering + booth sync between phones (Multipeer / local network) | Not started |
-| 5 | Printer: release the connection after each print for sharing | Not started |
+| 4 | App: main phone numbering + direct phone-to-phone sync (Multipeer); main phone uploads everyone's orders; delivery confirmed before the sender lets go | Not started |
+| 5 | Printing: main phone as print hub for other phones' receipts (router sharing later) | Not started |
 
 Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
 - `supabase/migrations/20261013120000_order_status_and_offline_uploads.sql`
