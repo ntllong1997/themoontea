@@ -36,6 +36,7 @@ struct OrderView: View {
     var body: some View {
         VStack(spacing: 0) {
             UploadStatusBadge()
+            BoothStatusBadge()
             tabBar
 
             if tab == .order {
@@ -61,17 +62,12 @@ struct OrderView: View {
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle("Orders")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            vm.startPolling()
-        }
-        .onDisappear {
-            vm.stopPolling()
-        }
         .alert("Name this till", isPresented: $isRenamingTill) {
             TextField("e.g. Till B", text: $tillNameDraft)
             Button("Save") {
                 TillSettings.name = tillNameDraft
                 tillName = TillSettings.name
+                BoothSync.shared.tillNameChanged()
             }
             Button("Cancel", role: .cancel) {}
         } message: {

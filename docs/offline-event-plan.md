@@ -85,7 +85,7 @@ releases the printer after each print so several tills can share it.
 | 1 | Database: order_uuid, status, paid_at, square_payment_id; never-repeating number counter; uuid-keyed edits | ✅ Applied to *Themoontea* 2026-10-14 and tested there in a rolled-back transaction |
 | 2 | App: save orders on the phone first, upload list (`OrderOutbox`), sync badge | ✅ Written, builds in the simulator. Not tested on a phone |
 | 3 | App: order → tickets → payment pages, Cancel, payment corrections + log, online-only card, receipt on paid; web till sends pre-orders | ✅ Written; app builds in the simulator, web builds and its unit tests pass. Migration `20261014130000_ticket_payment_log.sql` applied 2026-10-14. Not tested on a phone |
-| 4 | App: main phone numbering + direct phone-to-phone sync (Multipeer); main phone uploads everyone's orders; delivery confirmed before the sender lets go | Not started |
+| 4 | App: main phone numbering + direct phone-to-phone sync (Multipeer); main phone uploads everyone's orders; delivery confirmed before the sender lets go | ✅ Written (2026-10-16). Builds; link tested between two simulators and a Mac test till (see below). Not tested on phones |
 | 5 | Printing: main phone as print hub for other phones' receipts (router sharing later) | Not started |
 
 Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
@@ -123,6 +123,45 @@ Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
 - Not done: the app's Sales page still shows paid only and doesn't list
   pending/cancelled separately.
 
+## Step 4: what was built
+
+- **Booth screen** (home → Booth): each phone is **Standalone** (default,
+  works as before), **Main phone** or **Till**. Becoming main asks to confirm;
+  switching a till to main is the manual takeover.
+- **One ticket list per phone** (`TicketStore`), shared by every screen and
+  loaded at app launch. Standalone/main read Supabase; a till reads only the
+  main phone. Every change goes through `TicketStore.submit`.
+- **Booth link** (`BoothSync`, MultipeerConnectivity, service
+  `moontea-booth`, encrypted): the main phone advertises, tills find it and
+  connect on their own. Messages (`BoothMessage`): till → main `hello`,
+  `numberRequest`, `change`; main → till `number`, `received` ("got it"),
+  `snapshot` (whole day, on connect), `ticket` (one ticket's new rows).
+- A till keeps each change on a saved send list until the main phone answers
+  "got it"; it resends unconfirmed changes on reconnecting. The main phone
+  remembers which changes it took (per day), so a resend never applies twice
+  or undoes a newer change. "Got it" is sent only after the change is on the
+  main phone's upload list.
+- **Numbers** (`TicketNumbers`, `NumberPool`): the main phone keeps 10
+  numbers reserved from Supabase's counter while it has signal, so website
+  pre-orders can't get the same number. Out of reserved numbers with no
+  signal, it continues from the highest number seen and warns ("offline
+  numbers") until it can reserve again.
+- A till that becomes main/standalone moves its unconfirmed changes onto its
+  own upload list. The link stops in the background and restarts on return.
+- Status line on the Orders screen: main shows its connected tills; a till
+  shows "Connected to main phone" or a red "Main phone not connected".
+- **Not done (step 5):** a ticket paid on a till prints nothing yet — the main
+  phone (print hub) should print it.
+
+**Tested 2026-10-16:** two simulators (main + till) connected on their own; a
+Mac program acting as a till checked numbering (same order → same number,
+next order → next number), "got it", ticket broadcasts, payment coming back
+paid with the same row ids, a resent old change not undoing the payment, and
+the reconnect snapshot (10/10); the main phone's upload list held exactly the
+ticket and its payment. The simulators used a fake Supabase address, so
+nothing reached the live database. This found and fixed a bug: a till could
+take another till for the main phone.
+
 ## Before the next step
 
 1. ~~Apply both migrations~~ — done 2026-10-14. **Deploy the web change** with
@@ -134,7 +173,12 @@ Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
 3. Test step 3: send → Pending on the stations; pay by each method (receipt
    prints, Paid on every phone); cancel; change method; mark unpaid → edit →
    pay; restore a cancelled ticket; check the payment history on another phone.
-4. Then start step 4.
+4. Test step 4 on phones: set the owner's iPhone to Main phone and another to
+   Till (Booth screen); with the till in airplane mode (WiFi and Bluetooth
+   back on), send, edit, pay and cancel tickets on both; check both screens
+   match and the main phone uploads everything; walk the till out of range
+   and back (changes resend); force-quit the main phone mid-order.
+5. Then start step 5.
 
 Still needs signal until step 4: getting the ticket number (retried 3 times).
 

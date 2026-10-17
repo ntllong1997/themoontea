@@ -12,8 +12,8 @@ final class OrderViewModel {
     // here names a corndog or a boba — MenuCatalog decides what can be built.
     var selections: [String: MenuSelection] = MenuCatalog.freshSelections()
 
-    // History
-    var history: [OrderGroup] = []
+    /// Today's tickets, shared by every screen (see `TicketStore`).
+    var history: [OrderGroup] { TicketStore.shared.history }
 
     // Per-unit prep status, keyed by the item's stable row id. The value names
     // a state in that item's own category flow.
@@ -42,10 +42,6 @@ final class OrderViewModel {
     private var editPreservedRows: [Order] = []
     private var editTimestamp: String = ""
     private var editPhone: String?
-
-    private let realtime = SupabaseRealtime(channelName: "orders", table: "orders")
-    private var safetyPollTask: Task<Void, Never>?
-    private var foregroundObserver: (any NSObjectProtocol)?
 
     // MARK: cart math
 
@@ -130,284 +126,6 @@ final class OrderViewModel {
         selections = MenuCatalog.freshSelections()
     }
 
-    // MARK: history (realtime)
-
-    /// Initial fetch + subscribe to postgres_changes on the `orders` table.
-    func startPolling() {
-        Task { await refreshHistory() }
-        Task { [weak self] in
-            guard let self else { return }
-            await self.realtime.subscribe(
-                onChange: { [weak self] type, record, oldRecord in
-                    Task { @MainActor in self?.applyPostgresChange(type: type, record: record, oldRecord: oldRecord) }
-                },
-                onJoin: { [weak self] in
-                    // postgres_changes doesn't replay events missed while
-                    // disconnected, so every (re)join needs a fresh snapshot.
-                    Task { @MainActor in await self?.refreshHistory() }
-                }
-            )
-        }
-        startSafetyPoll()
-        startForegroundRefresh()
-    }
-
-    func stopPolling() {
-        Task { [realtime] in await realtime.unsubscribe() }
-        safetyPollTask?.cancel()
-        safetyPollTask = nil
-        if let foregroundObserver {
-            NotificationCenter.default.removeObserver(foregroundObserver)
-        }
-        foregroundObserver = nil
-    }
-
-    /// iOS suspends the app (and kills the websocket) whenever the device
-    /// locks or the app leaves the foreground. On return, don't wait for the
-    /// dead socket to time out — force a reconnect check and re-fetch now.
-    private func startForegroundRefresh() {
-        if let foregroundObserver {
-            NotificationCenter.default.removeObserver(foregroundObserver)
-        }
-        foregroundObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.willEnterForegroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.realtime.nudge()
-                await self.refreshRecentHistory()
-            }
-        }
-    }
-
-    /// Belt-and-suspenders: if the websocket silently drops we still refresh
-    /// every 20s (the web app polls at 3s; realtime hits give us sub-second
-    /// freshness in the common case, so this only bounds the worst case).
-    /// Uses the bounded recent-groups fetch, not a full-day refetch — a
-    /// dropped-connection gap is almost always about the most recent
-    /// activity, so there's no need to re-pull the whole day every 20s.
-    private func startSafetyPoll() {
-        safetyPollTask?.cancel()
-        safetyPollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 20_000_000_000)
-                await self?.refreshRecentHistory()
-            }
-        }
-    }
-
-    // refreshHistory() fetches *all* of today's orders and replaces
-    // `history` wholesale. It's now only used for the initial load and
-    // catching up after a websocket (re)join, where an unpredictable gap
-    // means anything could have been missed — day-to-day changes are
-    // applied incrementally via applyPostgresChange() below. Still
-    // coalesced: if two full refreshes land close together, only one fetch
-    // runs and any request that arrives mid-fetch folds into a follow-up.
-    private var isRefreshingHistory = false
-    private var historyRefreshRequested = false
-
-    /// Whether the last order fetch failed. Logged only when it flips, so an
-    /// iPad that's offline for an hour adds two entries rather than one per
-    /// 20s safety poll.
-    private var isOrderSyncFailing = false
-
-    private func noteOrderSync(error: Error?) {
-        if let error {
-            guard !isOrderSyncFailing else { return }
-            isOrderSyncFailing = true
-            ActivityLog.shared.warning(.sync, "Couldn't load orders from Supabase", ["error": error])
-        } else if isOrderSyncFailing {
-            isOrderSyncFailing = false
-            ActivityLog.shared.info(.sync, "Loading orders from Supabase works again")
-        }
-    }
-
-    func refreshHistory() async {
-        guard !isRefreshingHistory else {
-            historyRefreshRequested = true
-            return
-        }
-        isRefreshingHistory = true
-        defer { isRefreshingHistory = false }
-        repeat {
-            historyRefreshRequested = false
-            do {
-                let groups = try await SupabaseService.shared.todaysOrderGroups()
-                self.history = groups
-                applyWaitingUploads()
-                noteOrderSync(error: nil)
-            } catch {
-                print("[order] refresh failed: \(error)")
-                noteOrderSync(error: error)
-            }
-        } while historyRefreshRequested
-    }
-
-    /// Bounded catch-up used by the frequent safety poll and foreground
-    /// return, where a full-day refetch would be wasteful — those gaps are
-    /// almost always about the most recent activity. Merges into `history`
-    /// rather than replacing it (via the same per-row merge helpers the
-    /// websocket handler uses), since groups older than the limit are
-    /// intentionally omitted from the response, not actually gone.
-    private var isRefreshingRecent = false
-    private var recentRefreshRequested = false
-    private static let recentHistoryLimit = 20
-
-    func refreshRecentHistory() async {
-        guard !isRefreshingRecent else {
-            recentRefreshRequested = true
-            return
-        }
-        isRefreshingRecent = true
-        defer { isRefreshingRecent = false }
-        repeat {
-            recentRefreshRequested = false
-            do {
-                let groups = try await SupabaseService.shared.recentOrderGroups(limit: Self.recentHistoryLimit)
-                let waiting = OrderOutbox.shared.waitingOrderUUIDs
-                for group in groups where !Self.isWaiting(group.orderUUID, in: waiting) {
-                    for item in group.items { mergeUpdate(item) }
-                }
-                noteOrderSync(error: nil)
-            } catch {
-                print("[order] recent refresh failed: \(error)")
-                noteOrderSync(error: error)
-            }
-        } while recentRefreshRequested
-    }
-
-    // MARK: incremental sync (postgres_changes)
-    //
-    // Shared by both the websocket handler and our own writes (sendOrder /
-    // savePhone), since whether the REST response or the websocket echo of
-    // our own write lands first is non-deterministic — both paths call the
-    // same merge functions, deduped by `id`, so whichever arrives second is
-    // just a no-op.
-
-    private func mergeInsert(orderNumber: Int, rows: [Order]) {
-        guard !rows.isEmpty else { return }
-        if let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) {
-            let existingIDs = Set(history[idx].items.map(\.id))
-            let newItems = rows.filter { !existingIDs.contains($0.id) }
-            guard !newItems.isEmpty else { return }
-            history[idx] = OrderGroup(orderNumber: orderNumber, items: history[idx].items + newItems)
-        } else {
-            let insertAt = history.firstIndex(where: { $0.orderNumber < orderNumber }) ?? history.count
-            history.insert(OrderGroup(orderNumber: orderNumber, items: rows), at: insertAt)
-        }
-    }
-
-    private func mergeUpdate(_ order: Order) {
-        guard let groupIdx = history.firstIndex(where: { $0.orderNumber == order.orderNumber }),
-              let itemIdx = history[groupIdx].items.firstIndex(where: { $0.id == order.id }) else {
-            // We missed the INSERT somehow — heal by inserting instead.
-            mergeInsert(orderNumber: order.orderNumber, rows: [order])
-            return
-        }
-        var items = history[groupIdx].items
-        items[itemIdx] = order
-        history[groupIdx] = OrderGroup(orderNumber: order.orderNumber, items: items)
-    }
-
-    private func mergeDelete(id: Order.ID) {
-        guard let groupIdx = history.firstIndex(where: { $0.items.contains(where: { $0.id == id }) }) else { return }
-        var items = history[groupIdx].items
-        items.removeAll { $0.id == id }
-        itemStates.removeValue(forKey: id)
-        if items.isEmpty {
-            history.remove(at: groupIdx)
-        } else {
-            history[groupIdx] = OrderGroup(orderNumber: history[groupIdx].orderNumber, items: items)
-        }
-    }
-
-    private func applyPostgresChange(type: String, record: [String: Any]?, oldRecord: [String: Any]?) {
-        switch type {
-        case "INSERT":
-            guard let record, let order = Self.decodeOrder(record), Self.isThisLocation(order),
-                  !Self.isWaiting(order.orderUUID, in: OrderOutbox.shared.waitingOrderUUIDs) else { return }
-            mergeInsert(orderNumber: order.orderNumber, rows: [order])
-        case "UPDATE":
-            guard let record, let order = Self.decodeOrder(record), Self.isThisLocation(order),
-                  !Self.isWaiting(order.orderUUID, in: OrderOutbox.shared.waitingOrderUUIDs) else { return }
-            mergeUpdate(order)
-        case "DELETE":
-            guard let oldRecord, let idString = oldRecord["id"] as? String, let id = UUID(uuidString: idString) else { return }
-            mergeDelete(id: id)
-        default:
-            break
-        }
-    }
-
-    /// The realtime channel carries every location's rows, and other locations
-    /// reuse the same order numbers — merging one would fold it into this
-    /// till's order of the same number. A row without a location predates the
-    /// column and belongs to Location 1.
-    private static func isThisLocation(_ order: Order) -> Bool {
-        (order.location ?? 1) == AppConstants.locationID
-    }
-
-    /// An order with changes still on the upload list: this phone's copy is
-    /// newer than Supabase's, so server rows for it must not overwrite it.
-    private static func isWaiting(_ orderUUID: UUID?, in waiting: Set<UUID>) -> Bool {
-        guard let orderUUID else { return false }
-        return waiting.contains(orderUUID)
-    }
-
-    /// Lays this phone's not-yet-uploaded changes over `history`, oldest first,
-    /// so a full refresh from Supabase never hides an order (or an edit, or a
-    /// phone change) that hasn't reached it yet.
-    private func applyWaitingUploads() {
-        for entry in OrderOutbox.shared.entries {
-            switch entry.operation {
-            case .insert(let rows), .replace(let rows):
-                replaceGroup(orderNumber: entry.orderNumber, with: rows)
-            case .updatePhone(let phone):
-                setPhone(phone, onOrder: entry.orderNumber)
-            case .updatePayment(let change):
-                setPayment(change, onOrder: entry.orderNumber)
-            }
-        }
-    }
-
-    /// Writes a ticket's payment state onto every row of it. Row ids are kept,
-    /// so the stations' progress on the ticket survives being paid.
-    func setPayment(_ change: PaymentChange, onOrder orderNumber: Int) {
-        guard let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) else { return }
-        let rows = history[idx].items.map { row -> Order in
-            var row = row
-            row.status = change.status.rawValue
-            row.paymentMethod = change.paymentMethod
-            row.paidAt = change.paidAt
-            row.squarePaymentID = change.squarePaymentID
-            row.paymentLog = change.paymentLog
-            return row
-        }
-        history[idx] = OrderGroup(orderNumber: orderNumber, items: rows)
-    }
-
-    private func setPhone(_ phone: String?, onOrder orderNumber: Int) {
-        guard let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) else { return }
-        let rows = history[idx].items.map { row -> Order in
-            var row = row
-            row.phone = phone
-            return row
-        }
-        history[idx] = OrderGroup(orderNumber: orderNumber, items: rows)
-    }
-
-    private static func decodeOrder(_ dict: [String: Any]) -> Order? {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return nil }
-        do {
-            return try JSONDecoder().decode(Order.self, from: data)
-        } catch {
-            print("[realtime] decode failed: \(error)")
-            return nil
-        }
-    }
-
     // MARK: send order
 
     /// Sends the cart to the kitchen as a pending ticket. Payment comes later,
@@ -421,9 +139,10 @@ final class OrderViewModel {
         // The order number is the only step that still needs the network.
         // Everything after it is local: the order is saved on the phone and
         // uploaded in the background, so a weak signal can no longer lose it.
+        let orderUUID = UUID()
         let orderNumber: Int
         do {
-            orderNumber = try await Self.reserveOrderNumber()
+            orderNumber = try await TicketNumbers.next(for: orderUUID)
         } catch {
             sendError = "Couldn't get a ticket number, so this order was NOT sent. Check the connection and send it again. "
                 + ((error as? LocalizedError)?.errorDescription ?? "")
@@ -434,7 +153,6 @@ final class OrderViewModel {
         let timestamp = Self.nowTimestamp()
         let phoneClean = phone.trimmingCharacters(in: .whitespaces)
         let phoneValue: String? = phoneClean.isEmpty ? nil : phoneClean
-        let orderUUID = UUID()
 
         func row(name: String, price: Double, type: OrderItemType) -> Order {
             Order(
@@ -462,12 +180,11 @@ final class OrderViewModel {
         // Saved on the phone before anything else, so it survives the app
         // closing. Every row's id is made here and kept through the upload, so
         // Realtime's echo of it (here and on other devices) dedups by id.
-        OrderOutbox.shared.enqueue(OutboxEntry(
+        TicketStore.shared.submit(OutboxEntry(
             orderUUID: orderUUID,
             orderNumber: orderNumber,
             operation: .insert(rows: rows)
         ))
-        mergeInsert(orderNumber: orderNumber, rows: rows)
         lastSentOrderNumber = orderNumber
         ActivityLog.shared.info(.order, "Order sent", [
             "order": orderNumber,
@@ -486,21 +203,6 @@ final class OrderViewModel {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return iso.string(from: Date())
-    }
-
-    /// Asks Supabase for the next number, retrying briefly: on a weak signal
-    /// one dropped request is common, and failing here leaves the order unsaved.
-    private static func reserveOrderNumber() async throws -> Int {
-        var lastError: Error?
-        for attempt in 0..<3 {
-            if attempt > 0 { try? await Task.sleep(nanoseconds: 1_000_000_000) }
-            do {
-                return try await SupabaseService.shared.nextOrderNumber()
-            } catch {
-                lastError = error
-            }
-        }
-        throw lastError ?? SupabaseError.http(0, "no response")
     }
 
     func reprint(orderNumber: Int) async {
@@ -615,12 +317,11 @@ final class OrderViewModel {
         }
 
         let previousCount = history.first(where: { $0.orderNumber == orderNumber })?.items.count ?? 0
-        OrderOutbox.shared.enqueue(OutboxEntry(
+        TicketStore.shared.submit(OutboxEntry(
             orderUUID: orderUUID,
             orderNumber: orderNumber,
             operation: .replace(rows: rows)
         ))
-        replaceGroup(orderNumber: orderNumber, with: rows)
         ActivityLog.shared.info(.order, "Order edited", [
             "order": orderNumber,
             "itemsBefore": previousCount,
@@ -628,25 +329,6 @@ final class OrderViewModel {
             "total": editTotal,
         ])
         endEdit()
-    }
-
-    /// Swaps a group's rows wholesale. An edit's replacement rows carry fresh
-    /// ids, so the old ids' station state is dropped rather than left to leak —
-    /// the order's progress restarts, which is the accepted cost of a full
-    /// replace. Rows that keep their id (re-laying a not-yet-uploaded order
-    /// after a refresh) keep their state. Realtime's DELETE/INSERT echo of this
-    /// same write is a no-op afterwards: the old ids are already gone and the
-    /// new ones already present.
-    private func replaceGroup(orderNumber: Int, with rows: [Order]) {
-        guard let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) else {
-            mergeInsert(orderNumber: orderNumber, rows: rows)
-            return
-        }
-        let keptIDs = Set(rows.map(\.id))
-        for old in history[idx].items where !keptIDs.contains(old.id) {
-            itemStates.removeValue(forKey: old.id)
-        }
-        history[idx] = OrderGroup(orderNumber: orderNumber, items: rows)
     }
 
     private func tryPrint(orderNumber: Int, items: [Order]) async {
@@ -719,12 +401,11 @@ final class OrderViewModel {
         // signal (and always after the order's own upload).
         if let orderUUID = history.first(where: { $0.orderNumber == orderNumber })?.orderUUID {
             let value: String? = phone.isEmpty ? nil : phone
-            OrderOutbox.shared.enqueue(OutboxEntry(
+            TicketStore.shared.submit(OutboxEntry(
                 orderUUID: orderUUID,
                 orderNumber: orderNumber,
                 operation: .updatePhone(phone: value)
             ))
-            setPhone(value, onOrder: orderNumber)
             phoneOverrides.removeValue(forKey: orderNumber)
             return
         }
@@ -735,7 +416,7 @@ final class OrderViewModel {
             // devices' postgres_changes echo of this same update will apply
             // the same values again, harmlessly (last-write-wins, idempotent).
             let updated = try await SupabaseService.shared.updateOrderPhone(orderNumber: orderNumber, phone: phone)
-            for row in updated { mergeUpdate(row) }
+            for row in updated { TicketStore.shared.mergeUpdate(row) }
             phoneOverrides.removeValue(forKey: orderNumber)
             // Never the number itself — the log is readable on any staff device.
             ActivityLog.shared.info(.order, phone.isEmpty ? "Phone number removed" : "Phone number saved", ["order": orderNumber])

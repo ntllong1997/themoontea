@@ -83,12 +83,11 @@ extension OrderViewModel {
             squarePaymentID: squarePaymentID,
             paymentLog: group.paymentLog + [entry]
         )
-        OrderOutbox.shared.enqueue(OutboxEntry(
+        TicketStore.shared.submit(OutboxEntry(
             orderUUID: orderUUID,
             orderNumber: group.orderNumber,
             operation: .updatePayment(change: change)
         ))
-        setPayment(change, onOrder: group.orderNumber)
         ActivityLog.shared.info(.payment, "Ticket payment changed", [
             "order": group.orderNumber, "from": entry.from, "to": entry.to,
             "total": group.total(taxRate: AppConstants.taxRate),

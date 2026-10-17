@@ -11,7 +11,5 @@ struct DrinkStationView: View {
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle("🧋 Drink Station")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { vm.startPolling() }
-        .onDisappear { vm.stopPolling() }
     }
 }
