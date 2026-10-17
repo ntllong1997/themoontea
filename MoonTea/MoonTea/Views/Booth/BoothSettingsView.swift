@@ -7,7 +7,7 @@ struct BoothSettingsView: View {
     @State private var role = TillSettings.role
     @State private var pendingRole: BoothRole?
     private let booth = BoothSync.shared
-    private let pool = NumberPool.shared
+    private let counter = BoothCounter.shared
 
     var body: some View {
         Form {
@@ -59,12 +59,10 @@ struct BoothSettingsView: View {
         case .main:
             Section("Status") {
                 row("Tills connected", booth.connectedTills.isEmpty ? "None" : booth.connectedTills.joined(separator: ", "))
-                row("Numbers reserved", "\(pool.reservedCount)")
-                if pool.isUsingOfflineNumbers {
-                    Text("Out of reserved numbers with no signal. Website pre-orders may repeat a number until the signal is back.")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.orange)
-                }
+                row("Last ticket number", counter.lastNumber > 0 ? "#\(counter.lastNumber)" : "None yet")
+                Text("This phone numbers every ticket at the booth, in order. Don't take orders on the website while it's the main phone.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.mutedText)
             }
         case .till:
             Section("Status") {

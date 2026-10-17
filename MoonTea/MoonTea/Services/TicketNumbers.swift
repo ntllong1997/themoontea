@@ -5,16 +5,22 @@ import Foundation
 enum TicketNumbers {
     enum Failure: LocalizedError {
         case mainPhoneNotConnected
+        case mainPhoneCantNumber(String)
 
         var errorDescription: String? {
-            "Main phone not connected. Check the main phone has the app open, and WiFi and Bluetooth are on."
+            switch self {
+            case .mainPhoneNotConnected:
+                "Main phone not connected. Check the main phone has the app open, and WiFi and Bluetooth are on."
+            case .mainPhoneCantNumber(let reason):
+                reason
+            }
         }
     }
 
     static func next(for orderUUID: UUID) async throws -> Int {
         switch TillSettings.role {
         case .standalone: return try await fromSupabase()
-        case .main:       return NumberPool.shared.number(for: orderUUID, highestSeen: TicketStore.shared.highestOrderNumber)
+        case .main:       return try BoothCounter.shared.number(for: orderUUID)
         case .till:       return try await BoothSync.shared.requestNumber(for: orderUUID)
         }
     }
@@ -35,91 +41,55 @@ enum TicketNumbers {
     }
 }
 
-/// The main phone's numbers. It keeps a few numbers reserved from Supabase
-/// ahead of time, so it can hand them out with no signal — and since Supabase
-/// gave them out, a website pre-order can never get the same number.
+/// The main phone's ticket numbers (docs/offline-event-plan.md, step 4).
 ///
-/// If the reserve runs out with no signal, it carries on from the highest
-/// number it has seen ("offline numbers"). Those could clash with a website
-/// pre-order taken meanwhile, so the booth screen warns while it happens.
+/// At an event the main phone is the only thing handing out numbers — its own
+/// orders and every till's — so they run strictly 1, 2, 3 with no signal
+/// needed. The website isn't used to take orders while a main phone runs.
+/// Numbers continue after the highest ticket on the phone's list, so a main
+/// phone must have loaded today's tickets (from Supabase, or from the old main
+/// phone when a till takes over) before it hands out the first one.
 @MainActor
 @Observable
-final class NumberPool {
-    static let shared = NumberPool()
+final class BoothCounter {
+    static let shared = BoothCounter()
 
-    private(set) var state: NumberPoolState
-    private static let storageKey = "numberPool"
-    private static let target = 10
-    /// Supabase calls one refill may make, so skipping stale numbers can't loop.
-    private static let maxCallsPerRefill = 30
-    @ObservationIgnored private var isRefilling = false
-    @ObservationIgnored private var refillTimer: Task<Void, Never>?
+    private(set) var state: BoothCounterState
+    private static let storageKey = "boothCounter"
 
     private init() {
-        state = Self.load() ?? NumberPoolState(day: Self.today())
+        let saved = UserDefaults.standard.data(forKey: Self.storageKey)
+            .flatMap { try? JSONDecoder().decode(BoothCounterState.self, from: $0) }
+        state = saved?.day == Self.today() ? saved! : BoothCounterState(day: Self.today())
     }
 
-    var reservedCount: Int { state.reserved.count }
-    var isUsingOfflineNumbers: Bool { state.isUsingOfflineNumbers }
+    var lastNumber: Int { state.day == Self.today() ? state.lastGiven : 0 }
 
-    func number(for orderUUID: UUID, highestSeen: Int) -> Int {
-        rollOverIfNewDay()
-        let number = state.take(for: orderUUID, highestSeen: highestSeen)
-        save()
-        Task { await refill() }
+    func number(for orderUUID: UUID) throws -> Int {
+        if state.day != Self.today() { state = BoothCounterState(day: Self.today()) }
+        // A phone that already numbered tickets today knows where it is; one
+        // that didn't must know today's tickets, or it could start again at 1.
+        guard state.lastGiven > 0 || TicketStore.shared.hasLoadedToday else {
+            throw Failure.ticketsNotLoaded
+        }
+        let number = state.take(for: orderUUID, highestSeen: TicketStore.shared.highestOrderNumber)
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
         return number
     }
 
-    /// Keeps topping up the reserve while this is the main phone.
-    func startRefilling() {
-        guard refillTimer == nil else { return }
-        refillTimer = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.refill()
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
-            }
+    enum Failure: LocalizedError {
+        case ticketsNotLoaded
+
+        var errorDescription: String? {
+            "The main phone hasn't loaded today's tickets yet, so it doesn't know the next number. Give it signal for a moment, or take over from a till that was connected to the old main phone."
         }
-    }
-
-    func stopRefilling() {
-        refillTimer?.cancel()
-        refillTimer = nil
-    }
-
-    func refill() async {
-        guard !isRefilling else { return }
-        isRefilling = true
-        defer { isRefilling = false }
-        rollOverIfNewDay()
-        var calls = 0
-        while state.reserved.count < Self.target, calls < Self.maxCallsPerRefill {
-            calls += 1
-            guard let number = try? await SupabaseService.shared.nextOrderNumber() else { return }
-            state.addReserved(number)
-            save()
-        }
-    }
-
-    private func rollOverIfNewDay() {
-        let today = Self.today()
-        guard state.day != today else { return }
-        state = NumberPoolState(day: today)
-        save()
     }
 
     private static func today() -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: Date())
-    }
-
-    private func save() {
-        guard let data = try? JSONEncoder().encode(state) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
-    }
-
-    private static func load() -> NumberPoolState? {
-        guard let data = UserDefaults.standard.data(forKey: storageKey) else { return nil }
-        return try? JSONDecoder().decode(NumberPoolState.self, from: data)
     }
 }

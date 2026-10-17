@@ -62,7 +62,6 @@ final class BoothSync: NSObject {
         runningRole = role
         TicketStore.shared.onTicketChanged = nil
         TicketStore.shared.onHistoryReplaced = nil
-        NumberPool.shared.stopRefilling()
         if role != .till { takeOverUnsentChanges() }
 
         switch role {
@@ -85,7 +84,6 @@ final class BoothSync: NSObject {
                 // Website pre-orders that came in while the link to Supabase was down.
                 for ticket in TicketStore.shared.history { ReceiptPrinter.printIfNew(orderNumber: ticket.orderNumber) }
             }
-            NumberPool.shared.startRefilling()
         case .till:
             session = makeSession()
             let browser = MCNearbyServiceBrowser(peer: peerID, serviceType: Self.serviceType)
@@ -178,6 +176,8 @@ final class BoothSync: NSObject {
         switch message {
         case .number(let orderUUID, let number):
             resumeNumberWaiter(orderUUID, with: .success(number))
+        case .numberUnavailable(let orderUUID, let reason):
+            resumeNumberWaiter(orderUUID, with: .failure(TicketNumbers.Failure.mainPhoneCantNumber(reason)))
         case .received(let entryID):
             sendList.confirm(entryID)
             saveSendList()
@@ -210,8 +210,13 @@ final class BoothSync: NSObject {
             refreshConnectedTills()
             send(.snapshot(rows: TicketStore.shared.allRows), to: [peer])
         case .numberRequest(let orderUUID):
-            let number = NumberPool.shared.number(for: orderUUID, highestSeen: TicketStore.shared.highestOrderNumber)
-            send(.number(orderUUID: orderUUID, number: number), to: [peer])
+            do {
+                let number = try BoothCounter.shared.number(for: orderUUID)
+                send(.number(orderUUID: orderUUID, number: number), to: [peer])
+            } catch {
+                let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                send(.numberUnavailable(orderUUID: orderUUID, reason: reason), to: [peer])
+            }
         case .change(let entry):
             rollReceivedOverIfNewDay()
             if received.markNew(entry.id) {
@@ -225,7 +230,7 @@ final class BoothSync: NSObject {
             guard let ticket = TicketStore.shared.history.first(where: { $0.orderNumber == orderNumber }) else { return }
             ActivityLog.shared.info(.printer, "Reprint for a till", ["order": orderNumber, "till": tillNames[peer] ?? peer.displayName])
             Task { await ReceiptPrinter.printReceipt(for: ticket) }
-        case .number, .received, .snapshot, .ticket:
+        case .number, .numberUnavailable, .received, .snapshot, .ticket:
             break
         }
     }

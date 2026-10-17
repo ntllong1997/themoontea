@@ -32,6 +32,25 @@ final class TicketStore {
 
     private init() {}
 
+    /// Whether this phone has a full copy of today's tickets — from Supabase,
+    /// or from the main phone on a till. A main phone needs it before handing
+    /// out its first number, so numbering continues after today's tickets.
+    var hasLoadedToday: Bool { loadedDay == Self.today() }
+
+    private var loadedDay = UserDefaults.standard.string(forKey: TicketStore.loadedDayKey)
+    private static let loadedDayKey = "ticketsLoadedDay"
+
+    private func markLoadedToday() {
+        loadedDay = Self.today()
+        UserDefaults.standard.set(loadedDay, forKey: Self.loadedDayKey)
+    }
+
+    private static func today() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
+
     /// Starts (or stops) reading Supabase for the current role. Safe to call
     /// again, e.g. after the role changes.
     func start() {
@@ -87,6 +106,7 @@ final class TicketStore {
     func replaceAll(with rows: [Order]) {
         history = Self.grouped(rows)
         applyUnconfirmed()
+        markLoadedToday()
     }
 
     /// One ticket as the main phone now has it.
@@ -214,6 +234,7 @@ final class TicketStore {
                 guard isSupabaseSyncOn else { return }
                 history = groups
                 applyUnconfirmed()
+                markLoadedToday()
                 onHistoryReplaced?()
                 noteOrderSync(error: nil)
             } catch {

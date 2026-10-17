@@ -5,7 +5,7 @@ import SwiftUI
 /// case is loud.
 struct BoothStatusBadge: View {
     private let booth = BoothSync.shared
-    private let pool = NumberPool.shared
+    private let counter = BoothCounter.shared
 
     var body: some View {
         switch TillSettings.role {
@@ -14,11 +14,11 @@ struct BoothStatusBadge: View {
         case .main:
             line(
                 icon: "antenna.radiowaves.left.and.right",
-                color: pool.isUsingOfflineNumbers ? .orange : Theme.success,
+                color: canNumber ? Theme.success : .orange,
                 title: tillsText,
-                detail: pool.isUsingOfflineNumbers
-                    ? "No numbers reserved from the internet: website pre-orders may repeat a number until the signal is back."
-                    : nil
+                detail: canNumber
+                    ? (counter.lastNumber > 0 ? "Last ticket number: #\(counter.lastNumber)" : nil)
+                    : "Today's tickets haven't loaded yet, so new orders can't get a number. Needs signal for a moment."
             )
         case .till:
             if let main = booth.mainPhoneName {
@@ -33,6 +33,8 @@ struct BoothStatusBadge: View {
             }
         }
     }
+
+    private var canNumber: Bool { counter.lastNumber > 0 || TicketStore.shared.hasLoadedToday }
 
     private var tillsText: String {
         switch booth.connectedTills.count {

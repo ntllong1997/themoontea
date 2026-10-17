@@ -17,6 +17,8 @@ nonisolated enum BoothMessage: Codable, Sendable {
 
     // Main → till
     case number(orderUUID: UUID, number: Int)
+    /// The main phone can't number tickets yet; `reason` says why.
+    case numberUnavailable(orderUUID: UUID, reason: String)
     /// "Got it": the change is saved on the main phone, which uploads it now.
     case received(entryID: UUID)
     /// Every ticket of the day, sent when a till connects.
