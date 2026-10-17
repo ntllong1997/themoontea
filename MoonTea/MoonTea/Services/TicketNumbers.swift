@@ -43,27 +43,19 @@ enum TicketNumbers {
 
 /// The main phone's ticket numbers (docs/offline-event-plan.md, step 4).
 ///
-/// At an event the main phone numbers every booth ticket — its own and every
-/// till's — strictly in order, nothing skipped. With signal it asks Supabase
-/// for each number, so website orders share the same sequence; it tells
-/// Supabase the highest number it knows, so numbers it handed out offline are
-/// never handed out again. With no signal (or no answer within a few seconds)
-/// it continues by itself; the website isn't used then.
-///
-/// Requests are handled one at a time, so two tills asking at once can't get
-/// the same number. Numbering by itself needs today's tickets loaded (from
-/// Supabase, or from the old main phone after a takeover), or it could start
-/// again at #1.
+/// At an event the main phone is in charge of every ticket number: its own,
+/// every till's, and the website's (`WebsiteNumberRequests`). It numbers them
+/// itself, strictly 1, 2, 3 with nothing skipped and no signal needed.
+/// Requests are handled one at a time, so two at once can't get the same
+/// number. Numbering needs today's tickets loaded (from Supabase, or from the
+/// old main phone after a takeover), or it could start again at #1.
 @MainActor
 @Observable
 final class BoothCounter {
     static let shared = BoothCounter()
 
     private(set) var state: BoothCounterState
-    /// Whether the last number came from this phone alone (no signal).
-    private(set) var isNumberingOffline = false
     private static let storageKey = "boothCounter"
-    private static let supabaseTimeoutSeconds: UInt64 = 3
     @ObservationIgnored private var queue: Task<Void, Never>?
 
     private init() {
@@ -74,54 +66,59 @@ final class BoothCounter {
 
     var lastNumber: Int { state.day == Self.today() ? state.lastGiven : 0 }
 
+    /// A number for an order taken on this phone or a till.
     func number(for orderUUID: UUID) async throws -> Int {
-        // Wait for any request in progress, so each sees the one before it.
-        let previous = queue
-        let task = Task { () -> Result<Int, Error> in
-            await previous?.value
-            do { return .success(try await self.assign(orderUUID)) } catch { return .failure(error) }
+        try await serially {
+            if let number = self.state.number(for: orderUUID) { return number }
+            let number = try self.nextNumber()
+            self.record(number, for: orderUUID)
+            return number
         }
-        queue = Task { _ = await task.value }
-        return try await task.value.get()
     }
 
-    private func assign(_ orderUUID: UUID) async throws -> Int {
-        if state.day != Self.today() { state = BoothCounterState(day: Self.today()) }
-        if let number = state.number(for: orderUUID) { return number }
-        let highest = state.highest(seen: TicketStore.shared.highestOrderNumber)
-
-        let number: Int
-        if let fromSupabase = await Self.askSupabase(after: highest) {
-            number = fromSupabase
-            isNumberingOffline = false
-        } else {
-            // A phone that already numbered tickets today knows where it is;
-            // one that didn't must know today's tickets, or it could restart at 1.
-            guard state.lastGiven > 0 || TicketStore.shared.hasLoadedToday else {
-                throw Failure.ticketsNotLoaded
-            }
-            number = highest + 1
-            isNumberingOffline = true
+    /// Answers a website order's request. The number counts only if Supabase
+    /// accepts the answer — a request the website already gave up on (it
+    /// numbered the order 1000+) must not use up one of the phone's numbers.
+    func answerWebsiteRequest(_ orderUUID: UUID) async {
+        _ = try? await serially { () -> Int in
+            if let number = self.state.number(for: orderUUID) { return number }
+            let number = try self.nextNumber()
+            let accepted = try await SupabaseService.shared.answerNumberRequest(
+                orderUUID: orderUUID, number: number, device: TillSettings.name
+            )
+            guard accepted else { return 0 }
+            self.record(number, for: orderUUID)
+            ActivityLog.shared.info(.order, "Numbered a website order", ["order": number])
+            return number
         }
+    }
+
+    private func nextNumber() throws -> Int {
+        if state.day != Self.today() { state = BoothCounterState(day: Self.today()) }
+        // A phone that already numbered tickets today knows where it is; one
+        // that didn't must know today's tickets, or it could restart at 1.
+        guard state.lastGiven > 0 || TicketStore.shared.hasLoadedToday else {
+            throw Failure.ticketsNotLoaded
+        }
+        return state.next(seen: TicketStore.shared.highestOrderNumber)
+    }
+
+    private func record(_ number: Int, for orderUUID: UUID) {
         state.record(number, for: orderUUID)
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
         }
-        return number
     }
 
-    /// Supabase's next number, or nil with no signal / no answer in time.
-    private static func askSupabase(after highest: Int) async -> Int? {
-        await withTaskGroup(of: Int?.self) { group in
-            group.addTask { try? await SupabaseService.shared.nextOrderNumber(after: highest) }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: supabaseTimeoutSeconds * 1_000_000_000)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+    /// Runs `work` after every earlier request has finished.
+    private func serially(_ work: @escaping @MainActor () async throws -> Int) async throws -> Int {
+        let previous = queue
+        let task = Task { () -> Result<Int, Error> in
+            await previous?.value
+            do { return .success(try await work()) } catch { return .failure(error) }
         }
+        queue = Task { _ = await task.value }
+        return try await task.value.get()
     }
 
     enum Failure: LocalizedError {

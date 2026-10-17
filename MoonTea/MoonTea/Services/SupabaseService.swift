@@ -262,25 +262,73 @@ actor SupabaseService {
         return try await run(req, as: Int.self)
     }
 
-    /// The main phone's next number: like `nextOrderNumber()`, but continuing
-    /// after `after`, the highest number it already knows — which may include
-    /// tickets it numbered with no signal that haven't uploaded yet.
-    func nextOrderNumber(after: Int) async throws -> Int {
-        let bounds = todayBounds()
-        struct Params: Encodable {
-            let range_start: String
-            let range_end: String
-            let p_location: Int
-            let p_after: Int
+    // MARK: - Main phone ↔ website numbering
+
+    /// Marks this phone as the one numbering this location's tickets, website
+    /// orders included. Replaces any other phone's row (a takeover).
+    func registerMainPhone(deviceID: String, deviceName: String) async throws {
+        struct Row: Encodable {
+            let location: Int
+            let device_id: String
+            let device_name: String
+            let last_seen: String
         }
-        let body = try JSONEncoder().encode(Params(
-            range_start: bounds.start,
-            range_end: bounds.end,
-            p_location: AppConstants.locationID,
-            p_after: after
-        ))
-        let req = try makeRequest(path: "/rest/v1/rpc/next_order_number_after", method: "POST", body: body)
-        return try await run(req, as: Int.self)
+        let now = ISO8601DateFormatter().string(from: Date())
+        let body = try JSONEncoder().encode([Row(location: AppConstants.locationID, device_id: deviceID, device_name: deviceName, last_seen: now)])
+        var req = try makeRequest(
+            path: "/rest/v1/booth_main_phone",
+            method: "POST",
+            query: [.init(name: "on_conflict", value: "location")],
+            body: body
+        )
+        req.setValue("resolution=merge-duplicates,return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
+    }
+
+    /// Removes this phone's registration only — never one a phone that took
+    /// over since has written.
+    func unregisterMainPhone(deviceID: String) async throws {
+        var req = try makeRequest(
+            path: "/rest/v1/booth_main_phone",
+            method: "DELETE",
+            query: [locationFilter, .init(name: "device_id", value: "eq.\(deviceID)")]
+        )
+        req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
+    }
+
+    /// Website orders waiting for the main phone to number them, oldest first.
+    func unansweredNumberRequests() async throws -> [UUID] {
+        struct Row: Decodable { let order_uuid: UUID }
+        let since = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Self.numberRequestMaxAge))
+        let req = try makeRequest(
+            path: "/rest/v1/ticket_number_requests",
+            method: "GET",
+            query: [
+                .init(name: "select", value: "order_uuid"),
+                locationFilter,
+                .init(name: "order_number", value: "is.null"),
+                .init(name: "abandoned", value: "is.false"),
+                .init(name: "requested_at", value: "gte.\(since)"),
+                .init(name: "order", value: "requested_at.asc"),
+            ]
+        )
+        return try await run(req, as: [Row].self).map(\.order_uuid)
+    }
+
+    /// A website gives up well within this; older requests are left alone.
+    private static let numberRequestMaxAge: TimeInterval = 60
+
+    /// True if the request was still open and now has `number`.
+    func answerNumberRequest(orderUUID: UUID, number: Int, device: String) async throws -> Bool {
+        struct Params: Encodable {
+            let p_order_uuid: UUID
+            let p_number: Int
+            let p_device: String
+        }
+        let body = try JSONEncoder().encode(Params(p_order_uuid: orderUUID, p_number: number, p_device: device))
+        let req = try makeRequest(path: "/rest/v1/rpc/answer_ticket_number_request", method: "POST", body: body)
+        return try await run(req, as: Bool.self)
     }
 
     /// Uploads one order's rows. Safe to call again with the same rows: each

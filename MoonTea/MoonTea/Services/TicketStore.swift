@@ -122,7 +122,11 @@ final class TicketStore {
     /// Every row shown, for the main phone's snapshot to a till.
     var allRows: [Order] { history.flatMap(\.items) }
 
-    var highestOrderNumber: Int { history.map(\.orderNumber).max() ?? 0 }
+    /// The highest ticket number in the normal sequence — the website's 1000+
+    /// numbers (taken while the main phone didn't answer) don't count.
+    var highestOrderNumber: Int {
+        history.map(\.orderNumber).filter { $0 < BoothCounterState.fallbackStart }.max() ?? 0
+    }
 
     static func grouped(_ rows: [Order]) -> [OrderGroup] {
         var buckets: [Int: [Order]] = [:]

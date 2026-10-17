@@ -63,6 +63,12 @@ final class BoothSync: NSObject {
         TicketStore.shared.onTicketChanged = nil
         TicketStore.shared.onHistoryReplaced = nil
         if role != .till { takeOverUnsentChanges() }
+        // Only the main phone numbers the website's orders.
+        if role == .main {
+            WebsiteNumberRequests.shared.start()
+        } else {
+            WebsiteNumberRequests.shared.stop()
+        }
 
         switch role {
         case .standalone:

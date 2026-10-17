@@ -25,7 +25,7 @@ nonisolated enum BoothRole: String, CaseIterable, Identifiable, Sendable {
     var explanation: String {
         switch self {
         case .standalone: "Uses the internet for ticket numbers and uploads its own orders. For a normal day at the shop."
-        case .main:       "Hands out every ticket number in order, receives the other phones' orders and uploads them all. Keep it plugged in with the app open. Website orders are fine while it has signal, not while it hasn't."
+        case .main:       "Hands out every ticket number in order, receives the other phones' orders and uploads them all. Numbers the website's orders too. Keep it plugged in with the app open."
         case .till:       "Connects to the main phone directly (WiFi and Bluetooth on, no internet needed). Can't send orders while the main phone isn't connected."
         }
     }

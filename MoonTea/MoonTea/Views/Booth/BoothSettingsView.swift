@@ -60,7 +60,8 @@ struct BoothSettingsView: View {
             Section("Status") {
                 row("Tills connected", booth.connectedTills.isEmpty ? "None" : booth.connectedTills.joined(separator: ", "))
                 row("Last ticket number", counter.lastNumber > 0 ? "#\(counter.lastNumber)" : "None yet")
-                Text("This phone numbers every booth ticket in order. With signal it shares one sequence with the website; with no signal it numbers by itself, so don't take website orders then.")
+                row("Website orders", WebsiteNumberRequests.shared.isRegistered ? "Numbered here" : "Waiting for signal")
+                Text("This phone numbers every ticket in order: its own, the tills', and the website's. If it doesn't answer the website (no signal), the website numbers its orders from 1000.")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.mutedText)
             }

@@ -66,6 +66,10 @@ export default function OrderSystem() {
     const [printerStatus, setPrinterStatus] = useState('disconnected'); // 'disconnected'|'connecting'|'connected'|'error'
     const [sendError, setSendError] = useState('');
     const [printWarning, setPrintWarning] = useState('');
+    // At an event the booth's main phone numbers website orders too, which can
+    // take a few seconds.
+    const [isSending, setIsSending] = useState(false);
+    const [numberNote, setNumberNote] = useState('');
 
     // Resizable columns
     const [colSplit, setColSplit] = useState(40);
@@ -136,8 +140,10 @@ export default function OrderSystem() {
     // here when this till's printer is connected, otherwise the booth's main
     // iPhone prints it when the order arrives.
     const handleSendOrder = useCallback(async () => {
-        if (orders.length === 0) return;
+        if (orders.length === 0 || isSending) return;
         setSendError('');
+        setNumberNote('');
+        setIsSending(true);
         try {
             const created = await createOrder({
                 cartItems: orders,
@@ -147,6 +153,9 @@ export default function OrderSystem() {
             });
 
             setHistory((prev) => [created, ...prev]);
+            if (created.numberSource === 'fallback') {
+                setNumberNote(`The main phone didn't answer, so this order is #${created.orderNumber} (website numbers start at 1000).`);
+            }
             clearCart();
             setPhone('');
             setMobileTab('history');
@@ -167,8 +176,10 @@ export default function OrderSystem() {
         } catch (err) {
             console.error('Send order failed:', err);
             setSendError('Order failed to save — please try again.');
+        } finally {
+            setIsSending(false);
         }
-    }, [orders, phone, locationId, printerStatus]);
+    }, [orders, phone, locationId, printerStatus, isSending]);
 
     // Advances a unit through its own category's cycle. An item whose type this
     // build does not recognise still advances, on the catalog's neutral flow.
@@ -360,8 +371,11 @@ export default function OrderSystem() {
                 {printWarning && (
                     <p className='mt-2 text-xs text-amber-600 font-medium text-center'>{printWarning}</p>
                 )}
-                <Button onClick={handleSendOrder} className='mt-3 w-full' disabled={orders.length === 0}>
-                    Send Order
+                {numberNote && (
+                    <p className='mt-2 text-xs text-amber-600 font-medium text-center'>{numberNote}</p>
+                )}
+                <Button onClick={handleSendOrder} className='mt-3 w-full' disabled={orders.length === 0 || isSending}>
+                    {isSending ? 'Getting a ticket number…' : 'Send Order'}
                 </Button>
                 <p className='text-xs text-gray-400 mt-1 text-center'>
                     Sent as unpaid. Hand over the receipt once the customer has paid.

@@ -25,9 +25,9 @@ could be charged with no order saved.
   **directly, phone to phone** (Multipeer Connectivity: peer-to-peer WiFi +
   Bluetooth, no router, no WiFi network). WiFi and Bluetooth must be ON, app
   open, within roughly 10–30 ft.
-- **Ticket numbers are strictly in order** (decided 2026-10-17): one sequence
-  for the booth and the website. The website is used at events too, except
-  while there's no signal.
+- **Ticket numbers are strictly in order** (decided 2026-10-17): the main
+  phone numbers every ticket, website orders included (through the
+  database). If it doesn't answer, website orders get 1000, 1001…
 - A phone that takes an order **keeps it saved until the main phone confirms
   it received it** ("got it"), then the main phone owns the upload.
 - Uploads are safe from any phone: row ids and order_uuid make a duplicate
@@ -143,6 +143,32 @@ Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
   connect on their own. Messages (`BoothMessage`): till → main `hello`,
   `numberRequest`, `change`; main → till `number`, `received` ("got it"),
   `snapshot` (whole day, on connect), `ticket` (one ticket's new rows).
+- A till keeps each change on a saved send list until the main phone answers
+  "got it"; it resends unconfirmed changes on reconnecting. The main phone
+  remembers which changes it took (per day), so a resend never applies twice
+  or undoes a newer change. "Got it" is sent only after the change is on the
+  main phone's upload list.
+- **Numbers** (`TicketNumbers`, `BoothCounter`; decided 2026-10-17): **the
+  main phone is in charge of every ticket number** — its own, every till's
+  and the website's — strictly 1, 2, 3, nothing skipped, no signal needed for
+  the booth. Requests are handled one at a time.
+  - **Website orders** (`WebsiteNumberRequests`, `lib/orders/ticketNumbering.js`,
+    migrations `20261017150000` + `20261017160000`, applied): while a phone is
+    main it is registered in `booth_main_phone`; the website then writes a
+    `ticket_number_requests` row and waits up to 8 s while the phone (Realtime
+    + 2 s check) answers it in the booth's sequence.
+  - **Main phone silent** (no signal, app closed): the website gives up
+    atomically (`abandon_ticket_number_request` — a last-moment answer wins, a
+    late one is refused, so no gaps and no double numbers) and numbers the
+    order from its own sequence **1000, 1001…** (`next_fallback_order_number`).
+    Normal numbering ignores 1000+. Assumes fewer than 1000 tickets a day.
+  - The website goes back to the database counter **only when the main phone
+    switches to Standalone or Till** (it removes its own registration,
+    retrying until it works; a takeover replaces it). No automatic expiry.
+  - No main phone (shop day): website and standalone phones use
+    `next_order_number`, as before.
+  - A phone that hasn't loaded today's tickets yet (no signal, no copy from an
+    old main phone) refuses to number rather than restart at #1.
 - A till keeps each change on a saved send list until the main phone answers
   "got it"; it resends unconfirmed changes on reconnecting. The main phone
   remembers which changes it took (per day), so a resend never applies twice

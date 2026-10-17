@@ -18,9 +18,7 @@ struct BoothStatusBadge: View {
                 title: tillsText,
                 detail: !canNumber
                     ? "Today's tickets haven't loaded yet, so new orders can't get a number. Needs signal for a moment."
-                    : counter.isNumberingOffline
-                        ? "No signal: numbering by itself (last #\(counter.lastNumber)). Don't take website orders until it's back."
-                        : (counter.lastNumber > 0 ? "Last ticket number: #\(counter.lastNumber)" : nil)
+                    : numberingText
             )
         case .till:
             if let main = booth.mainPhoneName {
@@ -37,6 +35,14 @@ struct BoothStatusBadge: View {
     }
 
     private var canNumber: Bool { counter.lastNumber > 0 || TicketStore.shared.hasLoadedToday }
+
+    /// Last number, and whether website orders are numbered here too.
+    private var numberingText: String {
+        let last = counter.lastNumber > 0 ? "Last ticket #\(counter.lastNumber). " : ""
+        return last + (WebsiteNumberRequests.shared.isRegistered
+            ? "Numbering website orders too."
+            : "Not numbering website orders yet (needs signal); the website uses #1000+ meanwhile.")
+    }
 
     private var tillsText: String {
         switch booth.connectedTills.count {

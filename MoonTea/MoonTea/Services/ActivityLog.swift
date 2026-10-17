@@ -118,6 +118,8 @@ nonisolated final class ActivityLog: @unchecked Sendable {
     /// be told apart from another's. (iOS no longer gives apps the device's
     /// user-facing name without a special entitlement.)
     private let deviceID: String
+    /// This phone's id, also used to tell main phones apart (`WebsiteNumberRequests`).
+    var deviceIdentifier: String { deviceID }
     /// Hardware model, e.g. "iPad13,18".
     private let deviceName: String
     private let appVersion: String
