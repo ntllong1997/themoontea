@@ -344,19 +344,13 @@ final class OrderViewModel {
     /// not recognise advances on the catalog's neutral flow rather than being
     /// ignored, and a Discount's single state makes the tap a no-op.
     ///
-    /// The stage is saved on the item's row and goes through the ticket list
-    /// like any change, so every screen and phone shows the same progress.
+    /// The stage is kept on this phone only (`PrepProgress`), shared by all
+    /// its screens: the stations, Tickets and History show the same progress.
     func cycleItem(_ id: Order.ID) {
         guard let item = history.lazy.flatMap(\.items).first(where: { $0.id == id }) else { return }
-        let previous = item.prepState
+        let previous = PrepProgress.shared.stage(of: id)
         let next = MenuCatalog.flow(for: item.type).next(after: previous)
-        guard next != previous else { return }
-        TicketStore.shared.submit(OutboxEntry(
-            // Tickets from before order_uuid have none; the row id stands in.
-            orderUUID: item.orderUUID ?? item.id,
-            orderNumber: item.orderNumber,
-            operation: .updatePrepState(rowID: item.id, state: next)
-        ))
+        PrepProgress.shared.setStage(next, of: id)
         ActivityLog.shared.info(.station, "Item status changed", [
             "order": item.orderNumber, "item": item.name, "from": previous ?? "new", "to": next,
         ])

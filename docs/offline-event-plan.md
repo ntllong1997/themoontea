@@ -185,11 +185,13 @@ take another till for the main phone.
 
 ## Changes after testing feedback (2026-10-17)
 
-- **Station progress is saved on the ticket.** Each unit's stage (e.g. a
-  corndog's frying → done) is the `orders.prep_state` column (migration
-  `20261017120000_order_prep_state.sql`, applied 2026-10-17), changed through
-  the upload list / booth link like any change. Every screen and phone shows
-  the same progress; a payment keeps it; an edit (new rows) restarts it.
+- **Station progress is per phone** (owner's decision). Each unit's stage
+  (e.g. a corndog's frying → done) lives in `PrepProgress` on the phone:
+  shared by every screen there (stations, Tickets, History), saved across app
+  restarts, fresh each day, and **never sent to other phones or Supabase**.
+  A payment keeps it; an edit (new rows) restarts it. (Migration
+  `20261017120000_order_prep_state.sql` was applied for an earlier attempt
+  that synced it; `orders.prep_state` is now unused and can be dropped.)
 - **Order tab:** each menu category folds shut with a tap on its header;
   remembered per phone.
 - **Status lines** (upload badge, booth link) sit at the bottom of the screen.

@@ -51,9 +51,6 @@ nonisolated struct Order: Codable, Hashable, Identifiable, Sendable {
     /// Every payment change made to the ticket, oldest first. Copied onto
     /// every row of the order, like `status`.
     var paymentLog: [PaymentLogEntry]?
-    /// This unit's station stage (a state in its category's `MenuCatalog`
-    /// flow); nil = not started. Shared with every screen and phone.
-    var prepState: String?
 
     enum CodingKeys: String, CodingKey {
         case id, orderNumber, name, price, type, timestamp, phone, paymentMethod, quantity, location
@@ -62,7 +59,6 @@ nonisolated struct Order: Codable, Hashable, Identifiable, Sendable {
         case paidAt = "paid_at"
         case squarePaymentID = "square_payment_id"
         case paymentLog = "payment_log"
-        case prepState = "prep_state"
     }
 
     init(
@@ -121,7 +117,6 @@ nonisolated struct Order: Codable, Hashable, Identifiable, Sendable {
         paidAt = try c.decodeIfPresent(String.self, forKey: .paidAt)?.replacingOccurrences(of: " ", with: "T")
         squarePaymentID = try c.decodeIfPresent(String.self, forKey: .squarePaymentID)
         paymentLog = Self.lenientLog(c)
-        prepState = try c.decodeIfPresent(String.self, forKey: .prepState)
     }
 
     /// REST sends the jsonb column as an array; tolerate a JSON string too, and

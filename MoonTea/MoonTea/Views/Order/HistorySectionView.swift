@@ -196,7 +196,7 @@ struct HistorySectionView: View {
         // Colour and badge come from the item's own category flow, so a type
         // this build predates still renders — on the catalog's neutral flow —
         // instead of being mis-styled or crashing.
-        let state = MenuCatalog.flow(for: item.type).state(item.prepState)
+        let state = MenuCatalog.flow(for: item.type).state(PrepProgress.shared.stage(of: item.id))
         let (bg, fg, badge) = (state.background, state.foreground, state.badge)
 
         return Button {

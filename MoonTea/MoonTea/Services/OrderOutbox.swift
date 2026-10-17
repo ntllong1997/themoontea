@@ -12,8 +12,6 @@ nonisolated struct OutboxEntry: Codable, Identifiable, Sendable {
         case updatePhone(phone: String?)
         /// Paid, unpaid, cancelled, restored or a corrected payment method.
         case updatePayment(change: PaymentChange)
-        /// A station moved one unit to another stage.
-        case updatePrepState(rowID: UUID, state: String?)
     }
 
     var id = UUID()
@@ -134,8 +132,6 @@ final class OrderOutbox {
             try await SupabaseService.shared.updateOrderPhone(orderUUID: entry.orderUUID, phone: phone)
         case .updatePayment(let change):
             try await SupabaseService.shared.updateOrderPayment(orderUUID: entry.orderUUID, change: change)
-        case .updatePrepState(let rowID, let state):
-            try await SupabaseService.shared.updatePrepState(rowID: rowID, state: state)
         }
     }
 }
