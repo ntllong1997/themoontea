@@ -192,6 +192,10 @@ take another till for the main phone.
   A payment keeps it; an edit (new rows) restarts it. (Migration
   `20261017120000_order_prep_state.sql` was applied for an earlier attempt
   that synced it; `orders.prep_state` is now unused and can be dropped.)
+- **Website stations do the same:** the web order page and station pages keep
+  each unit's stage in the browser's localStorage (`usePrepProgress`), keyed
+  by row id — shared by every page in that browser, kept through reloads,
+  restarts and the phone switching off, fresh each day, never sent anywhere.
 - **Order tab:** each menu category folds shut with a tap on its header;
   remembered per phone.
 - **Status lines** (upload badge, booth link) sit at the bottom of the screen.

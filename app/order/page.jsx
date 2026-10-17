@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { createOrder, getOrderHistory, updateOrderPhone } from '@/lib/db';
 import { calculateTotalRevenue, formatItemName } from '@/lib/orders/orderModel';
 import { useCart } from '@/lib/orders/useCart';
+import { usePrepProgress } from '@/lib/orders/usePrepProgress';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel from '@/components/OrderPanel';
@@ -57,7 +58,8 @@ export default function OrderSystem() {
 
     // One map for every category — the state names differ per category, so the
     // value is resolved against the item's own flow when it is read.
-    const [itemStates, setItemStates] = useState({});
+    // Station progress, shared with the station pages on this device.
+    const { stageOf, setStage } = usePrepProgress();
     const [notifiedOrders, setNotifiedOrders] = useState(new Set());
     const [phoneOverrides, setPhoneOverrides] = useState({});
     const [mobileTab, setMobileTab] = useState('order');
@@ -175,12 +177,8 @@ export default function OrderSystem() {
         const item = order?.items[itemIndex];
         if (!item) return;
 
-        const key = `${orderNumber}-${itemIndex}`;
-        setItemStates((prev) => ({
-            ...prev,
-            [key]: nextStateFor(item.type, prev[key] ?? initialStateFor(item.type)),
-        }));
-    }, [history]);
+        setStage(item.id, nextStateFor(item.type, stageOf(item.id) ?? initialStateFor(item.type)));
+    }, [history, stageOf, setStage]);
 
     const markNotified = useCallback((orderNumber) => {
         setNotifiedOrders((prev) => {
@@ -276,8 +274,8 @@ export default function OrderSystem() {
 
     // Item styling, resolved against the item's own category flow.
     const stateFor = useCallback(
-        (key, item) => flowStateFor(item?.type, itemStates[key] ?? initialStateFor(item?.type)),
-        [itemStates]
+        (key, item) => flowStateFor(item?.type, stageOf(item?.id) ?? initialStateFor(item?.type)),
+        [stageOf]
     );
 
     const getItemClassName = useCallback((item, key) => stateFor(key, item).className, [stateFor]);
