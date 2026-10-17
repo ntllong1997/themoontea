@@ -63,6 +63,7 @@ export default function OrderSystem() {
     const [mobileTab, setMobileTab] = useState('order');
     const [printerStatus, setPrinterStatus] = useState('disconnected'); // 'disconnected'|'connecting'|'connected'|'error'
     const [sendError, setSendError] = useState('');
+    const [printWarning, setPrintWarning] = useState('');
 
     // Resizable columns
     const [colSplit, setColSplit] = useState(40);
@@ -129,8 +130,9 @@ export default function OrderSystem() {
     }, [refreshPrinterStatus]);
 
     // Orders taken here are pre-orders: saved as unpaid, then paid on an
-    // iPhone before the customer gets them. The receipt prints there, on
-    // payment, so nothing prints here on send.
+    // iPhone. The receipt prints now and staff hand it over after payment —
+    // here when this till's printer is connected, otherwise the booth's main
+    // iPhone prints it when the order arrives.
     const handleSendOrder = useCallback(async () => {
         if (orders.length === 0) return;
         setSendError('');
@@ -147,11 +149,24 @@ export default function OrderSystem() {
             setPhone('');
             setMobileTab('history');
             tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+            if (printerStatus === 'connected') {
+                try {
+                    await eposPrint({
+                        orderNumber: created.orderNumber,
+                        items: toPrintableItems(created.items),
+                        taxRate: TAX_RATE,
+                    });
+                } catch (printErr) {
+                    console.error('[print] failed:', printErr);
+                    setPrintWarning('Receipt failed to print — order was saved.');
+                    setTimeout(() => setPrintWarning(''), 5000);
+                }
+            }
         } catch (err) {
             console.error('Send order failed:', err);
             setSendError('Order failed to save — please try again.');
         }
-    }, [orders, phone, locationId]);
+    }, [orders, phone, locationId, printerStatus]);
 
     // Advances a unit through its own category's cycle. An item whose type this
     // build does not recognise still advances, on the catalog's neutral flow.
@@ -344,11 +359,14 @@ export default function OrderSystem() {
                 {sendError && (
                     <p className='mt-2 text-xs text-red-600 font-medium text-center'>{sendError}</p>
                 )}
+                {printWarning && (
+                    <p className='mt-2 text-xs text-amber-600 font-medium text-center'>{printWarning}</p>
+                )}
                 <Button onClick={handleSendOrder} className='mt-3 w-full' disabled={orders.length === 0}>
                     Send Order
                 </Button>
                 <p className='text-xs text-gray-400 mt-1 text-center'>
-                    Sent as unpaid. The customer pays at the payment phone.
+                    Sent as unpaid. Hand over the receipt once the customer has paid.
                 </p>
             </CardContent>
         </Card>

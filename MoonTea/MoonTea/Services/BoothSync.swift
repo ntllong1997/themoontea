@@ -75,11 +75,15 @@ final class BoothSync: NSObject {
             advertiser.startAdvertisingPeer()
             self.session = session
             self.advertiser = advertiser
+            // Print hub: a new ticket from a till or the website prints here.
             TicketStore.shared.onTicketChanged = { [weak self] number, rows in
                 self?.broadcast(.ticket(orderNumber: number, rows: rows))
+                ReceiptPrinter.printIfNew(orderNumber: number)
             }
             TicketStore.shared.onHistoryReplaced = { [weak self] in
                 self?.broadcast(.snapshot(rows: TicketStore.shared.allRows))
+                // Website pre-orders that came in while the link to Supabase was down.
+                for ticket in TicketStore.shared.history { ReceiptPrinter.printIfNew(orderNumber: ticket.orderNumber) }
             }
             NumberPool.shared.startRefilling()
         case .till:
@@ -132,6 +136,11 @@ final class BoothSync: NSObject {
         if let mainPeer { send(.change(entry), to: [mainPeer]) }
     }
 
+    func requestPrint(orderNumber: Int) {
+        guard let mainPeer else { return }
+        send(.printRequest(orderNumber: orderNumber), to: [mainPeer])
+    }
+
     func requestNumber(for orderUUID: UUID) async throws -> Int {
         guard let mainPeer else { throw TicketNumbers.Failure.mainPhoneNotConnected }
         let timeout = Task { [weak self] in
@@ -176,7 +185,7 @@ final class BoothSync: NSObject {
             TicketStore.shared.replaceAll(with: rows)
         case .ticket(let orderNumber, let rows):
             TicketStore.shared.replaceTicket(orderNumber: orderNumber, rows: rows)
-        case .hello, .numberRequest, .change:
+        case .hello, .numberRequest, .change, .printRequest:
             break
         }
     }
@@ -212,6 +221,10 @@ final class BoothSync: NSObject {
                 saveReceived()
             }
             send(.received(entryID: entry.id), to: [peer])
+        case .printRequest(let orderNumber):
+            guard let ticket = TicketStore.shared.history.first(where: { $0.orderNumber == orderNumber }) else { return }
+            ActivityLog.shared.info(.printer, "Reprint for a till", ["order": orderNumber, "till": tillNames[peer] ?? peer.displayName])
+            Task { await ReceiptPrinter.printReceipt(for: ticket) }
         case .number, .received, .snapshot, .ticket:
             break
         }

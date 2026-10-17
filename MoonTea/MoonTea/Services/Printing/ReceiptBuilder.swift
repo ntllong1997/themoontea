@@ -59,8 +59,10 @@ enum ReceiptBuilder {
         printer.addText(pad("TOTAL", String(format: "$%.2f", payload.total), width: W) + "\n")
         printer.addTextStyle(kFalse, ul: kFalse, em: kFalse, color: kColor1)
 
-        // Payment method
-        printer.addText(pad("Paid", payload.paymentMethod, width: W) + "\n")
+        // Payment method — only on a paid ticket's receipt (a reprint).
+        if let paymentMethod = payload.paymentMethod {
+            printer.addText(pad("Paid", paymentMethod, width: W) + "\n")
+        }
 
         // Footer
         printer.addFeedLine(1)

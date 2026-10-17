@@ -165,9 +165,6 @@ struct PaymentSheet: View {
     private func chargeOnReader() async {
         isCharging = true
         chargeError = ""
-        // Warm the printer link while the card is processed, so the receipt
-        // can print the moment the payment succeeds.
-        EpsonPrinter.shared.checkConnection()
         let result = await square.charge(amountCents: Int((total * 100).rounded()))
         isCharging = false
         switch result {

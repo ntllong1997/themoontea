@@ -13,7 +13,8 @@ extension OrderViewModel {
         history.first { $0.orderNumber == orderNumber }
     }
 
-    /// Marks a pending ticket paid and prints the receipt. `squarePaymentID` is
+    /// Marks a pending ticket paid. The receipt already printed when it was
+    /// sent; staff hand it over now. `squarePaymentID` is
     /// set only for a card charged on this phone's reader; any id from an
     /// earlier charge that was marked unpaid is replaced, so only this payment
     /// decides the "card was really charged" warning.
@@ -27,7 +28,6 @@ extension OrderViewModel {
             squarePaymentID: squarePaymentID
         )
         if lastSentOrderNumber == orderNumber { lastSentOrderNumber = nil }
-        await reprint(orderNumber: orderNumber)
     }
 
     /// For walk-aways. The ticket is kept and its number stays used.

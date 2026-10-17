@@ -37,8 +37,8 @@ could be charged with no order saved.
   others join it — same app, local traffic works even when cell signal is bad.
   A travel router may be added later; the app should work the same on it.
 - Phones without signal take orders and **cash**. **Card payments happen on the
-  main phone** (Square Reader, online only). Receipts for tickets paid on
-  another phone are sent to the main phone, which prints them.
+  main phone** (Square Reader, online only). Receipts for tickets **sent** from
+  a till or the website print on the main phone (print hub).
 - Until the paid Apple Developer Program is approved, phones are installed
   from Xcode with a free account (the install expires after 7 days; install
   1–2 days before an event). Nothing in steps 1–5 needs the paid program;
@@ -59,8 +59,11 @@ could be charged with no order saved.
 3. **Payment page:** Card (in-app, only on the phone with the Square Reader),
    Square app (staff charge in the Square app, then confirm), Cash, Cash App.
    Staff confirm themselves; no lock, no copy-amount helpers needed.
-- On Paid: the ticket turns Paid on every phone and station within a second,
-  and **the receipt prints** (no kitchen ticket; stations use the screen).
+- **The receipt prints when the ticket is sent** (decided 2026-10-17), before
+  payment. Staff keep it and hand it to the customer only once payment is
+  confirmed. An unpaid ticket's receipt has no "Paid" line. Paying prints
+  nothing. (No kitchen ticket; stations use the screen.)
+- On Paid: the ticket turns Paid on every phone and station within a second.
 - Stations show Pending / Paid on each ticket, live.
 - **Card payments online only** (`processingMode: .onlineOnly`). No offline
   card payments.
@@ -86,7 +89,7 @@ releases the printer after each print so several tills can share it.
 | 2 | App: save orders on the phone first, upload list (`OrderOutbox`), sync badge | ✅ Written, builds in the simulator. Not tested on a phone |
 | 3 | App: order → tickets → payment pages, Cancel, payment corrections + log, online-only card, receipt on paid; web till sends pre-orders | ✅ Written; app builds in the simulator, web builds and its unit tests pass. Migration `20261014130000_ticket_payment_log.sql` applied 2026-10-14. Not tested on a phone |
 | 4 | App: main phone numbering + direct phone-to-phone sync (Multipeer); main phone uploads everyone's orders; delivery confirmed before the sender lets go | ✅ Written (2026-10-16). Builds; link tested between two simulators and a Mac test till (see below). Not tested on phones |
-| 5 | Printing: main phone as print hub for other phones' receipts (router sharing later) | Not started |
+| 5 | Printing: main phone as print hub for other phones' receipts (router sharing later) | ✅ Print hub written (2026-10-17) with the receipt-at-send rule; builds, logic tested. Router sharing not needed yet. Not tested on phones |
 
 Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
 - `supabase/migrations/20261013120000_order_status_and_offline_uploads.sql`
@@ -150,8 +153,7 @@ Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
   own upload list. The link stops in the background and restarts on return.
 - Status line on the Orders screen: main shows its connected tills; a till
   shows "Connected to main phone" or a red "Main phone not connected".
-- **Not done (step 5):** a ticket paid on a till prints nothing yet — the main
-  phone (print hub) should print it.
+- Printing: see step 5.
 
 **Tested 2026-10-16:** two simulators (main + till) connected on their own; a
 Mac program acting as a till checked numbering (same order → same number,
@@ -161,6 +163,24 @@ the reconnect snapshot (10/10); the main phone's upload list held exactly the
 ticket and its payment. The simulators used a fake Supabase address, so
 nothing reached the live database. This found and fixed a bug: a till could
 take another till for the main phone.
+
+## Step 5: what was built (receipt at send, main phone as print hub)
+
+- Sending a ticket prints its receipt at once (standalone or main phone).
+  `ReceiptPrinter` builds it; unpaid receipts have no payment line, a reprint
+  of a paid ticket shows "Paid <method>". Paying prints nothing.
+- **Main phone = print hub:** any new unpaid ticket that appears on it — sent
+  from a till, or a website pre-order arriving through Supabase — prints once,
+  2 s after it appears (a website order's rows arrive one by one). Website
+  pre-orders that arrived while it was offline print on the next full reload.
+- `PrintedTickets` remembers per day which tickets got a receipt, so edits,
+  resends, payments and relaunches never print twice. Paid, cancelled and old
+  tickets (no `order_uuid`) never auto-print.
+- A till's reprint button asks the main phone to print.
+- Web till: prints the pre-order's receipt on send when its own WiFi printer
+  is connected (at the shop); otherwise the main phone prints it at a booth.
+  Don't run a main phone and a connected web printer together, or website
+  orders print twice.
 
 ## Before the next step
 
@@ -178,7 +198,9 @@ take another till for the main phone.
    back on), send, edit, pay and cancel tickets on both; check both screens
    match and the main phone uploads everything; walk the till out of range
    and back (changes resend); force-quit the main phone mid-order.
-5. Then start step 5.
+5. Test step 5: a ticket sent on the main phone, on a till and on the website
+   each prints exactly once on the main phone's Epson, with no "Paid" line;
+   paying prints nothing; a till's reprint prints on the main phone.
 
 Still needs signal until step 4: getting the ticket number (retried 3 times).
 

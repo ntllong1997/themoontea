@@ -128,8 +128,8 @@ final class OrderViewModel {
 
     // MARK: send order
 
-    /// Sends the cart to the kitchen as a pending ticket. Payment comes later,
-    /// on the payment page, and the receipt prints then.
+    /// Sends the cart to the kitchen as a pending ticket, and prints its
+    /// receipt for staff to hand over once it's paid on the payment page.
     func sendOrder() async {
         guard !cart.isEmpty else { return }
         isSending = true
@@ -186,6 +186,12 @@ final class OrderViewModel {
             operation: .insert(rows: rows)
         ))
         lastSentOrderNumber = orderNumber
+        // The receipt prints now and waits with staff until payment. A till
+        // has no printer: the main phone prints the ticket when it arrives.
+        if TillSettings.role != .till, let ticket = history.first(where: { $0.orderNumber == orderNumber }) {
+            EpsonPrinter.shared.checkConnection()
+            Task { await ReceiptPrinter.printNewTicket(ticket) }
+        }
         ActivityLog.shared.info(.order, "Order sent", [
             "order": orderNumber,
             "items": cart.reduce(0) { $0 + $1.quantity },
@@ -205,10 +211,15 @@ final class OrderViewModel {
         return iso.string(from: Date())
     }
 
+    /// A till has no printer: the main phone prints it.
     func reprint(orderNumber: Int) async {
         guard let group = history.first(where: { $0.orderNumber == orderNumber }) else { return }
         ActivityLog.shared.info(.order, "Reprint requested", ["order": orderNumber])
-        await tryPrint(orderNumber: orderNumber, items: group.items)
+        if TillSettings.role == .till {
+            BoothSync.shared.requestPrint(orderNumber: orderNumber)
+        } else {
+            await ReceiptPrinter.printReceipt(for: group)
+        }
     }
 
     // MARK: edit a submitted order
@@ -329,48 +340,6 @@ final class OrderViewModel {
             "total": editTotal,
         ])
         endEdit()
-    }
-
-    private func tryPrint(orderNumber: Int, items: [Order]) async {
-        // Split: real items get grouped + summed; discount rows treated separately.
-        let productItems = items.filter { $0.type != .discount }
-        let discountRows = items.filter { $0.type == .discount }
-
-        let lines = Self.collapseToLineItems(productItems)
-            .sorted { $0.name < $1.name }
-            .map { EpsonPrinter.ReceiptPayload.LineItem(name: $0.name, qty: $0.qty, price: $0.price) }
-
-        let cartSubtotal = productItems.reduce(0) { $0 + $1.price }
-        let discountAmount = -discountRows.reduce(0) { $0 + $1.price }   // stored negative → positive amount
-        let adjustedSubtotal = max(0, cartSubtotal - discountAmount)
-        let tax = adjustedSubtotal * AppConstants.taxRate
-        let total = adjustedSubtotal + tax
-
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "en_US")
-        df.dateFormat = "MMM d, yyyy h:mm a"
-
-        let url = CashAppStore.shared.activeURL
-        let tag = url.replacingOccurrences(of: "https://cash.app/", with: "")
-
-        let methodLabel = items.first?.paymentMethod ?? PaymentMethod.cash.rawValue
-
-        let payload = EpsonPrinter.ReceiptPayload(
-            orderNumber: String(orderNumber),
-            lines: lines,
-            cartSubtotal: cartSubtotal,
-            discountAmount: discountAmount,
-            subtotal: adjustedSubtotal,
-            tax: tax,
-            total: total,
-            paymentMethod: methodLabel,
-            dateString: df.string(from: Date()),
-            cashappURL: url,
-            cashTag: tag
-        )
-
-        do { try await EpsonPrinter.shared.print(payload) }
-        catch { print("[print] \(error.localizedDescription)") }
     }
 
     // MARK: state machines

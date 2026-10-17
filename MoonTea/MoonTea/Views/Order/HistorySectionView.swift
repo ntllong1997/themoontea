@@ -350,7 +350,8 @@ struct HistorySectionView: View {
     @ViewBuilder
     private func actionButton(group: OrderGroup) -> some View {
         HStack(spacing: 6) {
-            if EpsonPrinter.shared.hasSavedPrinter {
+            // A till prints on the main phone's printer.
+            if EpsonPrinter.shared.hasSavedPrinter || TillSettings.role == .till {
                 Button {
                     Task { await vm.reprint(orderNumber: group.orderNumber) }
                 } label: {

@@ -12,6 +12,8 @@ nonisolated enum BoothMessage: Codable, Sendable {
     case numberRequest(orderUUID: UUID)
     /// One change made on the till. The till keeps it until `received`.
     case change(OutboxEntry)
+    /// Print this ticket's receipt again (the till has no printer).
+    case printRequest(orderNumber: Int)
 
     // Main → till
     case number(orderUUID: UUID, number: Int)
