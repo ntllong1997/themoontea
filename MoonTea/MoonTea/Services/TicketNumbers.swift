@@ -20,7 +20,7 @@ enum TicketNumbers {
     static func next(for orderUUID: UUID) async throws -> Int {
         switch TillSettings.role {
         case .standalone: return try await fromSupabase()
-        case .main:       return try BoothCounter.shared.number(for: orderUUID)
+        case .main:       return try await BoothCounter.shared.number(for: orderUUID)
         case .till:       return try await BoothSync.shared.requestNumber(for: orderUUID)
         }
     }
@@ -43,19 +43,28 @@ enum TicketNumbers {
 
 /// The main phone's ticket numbers (docs/offline-event-plan.md, step 4).
 ///
-/// At an event the main phone is the only thing handing out numbers — its own
-/// orders and every till's — so they run strictly 1, 2, 3 with no signal
-/// needed. The website isn't used to take orders while a main phone runs.
-/// Numbers continue after the highest ticket on the phone's list, so a main
-/// phone must have loaded today's tickets (from Supabase, or from the old main
-/// phone when a till takes over) before it hands out the first one.
+/// At an event the main phone numbers every booth ticket — its own and every
+/// till's — strictly in order, nothing skipped. With signal it asks Supabase
+/// for each number, so website orders share the same sequence; it tells
+/// Supabase the highest number it knows, so numbers it handed out offline are
+/// never handed out again. With no signal (or no answer within a few seconds)
+/// it continues by itself; the website isn't used then.
+///
+/// Requests are handled one at a time, so two tills asking at once can't get
+/// the same number. Numbering by itself needs today's tickets loaded (from
+/// Supabase, or from the old main phone after a takeover), or it could start
+/// again at #1.
 @MainActor
 @Observable
 final class BoothCounter {
     static let shared = BoothCounter()
 
     private(set) var state: BoothCounterState
+    /// Whether the last number came from this phone alone (no signal).
+    private(set) var isNumberingOffline = false
     private static let storageKey = "boothCounter"
+    private static let supabaseTimeoutSeconds: UInt64 = 3
+    @ObservationIgnored private var queue: Task<Void, Never>?
 
     private init() {
         let saved = UserDefaults.standard.data(forKey: Self.storageKey)
@@ -65,18 +74,54 @@ final class BoothCounter {
 
     var lastNumber: Int { state.day == Self.today() ? state.lastGiven : 0 }
 
-    func number(for orderUUID: UUID) throws -> Int {
-        if state.day != Self.today() { state = BoothCounterState(day: Self.today()) }
-        // A phone that already numbered tickets today knows where it is; one
-        // that didn't must know today's tickets, or it could start again at 1.
-        guard state.lastGiven > 0 || TicketStore.shared.hasLoadedToday else {
-            throw Failure.ticketsNotLoaded
+    func number(for orderUUID: UUID) async throws -> Int {
+        // Wait for any request in progress, so each sees the one before it.
+        let previous = queue
+        let task = Task { () -> Result<Int, Error> in
+            await previous?.value
+            do { return .success(try await self.assign(orderUUID)) } catch { return .failure(error) }
         }
-        let number = state.take(for: orderUUID, highestSeen: TicketStore.shared.highestOrderNumber)
+        queue = Task { _ = await task.value }
+        return try await task.value.get()
+    }
+
+    private func assign(_ orderUUID: UUID) async throws -> Int {
+        if state.day != Self.today() { state = BoothCounterState(day: Self.today()) }
+        if let number = state.number(for: orderUUID) { return number }
+        let highest = state.highest(seen: TicketStore.shared.highestOrderNumber)
+
+        let number: Int
+        if let fromSupabase = await Self.askSupabase(after: highest) {
+            number = fromSupabase
+            isNumberingOffline = false
+        } else {
+            // A phone that already numbered tickets today knows where it is;
+            // one that didn't must know today's tickets, or it could restart at 1.
+            guard state.lastGiven > 0 || TicketStore.shared.hasLoadedToday else {
+                throw Failure.ticketsNotLoaded
+            }
+            number = highest + 1
+            isNumberingOffline = true
+        }
+        state.record(number, for: orderUUID)
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
         }
         return number
+    }
+
+    /// Supabase's next number, or nil with no signal / no answer in time.
+    private static func askSupabase(after highest: Int) async -> Int? {
+        await withTaskGroup(of: Int?.self) { group in
+            group.addTask { try? await SupabaseService.shared.nextOrderNumber(after: highest) }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: supabaseTimeoutSeconds * 1_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     enum Failure: LocalizedError {

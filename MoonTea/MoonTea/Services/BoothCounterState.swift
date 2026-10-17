@@ -1,8 +1,8 @@
 import Foundation
 
-/// The main phone's ticket counter, kept free of I/O so it can be tested on
-/// its own. Strictly in order: each new order gets the next number after the
-/// highest one known today, with nothing reserved ahead and nothing skipped.
+/// The main phone's ticket bookkeeping, kept free of I/O so it can be tested
+/// on its own. Numbers only ever go up: each new one is after the highest the
+/// phone has handed out or seen today.
 nonisolated struct BoothCounterState: Codable, Equatable, Sendable {
     let day: String
     /// The highest number this phone has handed out today.
@@ -12,13 +12,16 @@ nonisolated struct BoothCounterState: Codable, Equatable, Sendable {
 
     init(day: String) { self.day = day }
 
-    /// `highestSeen` is the highest ticket number on the phone's ticket list:
-    /// website pre-orders, another main phone's tickets after a takeover.
-    mutating func take(for orderUUID: UUID, highestSeen: Int) -> Int {
-        if let number = given[orderUUID] { return number }
-        let number = max(lastGiven, highestSeen) + 1
-        lastGiven = number
+    func number(for orderUUID: UUID) -> Int? { given[orderUUID] }
+
+    /// The highest number known: handed out here, or on the ticket list
+    /// (website orders, an old main phone's tickets after a takeover).
+    func highest(seen highestSeen: Int) -> Int { max(lastGiven, highestSeen) }
+
+    /// Records the number an order got — from Supabase with signal, or the
+    /// next one after `highest(seen:)` without.
+    mutating func record(_ number: Int, for orderUUID: UUID) {
+        lastGiven = max(lastGiven, number)
         given[orderUUID] = number
-        return number
     }
 }

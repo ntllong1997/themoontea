@@ -210,12 +210,14 @@ final class BoothSync: NSObject {
             refreshConnectedTills()
             send(.snapshot(rows: TicketStore.shared.allRows), to: [peer])
         case .numberRequest(let orderUUID):
-            do {
-                let number = try BoothCounter.shared.number(for: orderUUID)
-                send(.number(orderUUID: orderUUID, number: number), to: [peer])
-            } catch {
-                let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                send(.numberUnavailable(orderUUID: orderUUID, reason: reason), to: [peer])
+            Task {
+                do {
+                    let number = try await BoothCounter.shared.number(for: orderUUID)
+                    send(.number(orderUUID: orderUUID, number: number), to: [peer])
+                } catch {
+                    let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    send(.numberUnavailable(orderUUID: orderUUID, reason: reason), to: [peer])
+                }
             }
         case .change(let entry):
             rollReceivedOverIfNewDay()

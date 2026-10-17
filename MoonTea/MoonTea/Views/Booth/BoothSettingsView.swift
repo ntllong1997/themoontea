@@ -60,7 +60,7 @@ struct BoothSettingsView: View {
             Section("Status") {
                 row("Tills connected", booth.connectedTills.isEmpty ? "None" : booth.connectedTills.joined(separator: ", "))
                 row("Last ticket number", counter.lastNumber > 0 ? "#\(counter.lastNumber)" : "None yet")
-                Text("This phone numbers every ticket at the booth, in order. Don't take orders on the website while it's the main phone.")
+                Text("This phone numbers every booth ticket in order. With signal it shares one sequence with the website; with no signal it numbers by itself, so don't take website orders then.")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.mutedText)
             }

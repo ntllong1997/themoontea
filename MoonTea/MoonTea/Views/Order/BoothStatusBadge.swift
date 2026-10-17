@@ -16,9 +16,11 @@ struct BoothStatusBadge: View {
                 icon: "antenna.radiowaves.left.and.right",
                 color: canNumber ? Theme.success : .orange,
                 title: tillsText,
-                detail: canNumber
-                    ? (counter.lastNumber > 0 ? "Last ticket number: #\(counter.lastNumber)" : nil)
-                    : "Today's tickets haven't loaded yet, so new orders can't get a number. Needs signal for a moment."
+                detail: !canNumber
+                    ? "Today's tickets haven't loaded yet, so new orders can't get a number. Needs signal for a moment."
+                    : counter.isNumberingOffline
+                        ? "No signal: numbering by itself (last #\(counter.lastNumber)). Don't take website orders until it's back."
+                        : (counter.lastNumber > 0 ? "Last ticket number: #\(counter.lastNumber)" : nil)
             )
         case .till:
             if let main = booth.mainPhoneName {

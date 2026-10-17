@@ -25,8 +25,9 @@ could be charged with no order saved.
   **directly, phone to phone** (Multipeer Connectivity: peer-to-peer WiFi +
   Bluetooth, no router, no WiFi network). WiFi and Bluetooth must be ON, app
   open, within roughly 10–30 ft.
-- **Ticket numbers are strictly in order** (decided 2026-10-17): at an event
-  the main phone numbers every ticket; no website orders while it is main.
+- **Ticket numbers are strictly in order** (decided 2026-10-17): one sequence
+  for the booth and the website. The website is used at events too, except
+  while there's no signal.
 - A phone that takes an order **keeps it saved until the main phone confirms
   it received it** ("got it"), then the main phone owns the upload.
 - Uploads are safe from any phone: row ids and order_uuid make a duplicate
@@ -148,15 +149,19 @@ Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
   or undoes a newer change. "Got it" is sent only after the change is on the
   main phone's upload list.
 - **Numbers** (`TicketNumbers`, `BoothCounter`; strict order decided
-  2026-10-17): the main phone is the only thing handing out numbers at an
-  event — its own and every till's — strictly 1, 2, 3, nothing reserved ahead,
-  nothing skipped, no signal needed. It continues after the highest ticket on
-  its list (website pre-orders taken beforehand, or the old main phone's
-  tickets after a takeover). A phone that hasn't loaded today's tickets yet
-  (no signal, no copy from an old main phone) refuses to number rather than
-  restart at #1. **The website isn't used to take orders while a phone is
-  main**; afterwards the database counter continues past the uploaded booth
-  tickets.
+  2026-10-17): one sequence, nothing reserved ahead, nothing skipped. The main
+  phone numbers every booth ticket (its own and every till's), one request at
+  a time.
+  - **With signal** it asks Supabase for each number
+    (`next_order_number_after`, migration `20261017140000`, applied), so
+    website orders (`next_order_number`) interleave in the same sequence. It
+    passes the highest number it knows, so numbers it handed out offline and
+    hasn't uploaded yet are never handed out again.
+  - **With no signal** (or no answer within 3 s) it continues by itself from
+    the highest number it knows, and the status line says so. **The website
+    isn't used while the main phone has no signal.**
+  - A phone that hasn't loaded today's tickets yet (no signal, no copy from an
+    old main phone) refuses to number by itself rather than restart at #1.
 - A till that becomes main/standalone moves its unconfirmed changes onto its
   own upload list. The link stops in the background and restarts on return.
 - Status line on the Orders screen: main shows its connected tills; a till

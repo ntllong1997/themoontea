@@ -262,6 +262,27 @@ actor SupabaseService {
         return try await run(req, as: Int.self)
     }
 
+    /// The main phone's next number: like `nextOrderNumber()`, but continuing
+    /// after `after`, the highest number it already knows — which may include
+    /// tickets it numbered with no signal that haven't uploaded yet.
+    func nextOrderNumber(after: Int) async throws -> Int {
+        let bounds = todayBounds()
+        struct Params: Encodable {
+            let range_start: String
+            let range_end: String
+            let p_location: Int
+            let p_after: Int
+        }
+        let body = try JSONEncoder().encode(Params(
+            range_start: bounds.start,
+            range_end: bounds.end,
+            p_location: AppConstants.locationID,
+            p_after: after
+        ))
+        let req = try makeRequest(path: "/rest/v1/rpc/next_order_number_after", method: "POST", body: body)
+        return try await run(req, as: Int.self)
+    }
+
     /// Uploads one order's rows. Safe to call again with the same rows: each
     /// row's `id` is made on the phone, so a retry after a timeout that had in
     /// fact landed hits the primary key and is skipped instead of doubling the
