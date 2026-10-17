@@ -70,12 +70,27 @@ actor SupabaseService {
         catch { throw SupabaseError.decoding(error) }
     }
 
+    /// For writes whose response body is not needed (`return=minimal`).
+    private func runNoContent(_ req: URLRequest) async throws {
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw SupabaseError.http(0, "no response") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw SupabaseError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+    }
+
     // MARK: - Orders
 
     /// One line-item row as the `orders` table expects it. Shared by
-    /// `insertOrders` and `replaceOrderItems` so the column list lives in
+    /// `uploadOrderRows` and both `replaceOrderItems` so the column list lives in
     /// exactly one place.
+    ///
+    /// Every key is always written, `null` included: PostgREST takes a bulk
+    /// insert's columns from its rows, so rows of one order must agree on
+    /// their keys. `status` is never null — the column is NOT NULL, and a row
+    /// with none predates it and was paid.
     private struct InsertRow: Encodable {
+        let id: UUID
         let orderNumber: Int
         let name: String
         let price: Double
@@ -85,8 +100,14 @@ actor SupabaseService {
         let paymentMethod: String?
         let quantity: Int?
         let location = AppConstants.locationID
+        let orderUUID: UUID?
+        let status: String
+        let paidAt: String?
+        let squarePaymentID: String?
+        let paymentLog: [PaymentLogEntry]
 
         init(_ order: Order) {
+            id = order.id
             orderNumber = order.orderNumber
             name = order.name
             price = order.price
@@ -95,6 +116,39 @@ actor SupabaseService {
             phone = order.phone
             paymentMethod = order.paymentMethod
             quantity = order.quantity
+            orderUUID = order.orderUUID
+            status = order.status ?? OrderStatus.paid.rawValue
+            paidAt = order.paidAt
+            squarePaymentID = order.squarePaymentID
+            paymentLog = order.paymentLog ?? []
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id, orderNumber, name, price, type, timestamp, phone, paymentMethod, quantity, location
+            case orderUUID = "order_uuid"
+            case status
+            case paidAt = "paid_at"
+            case squarePaymentID = "square_payment_id"
+            case paymentLog = "payment_log"
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(id, forKey: .id)
+            try c.encode(orderNumber, forKey: .orderNumber)
+            try c.encode(name, forKey: .name)
+            try c.encode(price, forKey: .price)
+            try c.encode(type, forKey: .type)
+            try c.encode(timestamp, forKey: .timestamp)
+            try c.encode(phone, forKey: .phone)
+            try c.encode(paymentMethod, forKey: .paymentMethod)
+            try c.encode(quantity, forKey: .quantity)
+            try c.encode(location, forKey: .location)
+            try c.encode(orderUUID, forKey: .orderUUID)
+            try c.encode(status, forKey: .status)
+            try c.encode(paidAt, forKey: .paidAt)
+            try c.encode(squarePaymentID, forKey: .squarePaymentID)
+            try c.encode(paymentLog, forKey: .paymentLog)
         }
     }
 
@@ -170,7 +224,8 @@ actor SupabaseService {
         }
     }
 
-    /// Fetch all of this location's orders (used by sales summary).
+    /// Fetch all of this location's paid orders (used by sales summary). A
+    /// pending ticket hasn't been paid yet and a cancelled one never was.
     func allOrders() async throws -> [Order] {
         let req = try makeRequest(
             path: "/rest/v1/orders",
@@ -178,6 +233,7 @@ actor SupabaseService {
             query: [
                 .init(name: "select", value: "*"),
                 locationFilter,
+                .init(name: "status", value: "eq.\(OrderStatus.paid.rawValue)"),
                 .init(name: "order", value: "timestamp.desc"),
             ]
         )
@@ -206,18 +262,154 @@ actor SupabaseService {
         return try await run(req, as: Int.self)
     }
 
-    /// Returns the server-confirmed rows (with their real `id`s) so callers can
-    /// use them for optimistic local state that matches what Realtime will echo.
-    func insertOrders(_ orders: [Order]) async throws -> [Order] {
-        let payload = orders.map(InsertRow.init)
-        let body = try JSONEncoder().encode(payload)
+    // MARK: - Main phone ↔ website numbering
+
+    /// Marks this phone as the one numbering this location's tickets, website
+    /// orders included. Replaces any other phone's row (a takeover).
+    func registerMainPhone(deviceID: String, deviceName: String) async throws {
+        struct Row: Encodable {
+            let location: Int
+            let device_id: String
+            let device_name: String
+            let last_seen: String
+        }
+        let now = ISO8601DateFormatter().string(from: Date())
+        let body = try JSONEncoder().encode([Row(location: AppConstants.locationID, device_id: deviceID, device_name: deviceName, last_seen: now)])
+        var req = try makeRequest(
+            path: "/rest/v1/booth_main_phone",
+            method: "POST",
+            query: [.init(name: "on_conflict", value: "location")],
+            body: body
+        )
+        req.setValue("resolution=merge-duplicates,return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
+    }
+
+    /// Removes this phone's registration only — never one a phone that took
+    /// over since has written.
+    func unregisterMainPhone(deviceID: String) async throws {
+        var req = try makeRequest(
+            path: "/rest/v1/booth_main_phone",
+            method: "DELETE",
+            query: [locationFilter, .init(name: "device_id", value: "eq.\(deviceID)")]
+        )
+        req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
+    }
+
+    /// Website orders waiting for the main phone to number them, oldest first.
+    func unansweredNumberRequests() async throws -> [UUID] {
+        struct Row: Decodable { let order_uuid: UUID }
+        let since = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Self.numberRequestMaxAge))
         let req = try makeRequest(
+            path: "/rest/v1/ticket_number_requests",
+            method: "GET",
+            query: [
+                .init(name: "select", value: "order_uuid"),
+                locationFilter,
+                .init(name: "order_number", value: "is.null"),
+                .init(name: "abandoned", value: "is.false"),
+                .init(name: "requested_at", value: "gte.\(since)"),
+                .init(name: "order", value: "requested_at.asc"),
+            ]
+        )
+        return try await run(req, as: [Row].self).map(\.order_uuid)
+    }
+
+    /// A website gives up well within this; older requests are left alone.
+    private static let numberRequestMaxAge: TimeInterval = 60
+
+    /// True if the request was still open and now has `number`.
+    func answerNumberRequest(orderUUID: UUID, number: Int, device: String) async throws -> Bool {
+        struct Params: Encodable {
+            let p_order_uuid: UUID
+            let p_number: Int
+            let p_device: String
+        }
+        let body = try JSONEncoder().encode(Params(p_order_uuid: orderUUID, p_number: number, p_device: device))
+        let req = try makeRequest(path: "/rest/v1/rpc/answer_ticket_number_request", method: "POST", body: body)
+        return try await run(req, as: Bool.self)
+    }
+
+    /// Uploads one order's rows. Safe to call again with the same rows: each
+    /// row's `id` is made on the phone, so a retry after a timeout that had in
+    /// fact landed hits the primary key and is skipped instead of doubling the
+    /// order. Called only by `OrderOutbox`.
+    func uploadOrderRows(_ orders: [Order]) async throws {
+        let body = try JSONEncoder().encode(orders.map(InsertRow.init))
+        var req = try makeRequest(
             path: "/rest/v1/orders",
             method: "POST",
-            body: body,
-            preferReturn: true
+            query: [.init(name: "on_conflict", value: "id")],
+            body: body
         )
-        return try await run(req, as: [Order].self)
+        req.setValue("resolution=ignore-duplicates,return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
+    }
+
+    /// Replaces every row of one order, found by its hidden `orderUUID`, via
+    /// `replace_order_items_by_uuid`. Safe to repeat — the rows carry their own
+    /// ids — so a queued edit can be retried until it lands. Called only by `OrderOutbox`.
+    func replaceOrderItems(orderUUID: UUID, rows: [Order]) async throws {
+        guard !rows.isEmpty else {
+            throw SupabaseError.http(400, "Refusing to replace an order with no items.")
+        }
+        struct Params: Encodable {
+            let target_order_uuid: UUID
+            let new_rows: [InsertRow]
+        }
+        let body = try JSONEncoder().encode(Params(target_order_uuid: orderUUID, new_rows: rows.map(InsertRow.init)))
+        var req = try makeRequest(path: "/rest/v1/rpc/replace_order_items_by_uuid", method: "POST", body: body)
+        req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
+    }
+
+    /// Sets the phone on every row of one order, found by its hidden
+    /// `orderUUID`, so it needs no day bounds and is safe to repeat. Called
+    /// only by `OrderOutbox`.
+    func updateOrderPhone(orderUUID: UUID, phone: String?) async throws {
+        struct Patch: Encodable { let phone: String? }
+        let body = try JSONEncoder().encode(Patch(phone: (phone?.isEmpty == false) ? phone : nil))
+        var req = try makeRequest(
+            path: "/rest/v1/orders",
+            method: "PATCH",
+            query: [.init(name: "order_uuid", value: "eq.\(orderUUID.uuidString)")],
+            body: body
+        )
+        req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
+    }
+
+    /// Sets a ticket's whole payment state on every row of one order, found by
+    /// its hidden `orderUUID`. Every field is written, nulls included, so the
+    /// PATCH is safe to repeat. Called only by `OrderOutbox`.
+    func updateOrderPayment(orderUUID: UUID, change: PaymentChange) async throws {
+        struct Patch: Encodable {
+            let change: PaymentChange
+            enum CodingKeys: String, CodingKey {
+                case status, paymentMethod
+                case paidAt = "paid_at"
+                case squarePaymentID = "square_payment_id"
+                case paymentLog = "payment_log"
+            }
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(change.status.rawValue, forKey: .status)
+                try c.encode(change.paymentMethod, forKey: .paymentMethod)
+                try c.encode(change.paidAt, forKey: .paidAt)
+                try c.encode(change.squarePaymentID, forKey: .squarePaymentID)
+                try c.encode(change.paymentLog, forKey: .paymentLog)
+            }
+        }
+        let body = try JSONEncoder().encode(Patch(change: change))
+        var req = try makeRequest(
+            path: "/rest/v1/orders",
+            method: "PATCH",
+            query: [.init(name: "order_uuid", value: "eq.\(orderUUID.uuidString)")],
+            body: body
+        )
+        req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
     }
 
     /// Returns the updated rows so callers can patch local state in place
@@ -248,46 +440,6 @@ actor SupabaseService {
         )
         return try await run(req, as: [Order].self)
     }
-
-    /// Replaces every line-item row of `orderNumber` with `rows`, atomically,
-    /// via the `replace_order_items` Postgres function.
-    ///
-    /// Editing a submitted order means changing which rows exist, not patching
-    /// them in place — quantities map to row *counts* in this schema. Doing
-    /// that as a client-side DELETE-then-INSERT would destroy a paid order
-    /// outright if the app died between the two calls, so both happen inside a
-    /// single transaction: either the whole edit lands or none of it does.
-    ///
-    /// The function is SECURITY DEFINER because RLS grants anon no DELETE on
-    /// `orders`; that keeps the narrow "replace one order" capability without
-    /// opening blanket deletes to every device holding the anon key.
-    ///
-    /// Returns the server-confirmed replacement rows, which carry fresh `id`s —
-    /// callers must rebuild local state from these rather than assuming the old
-    /// ids survived.
-    func replaceOrderItems(orderNumber: Int, rows: [Order]) async throws -> [Order] {
-        guard !rows.isEmpty else {
-            throw SupabaseError.http(400, "Refusing to replace order #\(orderNumber) with no items.")
-        }
-        let bounds = todayBounds()
-        struct Params: Encodable {
-            let target_order_number: Int
-            let range_start: String
-            let range_end: String
-            let new_rows: [InsertRow]
-            let p_location: Int
-        }
-        let body = try JSONEncoder().encode(Params(
-            target_order_number: orderNumber,
-            range_start: bounds.start,
-            range_end: bounds.end,
-            new_rows: rows.map(InsertRow.init),
-            p_location: AppConstants.locationID
-        ))
-        let req = try makeRequest(path: "/rest/v1/rpc/replace_order_items", method: "POST", body: body)
-        return try await run(req, as: [Order].self)
-    }
-
     // MARK: - Activity log
 
     /// Inserts a JSON array of `activity_log` rows (encoded by `ActivityLog`),

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getOrderHistory, updateOrderPhone } from '@/lib/db';
 import { TAX_RATE } from '@/lib/constants';
 import { calculateTotalRevenue } from '@/lib/orders/orderModel';
+import { usePrepProgress } from '@/lib/orders/usePrepProgress';
 import HistorySection from '@/components/HistorySection';
 import LocationPicker from '@/components/LocationPicker';
 import { LOCATIONS_ENABLED, locationLabel, useDeviceLocation } from '@/lib/locations';
@@ -21,7 +22,9 @@ export default function StationPage({ category }) {
     // A station only shows its own location's orders.
     const [locationId, setLocationId] = useDeviceLocation();
     const [history, setHistory] = useState([]);
-    const [itemStates, setItemStates] = useState({});
+    // Station progress, shared with the order page and other stations on
+    // this device, and kept through reloads and restarts.
+    const { stageOf, setStage } = usePrepProgress();
     const [notifiedOrders, setNotifiedOrders] = useState(new Set());
     const [phoneOverrides, setPhoneOverrides] = useState({});
     const [printerStatus, setPrinterStatus] = useState('disconnected');
@@ -79,13 +82,17 @@ export default function StationPage({ category }) {
         return () => clearInterval(id);
     }, []);
 
+    // A saved stage this flow doesn't know (e.g. the menu changed) starts over.
+    const flowState = useCallback(
+        (rowId) => flow.states[stageOf(rowId)] ?? flow.states[initialState],
+        [flow, stageOf, initialState]
+    );
+
     const handleItemClick = useCallback((orderNumber, itemIndex) => {
-        const key = `${orderNumber}-${itemIndex}`;
-        setItemStates((prev) => ({
-            ...prev,
-            [key]: flow.states[prev[key] || initialState].next,
-        }));
-    }, [flow, initialState]);
+        const item = history.find((o) => o.orderNumber === orderNumber)?.items[itemIndex];
+        if (!item) return;
+        setStage(item.id, flowState(item.id).next);
+    }, [history, flowState, setStage]);
 
     const getOrderPhone = useCallback((orderNumber) => {
         if (phoneOverrides[orderNumber] !== undefined) return phoneOverrides[orderNumber];
@@ -158,20 +165,15 @@ export default function StationPage({ category }) {
         );
     }, [getOrderPhone, history, notifiedOrders, markNotified, printerStatus, handleReprintOrder]);
 
-    const stateFor = useCallback(
-        (key) => flow.states[itemStates[key] || initialState],
-        [flow, itemStates, initialState]
-    );
-
-    const getItemClassName = useCallback((_item, key) => stateFor(key).className, [stateFor]);
-    const getItemBadge = useCallback((key) => stateFor(key).badge, [stateFor]);
-    const getItemTooltip = useCallback((key) => stateFor(key).tooltip, [stateFor]);
+    const getItemClassName = useCallback((item) => flowState(item?.id).className, [flowState]);
+    const getItemBadge = useCallback((_key, item) => flowState(item?.id).badge, [flowState]);
+    const getItemTooltip = useCallback((_key, item) => flowState(item?.id).tooltip, [flowState]);
 
     if (locationId === undefined) return null;
     if (locationId === null) return <LocationPicker onPick={setLocationId} />;
 
-    // Each order's units are indexed before filtering, so a unit keeps the same
-    // itemIndex (and therefore the same status) whichever station shows it.
+    // Each order's units are indexed before filtering, so a click finds the
+    // right unit; its stage is keyed by row id, the same on every page.
     const filteredOrders = history
         .map((order) => ({
             orderNumber: order.orderNumber,

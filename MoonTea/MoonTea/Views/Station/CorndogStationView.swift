@@ -11,7 +11,5 @@ struct CorndogStationView: View {
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle("🌭 Corndog Station")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { vm.startPolling() }
-        .onDisappear { vm.stopPolling() }
     }
 }
