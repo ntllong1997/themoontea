@@ -371,4 +371,23 @@ actor SupabaseService {
         )
         return try await run(req, as: [Order].self)
     }
+    // MARK: - Activity log
+
+    /// Inserts a JSON array of `activity_log` rows (encoded by `ActivityLog`),
+    /// all or nothing.
+    ///
+    /// `return=minimal` because anon may insert into the table but not read
+    /// it back. That's also why this can't ask PostgREST to skip duplicate
+    /// ids (`resolution=ignore-duplicates`): Postgres checks the read policy
+    /// for `ON CONFLICT (id)`. A re-sent row fails with 409 instead, which
+    /// `ActivityLog` handles.
+    func insertActivityLogs(_ body: Data) async throws {
+        var req = try makeRequest(path: "/rest/v1/activity_log", method: "POST", body: body)
+        req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw SupabaseError.http(0, "no response") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw SupabaseError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+    }
 }

@@ -208,6 +208,22 @@ final class OrderViewModel {
     private var isRefreshingHistory = false
     private var historyRefreshRequested = false
 
+    /// Whether the last order fetch failed. Logged only when it flips, so an
+    /// iPad that's offline for an hour adds two entries rather than one per
+    /// 20s safety poll.
+    private var isOrderSyncFailing = false
+
+    private func noteOrderSync(error: Error?) {
+        if let error {
+            guard !isOrderSyncFailing else { return }
+            isOrderSyncFailing = true
+            ActivityLog.shared.warning(.sync, "Couldn't load orders from Supabase", ["error": error])
+        } else if isOrderSyncFailing {
+            isOrderSyncFailing = false
+            ActivityLog.shared.info(.sync, "Loading orders from Supabase works again")
+        }
+    }
+
     func refreshHistory() async {
         guard !isRefreshingHistory else {
             historyRefreshRequested = true
@@ -221,8 +237,10 @@ final class OrderViewModel {
                 let groups = try await SupabaseService.shared.todaysOrderGroups()
                 self.history = groups
                 applyWaitingUploads()
+                noteOrderSync(error: nil)
             } catch {
                 print("[order] refresh failed: \(error)")
+                noteOrderSync(error: error)
             }
         } while historyRefreshRequested
     }
@@ -252,8 +270,10 @@ final class OrderViewModel {
                 for group in groups where !Self.isWaiting(group.orderUUID, in: waiting) {
                     for item in group.items { mergeUpdate(item) }
                 }
+                noteOrderSync(error: nil)
             } catch {
                 print("[order] recent refresh failed: \(error)")
+                noteOrderSync(error: error)
             }
         } while recentRefreshRequested
     }
@@ -407,6 +427,7 @@ final class OrderViewModel {
         } catch {
             sendError = "Couldn't get a ticket number, so this order was NOT sent. Check the connection and send it again. "
                 + ((error as? LocalizedError)?.errorDescription ?? "")
+            ActivityLog.shared.error(.order, "Couldn't get a ticket number", ["error": error, "total": total])
             return
         }
 
@@ -448,6 +469,14 @@ final class OrderViewModel {
         ))
         mergeInsert(orderNumber: orderNumber, rows: rows)
         lastSentOrderNumber = orderNumber
+        ActivityLog.shared.info(.order, "Order sent", [
+            "order": orderNumber,
+            "items": cart.reduce(0) { $0 + $1.quantity },
+            "total": total,
+            "status": OrderStatus.pending.rawValue,
+            "coupon": couponApplied ? "yes" : "no",
+            "phone": phoneValue == nil ? "no" : "yes",
+        ])
         cart.removeAll()
         phone = ""
         couponApplied = false
@@ -476,6 +505,7 @@ final class OrderViewModel {
 
     func reprint(orderNumber: Int) async {
         guard let group = history.first(where: { $0.orderNumber == orderNumber }) else { return }
+        ActivityLog.shared.info(.order, "Reprint requested", ["order": orderNumber])
         await tryPrint(orderNumber: orderNumber, items: group.items)
     }
 
@@ -524,9 +554,17 @@ final class OrderViewModel {
             .map { CartItem(name: $0.name, price: $0.price, type: $0.type, quantity: $0.qty) }
         clearBuilderSelections()
         editingOrderNumber = orderNumber
+        ActivityLog.shared.info(.order, "Started editing order", ["order": orderNumber])
     }
 
     func cancelEdit() {
+        if let editingOrderNumber {
+            ActivityLog.shared.info(.order, "Cancelled editing order", ["order": editingOrderNumber])
+        }
+        endEdit()
+    }
+
+    private func endEdit() {
         editingOrderNumber = nil
         editCart = []
         editPreservedRows = []
@@ -576,13 +614,20 @@ final class OrderViewModel {
             rows.append(row(name: preserved.name, price: preserved.price, type: preserved.type, quantity: preserved.quantity))
         }
 
+        let previousCount = history.first(where: { $0.orderNumber == orderNumber })?.items.count ?? 0
         OrderOutbox.shared.enqueue(OutboxEntry(
             orderUUID: orderUUID,
             orderNumber: orderNumber,
             operation: .replace(rows: rows)
         ))
         replaceGroup(orderNumber: orderNumber, with: rows)
-        cancelEdit()
+        ActivityLog.shared.info(.order, "Order edited", [
+            "order": orderNumber,
+            "itemsBefore": previousCount,
+            "itemsAfter": rows.count,
+            "total": editTotal,
+        ])
+        endEdit()
     }
 
     /// Swaps a group's rows wholesale. An edit's replacement rows carry fresh
@@ -653,7 +698,12 @@ final class OrderViewModel {
     /// ignored, and a Discount's single state makes the tap a no-op.
     func cycleItem(_ id: Order.ID) {
         guard let item = history.lazy.flatMap(\.items).first(where: { $0.id == id }) else { return }
-        itemStates[id] = MenuCatalog.flow(for: item.type).next(after: itemStates[id])
+        let previous = itemStates[id]
+        let next = MenuCatalog.flow(for: item.type).next(after: previous)
+        itemStates[id] = next
+        ActivityLog.shared.info(.station, "Item status changed", [
+            "order": item.orderNumber, "item": item.name, "from": previous ?? "new", "to": next,
+        ])
     }
 
     // MARK: phone editing
@@ -687,7 +737,10 @@ final class OrderViewModel {
             let updated = try await SupabaseService.shared.updateOrderPhone(orderNumber: orderNumber, phone: phone)
             for row in updated { mergeUpdate(row) }
             phoneOverrides.removeValue(forKey: orderNumber)
+            // Never the number itself — the log is readable on any staff device.
+            ActivityLog.shared.info(.order, phone.isEmpty ? "Phone number removed" : "Phone number saved", ["order": orderNumber])
         } catch {
+            ActivityLog.shared.warning(.order, "Phone number failed to save", ["order": orderNumber, "error": error])
             // Keep the optimistic override so the phone stays visible this session.
             // The alert tells the user it wasn't persisted to the database.
             phoneError = "Couldn't save phone number. Check your connection and try again."

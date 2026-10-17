@@ -153,6 +153,10 @@ actor SupabaseRealtime {
 
     private func scheduleReconnect() {
         guard !isStopped else { return }
+        // Only the drop itself, not every retry while it stays down.
+        if isJoined {
+            ActivityLog.shared.warning(.sync, "Live order updates disconnected, reconnecting", ["table": table])
+        }
         isJoined = false
         let delay = backoff
         backoff = min(backoff * 2, 30_000_000_000) // cap 30s
@@ -259,6 +263,7 @@ actor SupabaseRealtime {
                 backoff = 1_000_000_000
                 // The successful reply to our join_ref means we are joined.
                 if let ref = raw["ref"] as? String, ref == joinRef {
+                    ActivityLog.shared.info(.sync, "Live order updates connected", ["table": table])
                     isJoined = true
                     onJoin?()
                 }

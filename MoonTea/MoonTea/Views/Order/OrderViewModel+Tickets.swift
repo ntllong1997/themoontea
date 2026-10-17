@@ -89,6 +89,10 @@ extension OrderViewModel {
             operation: .updatePayment(change: change)
         ))
         setPayment(change, onOrder: group.orderNumber)
+        ActivityLog.shared.info(.payment, "Ticket payment changed", [
+            "order": group.orderNumber, "from": entry.from, "to": entry.to,
+            "total": group.total(taxRate: AppConstants.taxRate),
+        ])
     }
 }
 

@@ -84,7 +84,7 @@ releases the printer after each print so several tills can share it.
 |---|---|---|
 | 1 | Database: order_uuid, status, paid_at, square_payment_id; never-repeating number counter; uuid-keyed edits | ✅ Applied to *Themoontea* 2026-10-14 and tested there in a rolled-back transaction |
 | 2 | App: save orders on the phone first, upload list (`OrderOutbox`), sync badge | ✅ Written, builds in the simulator. Not tested on a phone |
-| 3 | App: order → tickets → payment pages, Cancel, payment corrections + log, online-only card, receipt on paid; web till sends pre-orders | ✅ Written; app builds in the simulator, web builds and its unit tests pass. Migration `20261014120000_ticket_payment_log.sql` applied 2026-10-14. Not tested on a phone |
+| 3 | App: order → tickets → payment pages, Cancel, payment corrections + log, online-only card, receipt on paid; web till sends pre-orders | ✅ Written; app builds in the simulator, web builds and its unit tests pass. Migration `20261014130000_ticket_payment_log.sql` applied 2026-10-14. Not tested on a phone |
 | 4 | App: main phone numbering + direct phone-to-phone sync (Multipeer); main phone uploads everyone's orders; delivery confirmed before the sender lets go | Not started |
 | 5 | Printing: main phone as print hub for other phones' receipts (router sharing later) | Not started |
 

@@ -21,6 +21,11 @@ actor PrintManager {
         self.transport = transport
         self.targetProvider = targetProvider
         self.jobs = PrintQueueStore.load()
+        if !jobs.isEmpty {
+            ActivityLog.shared.info(.printer, "Unprinted receipts left from last run", [
+                "count": jobs.count, "orders": jobs.map(\.orderNumber).joined(separator: ", "),
+            ])
+        }
     }
 
     var pendingCount: Int { jobs.count }
@@ -28,6 +33,7 @@ actor PrintManager {
     func enqueue(orderNumber: String, payload: EpsonPrinter.ReceiptPayload) {
         jobs.append(PrintJob(orderNumber: orderNumber, payload: payload))
         PrintQueueStore.save(jobs)
+        ActivityLog.shared.info(.printer, "Receipt queued", ["order": orderNumber, "waiting": jobs.count])
         Task { await processQueue() }
     }
 
@@ -45,6 +51,7 @@ actor PrintManager {
         while let job = jobs.first {
             guard let target = targetProvider(), !target.isEmpty else {
                 // No printer configured — nothing to do until one is saved.
+                ActivityLog.shared.warning(.printer, "Receipts waiting but no printer is selected", ["waiting": jobs.count])
                 return
             }
             do {
@@ -52,6 +59,13 @@ actor PrintManager {
                 jobs.removeFirst()
                 PrintQueueStore.save(jobs)
             } catch {
+                ActivityLog.shared.warning(.printer, "Print attempt failed, will retry", [
+                    "order": job.orderNumber,
+                    "attempt": job.attempts + 1,
+                    "retryInSeconds": Int(Self.delay(afterAttempt: job.attempts)),
+                    "waiting": jobs.count,
+                    "error": error,
+                ])
                 await backoff(afterAttempt: job.attempts)
                 if let idx = jobs.firstIndex(where: { $0.id == job.id }) {
                     jobs[idx].attempts += 1
@@ -61,8 +75,11 @@ actor PrintManager {
         }
     }
 
+    private nonisolated static func delay(afterAttempt attempt: Int) -> UInt64 {
+        attempt < backoffSchedule.count ? backoffSchedule[attempt] : steadyBackoff
+    }
+
     private func backoff(afterAttempt attempt: Int) async {
-        let seconds = attempt < Self.backoffSchedule.count ? Self.backoffSchedule[attempt] : Self.steadyBackoff
-        try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+        try? await Task.sleep(nanoseconds: Self.delay(afterAttempt: attempt) * 1_000_000_000)
     }
 }
