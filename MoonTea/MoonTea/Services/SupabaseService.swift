@@ -105,6 +105,7 @@ actor SupabaseService {
         let paidAt: String?
         let squarePaymentID: String?
         let paymentLog: [PaymentLogEntry]
+        let prepState: String?
 
         init(_ order: Order) {
             id = order.id
@@ -121,6 +122,7 @@ actor SupabaseService {
             paidAt = order.paidAt
             squarePaymentID = order.squarePaymentID
             paymentLog = order.paymentLog ?? []
+            prepState = order.prepState
         }
 
         enum CodingKeys: String, CodingKey {
@@ -130,6 +132,7 @@ actor SupabaseService {
             case paidAt = "paid_at"
             case squarePaymentID = "square_payment_id"
             case paymentLog = "payment_log"
+            case prepState = "prep_state"
         }
 
         func encode(to encoder: Encoder) throws {
@@ -149,6 +152,7 @@ actor SupabaseService {
             try c.encode(paidAt, forKey: .paidAt)
             try c.encode(squarePaymentID, forKey: .squarePaymentID)
             try c.encode(paymentLog, forKey: .paymentLog)
+            try c.encode(prepState, forKey: .prepState)
         }
     }
 
@@ -337,6 +341,28 @@ actor SupabaseService {
             path: "/rest/v1/orders",
             method: "PATCH",
             query: [.init(name: "order_uuid", value: "eq.\(orderUUID.uuidString)")],
+            body: body
+        )
+        req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        try await runNoContent(req)
+    }
+
+    /// Sets one unit's station stage, by its row id. Safe to repeat. Called
+    /// only by `OrderOutbox`.
+    func updatePrepState(rowID: UUID, state: String?) async throws {
+        struct Patch: Encodable {
+            let state: String?
+            enum CodingKeys: String, CodingKey { case state = "prep_state" }
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(state, forKey: .state)
+            }
+        }
+        let body = try JSONEncoder().encode(Patch(state: state))
+        var req = try makeRequest(
+            path: "/rest/v1/orders",
+            method: "PATCH",
+            query: [.init(name: "id", value: "eq.\(rowID.uuidString)")],
             body: body
         )
         req.setValue("return=minimal", forHTTPHeaderField: "Prefer")

@@ -7,6 +7,7 @@ struct HistorySectionView: View {
     var showRevenueTotal: Bool = true
     /// Station mode: large rows optimised for at-a-glance reading from 60cm away.
     var isStation: Bool = false
+    var emptyText = "No orders yet."
 
     @State private var editingPhoneOrder: Int?
     @State private var draftPhone: String = ""
@@ -45,7 +46,7 @@ struct HistorySectionView: View {
         Card {
             VStack(alignment: .leading, spacing: isStation ? 16 : 12) {
                 if filteredGroups.isEmpty {
-                    Text("No orders yet.")
+                    Text(emptyText)
                         .foregroundStyle(Theme.mutedText)
                         .font(.system(size: 14))
                         .frame(maxWidth: .infinity)
@@ -195,7 +196,7 @@ struct HistorySectionView: View {
         // Colour and badge come from the item's own category flow, so a type
         // this build predates still renders — on the catalog's neutral flow —
         // instead of being mis-styled or crashing.
-        let state = MenuCatalog.flow(for: item.type).state(vm.itemStates[item.id])
+        let state = MenuCatalog.flow(for: item.type).state(item.prepState)
         let (bg, fg, badge) = (state.background, state.foreground, state.badge)
 
         return Button {

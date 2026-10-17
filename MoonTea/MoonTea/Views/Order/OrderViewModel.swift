@@ -15,10 +15,6 @@ final class OrderViewModel {
     /// Today's tickets, shared by every screen (see `TicketStore`).
     var history: [OrderGroup] { TicketStore.shared.history }
 
-    // Per-unit prep status, keyed by the item's stable row id. The value names
-    // a state in that item's own category flow.
-    var itemStates: [Order.ID: String] = [:]
-
     // Notify tracking + per-order phone overrides
     var notifiedOrders: Set<Int> = []
     var phoneOverrides: [Int: String] = [:]
@@ -347,11 +343,20 @@ final class OrderViewModel {
     /// Advances a unit through its own category's cycle. A type this build does
     /// not recognise advances on the catalog's neutral flow rather than being
     /// ignored, and a Discount's single state makes the tap a no-op.
+    ///
+    /// The stage is saved on the item's row and goes through the ticket list
+    /// like any change, so every screen and phone shows the same progress.
     func cycleItem(_ id: Order.ID) {
         guard let item = history.lazy.flatMap(\.items).first(where: { $0.id == id }) else { return }
-        let previous = itemStates[id]
+        let previous = item.prepState
         let next = MenuCatalog.flow(for: item.type).next(after: previous)
-        itemStates[id] = next
+        guard next != previous else { return }
+        TicketStore.shared.submit(OutboxEntry(
+            // Tickets from before order_uuid have none; the row id stands in.
+            orderUUID: item.orderUUID ?? item.id,
+            orderNumber: item.orderNumber,
+            operation: .updatePrepState(rowID: item.id, state: next)
+        ))
         ActivityLog.shared.info(.station, "Item status changed", [
             "order": item.orderNumber, "item": item.name, "from": previous ?? "new", "to": next,
         ])

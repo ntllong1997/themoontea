@@ -54,8 +54,9 @@ could be charged with no order saved.
 **Order → tickets → payment flow**
 1. **Order page:** items + phone → Send → ticket saved as **Pending**. The
    stations see it at once and start making it (small pop-up, staff talk).
-2. **Tickets page (a record):** all of today's tickets, filter All / Pending /
-   Paid / Cancelled. Pending: Edit, Cancel, Pay. Paid/Cancelled: read-only items.
+2. **Tickets page:** today's unpaid tickets: Edit, Cancel, Pay. **History
+   page (the record):** paid and cancelled tickets, filter All / Paid /
+   Cancelled; payment corrections only.
 3. **Payment page:** Card (in-app, only on the phone with the Square Reader),
    Square app (staff charge in the Square app, then confirm), Cash, Cash App.
    Staff confirm themselves; no lock, no copy-amount helpers needed.
@@ -181,6 +182,21 @@ take another till for the main phone.
   is connected (at the shop); otherwise the main phone prints it at a booth.
   Don't run a main phone and a connected web printer together, or website
   orders print twice.
+
+## Changes after testing feedback (2026-10-17)
+
+- **Station progress is saved on the ticket.** Each unit's stage (e.g. a
+  corndog's frying → done) is the `orders.prep_state` column (migration
+  `20261017120000_order_prep_state.sql`, applied 2026-10-17), changed through
+  the upload list / booth link like any change. Every screen and phone shows
+  the same progress; a payment keeps it; an edit (new rows) restarts it.
+- **Order tab:** each menu category folds shut with a tap on its header;
+  remembered per phone.
+- **Status lines** (upload badge, booth link) sit at the bottom of the screen.
+- **Tickets and History are separate tabs.** Tickets: unpaid tickets only,
+  with Pay / Edit / Cancel (the tab shows how many are waiting). History: the
+  day's paid and cancelled tickets, filter All / Paid / Cancelled, paid total,
+  and the till name.
 
 ## Before the next step
 

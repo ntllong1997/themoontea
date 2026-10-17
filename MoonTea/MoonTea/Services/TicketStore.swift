@@ -64,6 +64,8 @@ final class TicketStore {
             setPhone(phone, onOrder: entry.orderNumber)
         case .updatePayment(let change):
             setPayment(change, onOrder: entry.orderNumber)
+        case .updatePrepState(let rowID, let state):
+            setPrepState(state, onRow: rowID, ofOrder: entry.orderNumber)
         }
     }
 
@@ -361,6 +363,17 @@ final class TicketStore {
             row.paidAt = change.paidAt
             row.squarePaymentID = change.squarePaymentID
             row.paymentLog = change.paymentLog
+            return row
+        }
+        replaceGroup(orderNumber: orderNumber, with: rows)
+    }
+
+    private func setPrepState(_ state: String?, onRow rowID: UUID, ofOrder orderNumber: Int) {
+        guard let idx = history.firstIndex(where: { $0.orderNumber == orderNumber }) else { return }
+        let rows = history[idx].items.map { row -> Order in
+            guard row.id == rowID else { return row }
+            var row = row
+            row.prepState = state
             return row
         }
         replaceGroup(orderNumber: orderNumber, with: rows)
