@@ -237,7 +237,9 @@ final class EpsonPrinter: NSObject {
         let subtotal: Double
         let tax: Double
         let total: Double
-        let paymentMethod: String
+        /// How it was paid; nil on an unpaid ticket's receipt, which prints
+        /// at send and is handed over after payment.
+        let paymentMethod: String?
         let dateString: String
         let cashappURL: String
         let cashTag: String

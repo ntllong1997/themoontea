@@ -8,6 +8,7 @@ enum AppRoute: Hashable {
     case cashapp
     case printer
     case reader
+    case booth
 }
 
 @MainActor
@@ -33,6 +34,7 @@ struct RootView: View {
                     case .cashapp:         CashAppView()
                     case .printer:         PrinterSettingsView()
                     case .reader:          ReaderSettingsView()
+                    case .booth:           BoothSettingsView()
                     }
                 }
         }

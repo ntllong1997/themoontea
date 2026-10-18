@@ -7,11 +7,15 @@ struct HistorySectionView: View {
     var showRevenueTotal: Bool = true
     /// Station mode: large rows optimised for at-a-glance reading from 60cm away.
     var isStation: Bool = false
+    var emptyText = "No orders yet."
 
     @State private var editingPhoneOrder: Int?
     @State private var draftPhone: String = ""
     @State private var smsTarget: SMSTarget?
-    @State private var editTarget: EditTarget?
+    @State private var editTarget: TicketTarget?
+    @State private var payTarget: TicketTarget?
+    @State private var correctionTarget: TicketTarget?
+    @State private var cancelTarget: TicketTarget?
     @FocusState private var phoneEditorFocused: Bool
 
     private var draftPhoneIsValid: Bool {
@@ -26,7 +30,7 @@ struct HistorySectionView: View {
         var id: Int { orderNumber }
     }
 
-    private struct EditTarget: Identifiable {
+    private struct TicketTarget: Identifiable {
         let orderNumber: Int
         var id: Int { orderNumber }
     }
@@ -42,7 +46,7 @@ struct HistorySectionView: View {
         Card {
             VStack(alignment: .leading, spacing: isStation ? 16 : 12) {
                 if filteredGroups.isEmpty {
-                    Text("No orders yet.")
+                    Text(emptyText)
                         .foregroundStyle(Theme.mutedText)
                         .font(.system(size: 14))
                         .frame(maxWidth: .infinity)
@@ -56,7 +60,7 @@ struct HistorySectionView: View {
                 if showRevenueTotal {
                     Divider().padding(.top, 4)
                     HStack {
-                        Text("Total Revenue").font(.system(size: 16, weight: .bold))
+                        Text("Paid total").font(.system(size: 16, weight: .bold))
                         Spacer()
                         Text("$\(vm.totalRevenueToday.fmt2)").font(.system(size: 16, weight: .bold))
                     }
@@ -93,6 +97,23 @@ struct HistorySectionView: View {
         .sheet(item: $editTarget, onDismiss: { vm.cancelEdit() }) { target in
             EditOrderSheet(vm: vm, orderNumber: target.orderNumber)
         }
+        .sheet(item: $payTarget) { target in
+            PaymentSheet(vm: vm, orderNumber: target.orderNumber)
+        }
+        .sheet(item: $correctionTarget) { target in
+            PaymentCorrectionSheet(vm: vm, orderNumber: target.orderNumber)
+        }
+        .confirmationDialog(
+            "Cancel ticket #\(cancelTarget?.orderNumber ?? 0)?",
+            isPresented: Binding(get: { cancelTarget != nil }, set: { if !$0 { cancelTarget = nil } }),
+            titleVisibility: .visible,
+            presenting: cancelTarget
+        ) { target in
+            Button("Cancel ticket", role: .destructive) { vm.cancelTicket(orderNumber: target.orderNumber) }
+            Button("Keep ticket", role: .cancel) {}
+        } message: { _ in
+            Text("For customers who left without paying. The ticket is kept and its number stays used.")
+        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -128,6 +149,8 @@ struct HistorySectionView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Theme.cardBorder, lineWidth: 0.5)
         )
+        // A cancelled ticket stays on the record but should not be made.
+        .opacity(group.status == .cancelled ? 0.5 : 1)
     }
 
     @ViewBuilder
@@ -137,6 +160,7 @@ struct HistorySectionView: View {
             HStack(spacing: 8) {
                 Text("#\(group.orderNumber)")
                     .font(.system(size: 22, weight: .bold))
+                TicketStatusPill(ticket: group, isLarge: true)
                 Spacer(minLength: 4)
                 actionButton(group: group)
             }
@@ -144,19 +168,21 @@ struct HistorySectionView: View {
             .padding(.vertical, 10)
             .background(Color(.secondarySystemBackground))
         } else {
-            HStack(spacing: 8) {
-                Text("Order #\(group.orderNumber)")
-                    .font(.system(size: 14, weight: .semibold))
-
-                phoneEditor(orderNumber: group.orderNumber)
-
-                Spacer(minLength: 4)
-
-                actionButton(group: group)
-
-                Text("$\(group.total(taxRate: AppConstants.taxRate).fmt2)")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.mutedText)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("#\(group.orderNumber)")
+                        .font(.system(size: 16, weight: .bold))
+                    TicketStatusPill(ticket: group)
+                    Spacer(minLength: 4)
+                    Text("$\(group.total(taxRate: AppConstants.taxRate).fmt2)")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                HStack(spacing: 8) {
+                    phoneEditor(orderNumber: group.orderNumber)
+                    Spacer(minLength: 4)
+                    actionButton(group: group)
+                }
+                if group.orderUUID != nil { ticketButtons(group: group) }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -170,7 +196,7 @@ struct HistorySectionView: View {
         // Colour and badge come from the item's own category flow, so a type
         // this build predates still renders — on the catalog's neutral flow —
         // instead of being mis-styled or crashing.
-        let state = MenuCatalog.flow(for: item.type).state(vm.itemStates[item.id])
+        let state = MenuCatalog.flow(for: item.type).state(PrepProgress.shared.stage(of: item.id))
         let (bg, fg, badge) = (state.background, state.foreground, state.badge)
 
         return Button {
@@ -283,26 +309,50 @@ struct HistorySectionView: View {
         editingPhoneOrder = nil
     }
 
+    // MARK: - Ticket actions
+
+    /// Pending: Edit, Cancel, Pay. Paid or cancelled: only the payment can be
+    /// corrected. Station boards never show these — they are counter work.
+    @ViewBuilder
+    private func ticketButtons(group: OrderGroup) -> some View {
+        let target = TicketTarget(orderNumber: group.orderNumber)
+        HStack(spacing: 8) {
+            if group.status == .pending {
+                ticketButton("Edit", icon: "square.and.pencil") {
+                    vm.beginEdit(orderNumber: group.orderNumber)
+                    editTarget = target
+                }
+                ticketButton("Cancel", icon: "xmark") { cancelTarget = target }
+                Spacer(minLength: 4)
+                Button { payTarget = target } label: {
+                    Text("Pay $\(group.total(taxRate: AppConstants.taxRate).fmt2)")
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(.horizontal, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.black)
+            } else {
+                Spacer(minLength: 4)
+                ticketButton("Payment", icon: "creditcard") { correctionTarget = target }
+            }
+        }
+    }
+
+    private func ticketButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon).font(.system(size: 13, weight: .medium))
+        }
+        .buttonStyle(.bordered)
+        .tint(Theme.strongText)
+    }
+
     // MARK: - Notify / reprint action
 
     @ViewBuilder
     private func actionButton(group: OrderGroup) -> some View {
         HStack(spacing: 6) {
-            // Station boards are read-only for the people making drinks —
-            // corrections happen at the counter.
-            if !isStation {
-                Button {
-                    vm.beginEdit(orderNumber: group.orderNumber)
-                    editTarget = EditTarget(orderNumber: group.orderNumber)
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.mutedText)
-                }
-                .buttonStyle(.plain)
-            }
-
-            if EpsonPrinter.shared.hasSavedPrinter {
+            // A till prints on the main phone's printer.
+            if EpsonPrinter.shared.hasSavedPrinter || TillSettings.role == .till {
                 Button {
                     Task { await vm.reprint(orderNumber: group.orderNumber) }
                 } label: {

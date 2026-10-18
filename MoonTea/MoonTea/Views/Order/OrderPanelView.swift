@@ -6,6 +6,19 @@ import SwiftUI
 
 struct OrderPanelView: View {
     @Bindable var vm: OrderViewModel
+    /// Category keys folded shut, comma-separated. Remembered on this phone,
+    /// so staff can keep only the categories they sell open.
+    @AppStorage("collapsedMenuCategories") private var collapsedKeys = ""
+
+    private var collapsed: Set<String> {
+        Set(collapsedKeys.split(separator: ",").map(String.init))
+    }
+
+    private func toggleCollapsed(_ key: String) {
+        var keys = collapsed
+        if keys.contains(key) { keys.remove(key) } else { keys.insert(key) }
+        collapsedKeys = keys.sorted().joined(separator: ",")
+    }
 
     var body: some View {
         Card {
@@ -30,53 +43,60 @@ struct OrderPanelView: View {
         let addOns = MenuCatalog.activeAddOns(category, selection)
 
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("\(category.label) — \(MenuCatalog.priceLabel(for: category))")
+            sectionHeader(category)
 
-            if category.layout == .columns {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(category.optionGroups) { group in
-                        VStack(alignment: .leading, spacing: 6) {
-                            label(group.label)
-                            ForEach(group.options) { option in
-                                optionButton(category, group, option, selection, compact: true)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                }
-            } else {
-                ForEach(category.optionGroups) { group in
-                    label(group.label)
-                    HStack(spacing: 8) {
-                        ForEach(group.options) { option in
-                            optionButton(category, group, option, selection, compact: false)
-                        }
-                    }
-                }
+            if !collapsed.contains(category.key) {
+                categoryBody(category, selection: selection, addOns: addOns)
             }
-
-            if !addOns.isEmpty {
-                label("Extras")
-                ForEach(addOns) { addOn in
-                    let isOn = vm.isAddOnOn(category, key: addOn.key)
-                    let suffix = addOn.price > 0 ? " +$\(String(format: "%.2f", addOn.price))" : ""
-                    SelectButton(text: (isOn ? "✓ \(addOn.label)" : addOn.label) + suffix,
-                                 selected: isOn,
-                                 compact: true) {
-                        vm.toggleAddOn(category, key: addOn.key)
-                    }
-                }
-            }
-
-            Button { vm.add(category) } label: {
-                Text("+ Add \(category.label)")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.black)
-            .disabled(!vm.canAdd(category))
         }
+    }
+
+    @ViewBuilder
+    private func categoryBody(_ category: MenuCategory, selection: MenuSelection, addOns: [ResolvedAddOn]) -> some View {
+        if category.layout == .columns {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(category.optionGroups) { group in
+                    VStack(alignment: .leading, spacing: 6) {
+                        label(group.label)
+                        ForEach(group.options) { option in
+                            optionButton(category, group, option, selection, compact: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        } else {
+            ForEach(category.optionGroups) { group in
+                label(group.label)
+                HStack(spacing: 8) {
+                    ForEach(group.options) { option in
+                        optionButton(category, group, option, selection, compact: false)
+                    }
+                }
+            }
+        }
+
+        if !addOns.isEmpty {
+            label("Extras")
+            ForEach(addOns) { addOn in
+                let isOn = vm.isAddOnOn(category, key: addOn.key)
+                let suffix = addOn.price > 0 ? " +$\(String(format: "%.2f", addOn.price))" : ""
+                SelectButton(text: (isOn ? "✓ \(addOn.label)" : addOn.label) + suffix,
+                             selected: isOn,
+                             compact: true) {
+                    vm.toggleAddOn(category, key: addOn.key)
+                }
+            }
+        }
+
+        Button { vm.add(category) } label: {
+            Text("+ Add \(category.label)")
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.black)
+        .disabled(!vm.canAdd(category))
     }
 
     private func optionButton(
@@ -101,15 +121,30 @@ struct OrderPanelView: View {
 
     // MARK: Helpers
 
-    private func sectionHeader(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(Color.blue)
+    /// Tap to fold the category shut or open it again.
+    private func sectionHeader(_ category: MenuCategory) -> some View {
+        let isCollapsed = collapsed.contains(category.key)
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) { toggleCollapsed(category.key) }
+        } label: {
+            HStack {
+                Text("\(category.label) — \(MenuCatalog.priceLabel(for: category))")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.blue)
+                Spacer()
+                Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.mutedText)
+            }
             .padding(.bottom, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .overlay(alignment: .bottom) {
                 Rectangle().frame(height: 0.5).foregroundStyle(Theme.cardBorder)
             }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(category.label), \(isCollapsed ? "collapsed" : "expanded")")
+        .accessibilityHint(isCollapsed ? "Shows this category" : "Hides this category")
     }
 
     private func label(_ text: String) -> some View {

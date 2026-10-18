@@ -91,6 +91,7 @@ struct VendorView: View {
             adminTile(icon: "dollarsign.circle.fill",  title: "CashApp", route: .cashapp)
             adminTile(icon: "printer.fill",            title: "Printer", route: .printer)
             adminTile(icon: "creditcard.and.123",      title: "Reader",  route: .reader)
+            adminTile(icon: "antenna.radiowaves.left.and.right", title: "Booth", route: .booth)
         }
     }
 
