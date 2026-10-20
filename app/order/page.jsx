@@ -2,14 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { createOrder, getOrderHistory, updateOrderPhone } from '@/lib/db';
+import { createOrder, getOrderHistory, updateOrderPhone, updateTicketPayment } from '@/lib/db';
 import { calculateTotalRevenue, formatItemName } from '@/lib/orders/orderModel';
+import { applyPaymentPatch, canChangePayment, isInList, paymentPatch, paymentStateLabel } from '@/lib/orders/ticketPayments';
 import { useCart } from '@/lib/orders/useCart';
 import { usePrepProgress } from '@/lib/orders/usePrepProgress';
+import { useTillName } from '@/lib/orders/useTillName';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel from '@/components/OrderPanel';
 import HistorySection from '@/components/HistorySection';
+import TicketPaymentDialog from '@/components/TicketPaymentDialog';
+import { HistoryFilterBar, TillNameRow } from '@/components/TicketListControls';
 import LocationPicker from '@/components/LocationPicker';
 import PrinterSettings from '@/components/PrinterSettings';
 import { LOCATIONS_ENABLED, locationLabel, useDeviceLocation } from '@/lib/locations';
@@ -62,7 +66,14 @@ export default function OrderSystem() {
     const { stageOf, setStage } = usePrepProgress();
     const [notifiedOrders, setNotifiedOrders] = useState(new Set());
     const [phoneOverrides, setPhoneOverrides] = useState({});
+    // Order: build and send. Tickets: unpaid tickets waiting to be paid.
+    // History: the day's paid and cancelled tickets. The iPad's right column
+    // switches between the last two on its own.
     const [mobileTab, setMobileTab] = useState('order');
+    const [wideTab, setWideTab] = useState('tickets');
+    const [historyFilter, setHistoryFilter] = useState('all');
+    const [payingOrderNumber, setPayingOrderNumber] = useState(null);
+    const [tillName, setTillName] = useTillName();
     const [printerStatus, setPrinterStatus] = useState('disconnected'); // 'disconnected'|'connecting'|'connected'|'error'
     const [sendError, setSendError] = useState('');
     const [printWarning, setPrintWarning] = useState('');
@@ -117,7 +128,7 @@ export default function OrderSystem() {
     }, [fetchHistory]);
 
     useEffect(() => {
-        if (mobileTab === 'history') {
+        if (mobileTab !== 'order') {
             mobileHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
         }
     }, [mobileTab]);
@@ -135,8 +146,9 @@ export default function OrderSystem() {
         return () => clearInterval(id);
     }, [refreshPrinterStatus]);
 
-    // Orders taken here are pre-orders: saved as unpaid, then paid on an
-    // iPhone. The receipt prints now and staff hand it over after payment —
+    // Orders taken here are pre-orders: saved as unpaid, then paid on the
+    // Tickets tab here or on an iPhone. The receipt prints now and staff hand
+    // it over after payment —
     // here when this till's printer is connected, otherwise the booth's main
     // iPhone prints it when the order arrives.
     const handleSendOrder = useCallback(async () => {
@@ -158,7 +170,8 @@ export default function OrderSystem() {
             }
             clearCart();
             setPhone('');
-            setMobileTab('history');
+            setMobileTab('tickets');
+            setWideTab('tickets');
             tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
             if (printerStatus === 'connected') {
                 try {
@@ -180,6 +193,15 @@ export default function OrderSystem() {
             setIsSending(false);
         }
     }, [orders, phone, locationId, printerStatus, isSending]);
+
+    // Saves one payment change, then shows it before the next poll does.
+    // Throws (shown in the dialog) if the ticket changed on another device.
+    const handlePaymentChange = useCallback(async (ticket, action, method) => {
+        const patch = paymentPatch(ticket, action, { method, till: tillName });
+        if (!patch) throw new Error('This ticket was changed on another device. Check it and try again.');
+        await updateTicketPayment(ticket.orderUuid, ticket.status, patch);
+        setHistory((prev) => prev.map((o) => (o.orderNumber === ticket.orderNumber ? applyPaymentPatch(o, patch) : o)));
+    }, [tillName]);
 
     // Advances a unit through its own category's cycle. An item whose type this
     // build does not recognise still advances, on the catalog's neutral flow.
@@ -226,10 +248,21 @@ export default function OrderSystem() {
             const orderPhone = getOrderPhone(orderNumber);
             const order = history.find((o) => o.orderNumber === orderNumber);
             const status = STATUS_BADGES[order?.status] ?? STATUS_BADGES.paid;
+            const payButton = order && canChangePayment(order) ? (
+                <button
+                    onClick={(e) => { e.stopPropagation(); setPayingOrderNumber(orderNumber); }}
+                    className={`rounded px-2 py-1 text-xs font-semibold transition-colors ${order.status === 'pending' ? 'bg-black text-white hover:bg-gray-800' : 'border border-gray-300 text-gray-600 hover:bg-gray-100'}`}
+                >
+                    {order.status === 'pending' ? `Pay $${order.total.toFixed(2)}` : 'Payment'}
+                </button>
+            ) : null;
             const statusBadge = (
-                <span className={`text-xs font-semibold px-2 py-1 rounded ${status.className}`}>
-                    {status.label}
-                </span>
+                <>
+                    <span className={`text-xs font-semibold px-2 py-1 rounded ${status.className}`}>
+                        {order ? paymentStateLabel(order) : status.label}
+                    </span>
+                    {payButton}
+                </>
             );
 
             const printBtn = printerStatus === 'connected' ? (
@@ -294,8 +327,8 @@ export default function OrderSystem() {
     const getItemTooltip = useCallback((key, item) => stateFor(key, item).tooltip, [stateFor]);
 
     // Orders filtered by visible panels — combined into one list per order number
-    const displayOrders = useMemo(() => {
-        return history
+    const toDisplay = useCallback((orders) => {
+        return orders
             .map((order) => ({
                 orderNumber: order.orderNumber,
                 items: order.items
@@ -303,14 +336,58 @@ export default function OrderSystem() {
                     .filter(({ item }) => visiblePanels.has(item.type)),
             }))
             .filter((o) => o.items.length > 0);
-    }, [history, visiblePanels]);
+    }, [visiblePanels]);
+
+    const unpaidCount = useMemo(() => history.filter((o) => isInList(o.status, 'tickets')).length, [history]);
+    const ticketOrders = useMemo(
+        () => toDisplay(history.filter((o) => isInList(o.status, 'tickets'))),
+        [history, toDisplay]
+    );
+    const historyOrders = useMemo(
+        () => toDisplay(history.filter((o) => isInList(o.status, 'history', historyFilter))),
+        [history, historyFilter, toDisplay]
+    );
+    const payingTicket = history.find((o) => o.orderNumber === payingOrderNumber) ?? null;
 
     if (locationId === undefined) return null;
     if (locationId === null) return <LocationPicker onPick={setLocationId} />;
 
     const { subtotal, tax } = totals;
     const total = totals.total.toFixed(2);
-    const totalRevenue = calculateTotalRevenue(history);
+    // Unpaid and cancelled tickets aren't takings yet, as on the summary page.
+    const totalRevenue = calculateTotalRevenue(history.filter((o) => o.status === 'paid'));
+    const ticketsTabTitle = unpaidCount === 0 ? 'Tickets' : `Tickets ${unpaidCount}`;
+
+    // The Tickets or History list, shared by the phone and iPad layouts.
+    const ticketList = (tab, sectionKey) => (
+        <div className='space-y-3'>
+            {tab === 'history' && (
+                <>
+                    <TillNameRow name={tillName} onRename={setTillName} />
+                    <HistoryFilterBar value={historyFilter} onChange={setHistoryFilter} history={history} />
+                </>
+            )}
+            <HistorySection
+                title=''
+                sectionKey={`${sectionKey}-${tab}`}
+                orders={tab === 'tickets' ? ticketOrders : historyOrders}
+                taxRate={TAX_RATE}
+                totalRevenue={totalRevenue}
+                showRevenue={tab === 'history'}
+                emptyText={tab === 'tickets' ? 'No unpaid tickets.' : 'No paid or cancelled tickets yet.'}
+                onItemClick={handleItemClick}
+                getItemClassName={getItemClassName}
+                getItemBadge={getItemBadge}
+                getItemTooltip={getItemTooltip}
+                getOrderActions={getOrderActions}
+                getOrderPhone={getOrderPhone}
+                onSavePhone={handleSavePhone}
+            />
+        </div>
+    );
+
+    const tabClass = (isActive) =>
+        `flex-1 py-3 text-sm font-semibold transition-colors ${isActive ? 'border-b-2 border-black text-black' : 'text-gray-400'}`;
 
     const cart = (
         <Card>
@@ -378,7 +455,7 @@ export default function OrderSystem() {
                     {isSending ? 'Getting a ticket number…' : 'Send Order'}
                 </Button>
                 <p className='text-xs text-gray-400 mt-1 text-center'>
-                    Sent as unpaid. Hand over the receipt once the customer has paid.
+                    Sent as unpaid. Take payment on the Tickets tab, then hand over the receipt.
                 </p>
             </CardContent>
         </Card>
@@ -390,16 +467,13 @@ export default function OrderSystem() {
             <div className='[@media(min-width:640px)_and_(orientation:landscape)]:hidden flex flex-col h-full'>
                 {/* Tab bar */}
                 <div className='flex border-b bg-white shrink-0'>
-                    <button
-                        onClick={() => setMobileTab('order')}
-                        className={`flex-1 py-3 text-sm font-semibold transition-colors ${mobileTab === 'order' ? 'border-b-2 border-black text-black' : 'text-gray-400'}`}
-                    >
+                    <button onClick={() => setMobileTab('order')} className={tabClass(mobileTab === 'order')}>
                         Order
                     </button>
-                    <button
-                        onClick={() => setMobileTab('history')}
-                        className={`flex-1 py-3 text-sm font-semibold transition-colors ${mobileTab === 'history' ? 'border-b-2 border-black text-black' : 'text-gray-400'}`}
-                    >
+                    <button onClick={() => setMobileTab('tickets')} className={tabClass(mobileTab === 'tickets')}>
+                        {ticketsTabTitle}
+                    </button>
+                    <button onClick={() => setMobileTab('history')} className={tabClass(mobileTab === 'history')}>
                         History
                     </button>
                     {LOCATIONS_ENABLED && (
@@ -416,20 +490,7 @@ export default function OrderSystem() {
                     </div>
                 ) : (
                     <div ref={mobileHistoryRef} className='flex-1 overflow-y-auto p-4'>
-                        <HistorySection
-                            title=''
-                            sectionKey='mobile-combined'
-                            orders={displayOrders}
-                            taxRate={TAX_RATE}
-                            totalRevenue={totalRevenue}
-                            onItemClick={handleItemClick}
-                            getItemClassName={getItemClassName}
-                            getItemBadge={getItemBadge}
-                            getItemTooltip={getItemTooltip}
-                            getOrderActions={getOrderActions}
-                            getOrderPhone={getOrderPhone}
-                            onSavePhone={handleSavePhone}
-                        />
+                        {ticketList(mobileTab, 'mobile')}
                     </div>
                 )}
             </div>
@@ -460,11 +521,20 @@ export default function OrderSystem() {
                     onTouchStart={() => { isDragging.current = true; }}
                 />
 
-                {/* Right col: Combined history */}
+                {/* Right col: Tickets / History */}
                 <div ref={tabletHistoryRef} className='flex-1 overflow-y-auto p-4 min-w-0'>
+                    <div className='flex border-b mb-3'>
+                        <button onClick={() => setWideTab('tickets')} className={tabClass(wideTab === 'tickets')}>
+                            {ticketsTabTitle}
+                        </button>
+                        <button onClick={() => setWideTab('history')} className={tabClass(wideTab === 'history')}>
+                            History
+                        </button>
+                    </div>
+
                     {/* Panel controls + station links */}
-                    <div className='flex items-center gap-2 mb-1 flex-wrap'>
-                        <span className='text-sm font-semibold text-gray-500'>History</span>
+                    <div className='flex items-center gap-2 mb-3 flex-wrap'>
+                        <span className='text-sm font-semibold text-gray-500'>Show</span>
                         {LOCATIONS_ENABLED && <span className='text-xs text-gray-400'>{locationLabel(locationId)}</span>}
 
                         {CATEGORIES.filter((c) => visiblePanels.has(c.key)).map((c) => (
@@ -520,22 +590,17 @@ export default function OrderSystem() {
                         </div>
                     </div>
 
-                    <HistorySection
-                        title=''
-                        sectionKey='combined'
-                        orders={displayOrders}
-                        taxRate={TAX_RATE}
-                        totalRevenue={totalRevenue}
-                        onItemClick={handleItemClick}
-                        getItemClassName={getItemClassName}
-                        getItemBadge={getItemBadge}
-                        getItemTooltip={getItemTooltip}
-                        getOrderActions={getOrderActions}
-                        getOrderPhone={getOrderPhone}
-                        onSavePhone={handleSavePhone}
-                    />
+                    {ticketList(wideTab, 'wide')}
                 </div>
             </div>
+
+            {payingTicket && (
+                <TicketPaymentDialog
+                    ticket={payingTicket}
+                    onClose={() => setPayingOrderNumber(null)}
+                    onChange={handlePaymentChange}
+                />
+            )}
         </div>
     );
 }
