@@ -4,7 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { createOrder, getOrderHistory, updateOrderPhone, updateTicketPayment } from '@/lib/db';
 import { calculateTotalRevenue, formatItemName } from '@/lib/orders/orderModel';
-import { applyPaymentPatch, canChangePayment, isInList, paymentPatch, paymentStateLabel } from '@/lib/orders/ticketPayments';
+import {
+    applyPaymentPatch,
+    canChangePayment,
+    expectedPaymentState,
+    isInList,
+    paymentPatch,
+    paymentStateLabel,
+} from '@/lib/orders/ticketPayments';
 import { useCart } from '@/lib/orders/useCart';
 import { usePrepProgress } from '@/lib/orders/usePrepProgress';
 import { useTillName } from '@/lib/orders/useTillName';
@@ -202,7 +209,7 @@ export default function OrderSystem() {
     const handlePaymentChange = useCallback(async (ticket, action, method) => {
         const patch = paymentPatch(ticket, action, { method, till: tillName });
         if (!patch) throw new Error('This ticket was changed on another device. Check it and try again.');
-        await updateTicketPayment(ticket.orderUuid, ticket.status, patch);
+        await updateTicketPayment(ticket.orderUuid, expectedPaymentState(ticket), patch);
         setHistory((prev) => prev.map((o) => (o.orderNumber === ticket.orderNumber ? applyPaymentPatch(o, patch) : o)));
     }, [tillName]);
 
