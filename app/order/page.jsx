@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createStaleGuard } from '@/lib/orders/staleGuard';
 import Link from 'next/link';
 import { createOrder, getOrderHistory, updateOrderPhone, updateTicketPayment } from '@/lib/db';
 import { calculateTotalRevenue, formatItemName } from '@/lib/orders/orderModel';
@@ -118,15 +119,21 @@ export default function OrderSystem() {
         setColSplit(Math.min(Math.max(pct, 15), 80));
     }, []);
 
+    // A poll that started before this page's latest write is dropped, so it
+    // can't put a paid ticket back on Tickets or remove a just-sent one.
+    const historyGuard = useRef(createStaleGuard()).current;
+
     const fetchHistory = useCallback(async () => {
         if (!locationId) return;
+        const read = historyGuard.start();
         try {
             const groupedOrders = await getOrderHistory(locationId);
+            if (!historyGuard.isCurrent(read)) return;
             setHistory(groupedOrders);
         } catch (error) {
             console.error('Failed to fetch order history:', error);
         }
-    }, [locationId]);
+    }, [locationId, historyGuard]);
 
     useEffect(() => {
         fetchHistory();
@@ -171,7 +178,8 @@ export default function OrderSystem() {
                 status: 'pending',
             });
 
-            setHistory((prev) => [created, ...prev]);
+            historyGuard.invalidate();
+            setHistory((prev) => [created, ...prev.filter((o) => o.orderNumber !== created.orderNumber)]);
             if (created.numberSource === 'fallback') {
                 setNumberNote(`The main phone didn't answer, so this order is #${created.orderNumber} (website numbers start at 1000).`);
             }
@@ -202,7 +210,7 @@ export default function OrderSystem() {
         } finally {
             setIsSending(false);
         }
-    }, [orders, phone, locationId, printerStatus, isSending]);
+    }, [orders, phone, locationId, printerStatus, isSending, historyGuard]);
 
     // Saves one payment change, then shows it before the next poll does.
     // Throws (shown in the dialog) if the ticket changed on another device.
@@ -210,8 +218,9 @@ export default function OrderSystem() {
         const patch = paymentPatch(ticket, action, { method, till: tillName });
         if (!patch) throw new Error('This ticket was changed on another device. Check it and try again.');
         await updateTicketPayment(ticket.orderUuid, expectedPaymentState(ticket), patch);
+        historyGuard.invalidate();
         setHistory((prev) => prev.map((o) => (o.orderNumber === ticket.orderNumber ? applyPaymentPatch(o, patch) : o)));
-    }, [tillName]);
+    }, [tillName, historyGuard]);
 
     // Advances a unit through its own category's cycle. An item whose type this
     // build does not recognise still advances, on the catalog's neutral flow.
