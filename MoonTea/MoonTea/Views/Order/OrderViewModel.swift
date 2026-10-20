@@ -126,8 +126,10 @@ final class OrderViewModel {
 
     /// Sends the cart to the kitchen as a pending ticket, and prints its
     /// receipt for staff to hand over once it's paid on the payment page.
-    func sendOrder() async {
-        guard !cart.isEmpty else { return }
+    /// Returns the ticket's number, or nil if nothing was sent.
+    @discardableResult
+    func sendOrder() async -> Int? {
+        guard !cart.isEmpty else { return nil }
         isSending = true
         sendError = ""
         defer { isSending = false }
@@ -143,7 +145,7 @@ final class OrderViewModel {
             sendError = "Couldn't get a ticket number, so this order was NOT sent. Check the connection and send it again. "
                 + ((error as? LocalizedError)?.errorDescription ?? "")
             ActivityLog.shared.error(.order, "Couldn't get a ticket number", ["error": error, "total": total])
-            return
+            return nil
         }
 
         let timestamp = Self.nowTimestamp()
@@ -199,6 +201,7 @@ final class OrderViewModel {
         cart.removeAll()
         phone = ""
         couponApplied = false
+        return orderNumber
     }
 
     static func nowTimestamp() -> String {

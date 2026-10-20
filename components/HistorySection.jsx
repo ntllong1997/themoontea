@@ -20,6 +20,8 @@ export default function HistorySection({
     getOrderActions,
     getOrderPhone,
     onSavePhone,
+    showRevenue = true,
+    emptyText = 'No orders yet.',
     className = '',
 }) {
     const [editingPhone, setEditingPhone] = useState(null);
@@ -49,7 +51,7 @@ export default function HistorySection({
 
                 {orders.length === 0 ? (
                     <p className='text-gray-400 text-sm py-8 text-center'>
-                        No orders yet.
+                        {emptyText}
                     </p>
                 ) : (
                     orders.map(({ orderNumber, items }) => {
@@ -150,10 +152,12 @@ export default function HistorySection({
                     })
                 )}
 
-                <div className='mt-4 pt-3 border-t flex justify-between items-center font-bold text-base'>
-                    <span>Total Revenue</span>
-                    <span>${totalRevenue}</span>
-                </div>
+                {showRevenue && (
+                    <div className='mt-4 pt-3 border-t flex justify-between items-center font-bold text-base'>
+                        <span>Total Revenue</span>
+                        <span>${totalRevenue}</span>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );
