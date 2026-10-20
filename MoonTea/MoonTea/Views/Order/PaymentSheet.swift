@@ -17,6 +17,9 @@ struct PaymentSheet: View {
     private var ticket: OrderGroup? { vm.ticket(orderNumber) }
     private var total: Double { ticket?.total(taxRate: AppConstants.taxRate) ?? 0 }
     private var readerReady: Bool { square.connectionState == .ready }
+    /// The reader refreshes its secure connection to Square every few
+    /// minutes; a charge started meanwhile waits a few seconds for it.
+    private var readerReconnecting: Bool { square.connectionState == .connecting }
 
     var body: some View {
         NavigationStack {
@@ -86,7 +89,7 @@ struct PaymentSheet: View {
 
     private func choiceButton(_ choice: PaymentChoice) -> some View {
         let isReaderChoice = choice == .cardReader
-        let isEnabled = !isCharging && (!isReaderChoice || readerReady)
+        let isEnabled = !isCharging && (!isReaderChoice || readerReady || readerReconnecting)
         return Button {
             if isReaderChoice {
                 Task { await chargeOnReader() }
@@ -102,7 +105,7 @@ struct PaymentSheet: View {
                 }
                 Text(choice.title).font(.system(size: 16, weight: .semibold))
                 if isReaderChoice && !readerReady {
-                    Text("No reader on this phone")
+                    Text(readerReconnecting ? "Reader reconnecting…" : "No reader on this phone")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.mutedText)
                 }
