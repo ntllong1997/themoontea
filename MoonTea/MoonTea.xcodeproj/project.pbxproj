@@ -604,7 +604,7 @@
 			repositoryURL = "https://github.com/square/mobile-payments-sdk-ios";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.5.0;
+				minimumVersion = 2.6.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

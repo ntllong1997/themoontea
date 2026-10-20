@@ -24,6 +24,9 @@ final class SquareService: NSObject {
     var connectedReaderName: String = ""
     var lastError: String = ""
     var readerUnavailableReason: String = ""
+    /// A physical reader is paired with this phone, connected or not —
+    /// tells "reader dropped off" apart from "this phone has no reader".
+    private(set) var hasPairedReader = false
 
     private var chargeContinuation: CheckedContinuation<ChargeResult, Never>?
     private var readerObserver: ReaderObserverBridge?
@@ -40,6 +43,31 @@ final class SquareService: NSObject {
     // that's truly off just sits disconnected instead of being hammered.
     private var lastAutoReconnectAt: Date = .distantPast
     private static let autoReconnectCooldown: TimeInterval = 5
+
+    // The reader re-establishes its secure connection to Square every few
+    // minutes, often right as a payment starts, and Square cancels a payment
+    // that's in progress when it does. These two tell such a cancel apart
+    // from staff cancelling (`ReaderInterruption`).
+    private var lastReaderDropAt: Date = .distantPast
+    private var chargeStartedAt: Date = .distantFuture
+    /// The current payment's attempt ID, and the server ID Square gave the
+    /// payment if it got that far before being cancelled — either one
+    /// reaching Square rules out reopening the payment (no double charge).
+    private var paymentAttemptID = ""
+    private var cancelledPaymentID: String?
+    /// Which step a `.connecting` reader is on — "device" (Bluetooth) or
+    /// "Square" (secure connection) — so the activity log says which.
+    private var connectingTo = ""
+
+    /// How long a card payment waits for a reconnecting reader. The secure
+    /// connection refresh takes 0.5–6 seconds.
+    private static let reconnectWait: Duration = .seconds(10)
+    /// Lets Square's payment screen finish closing before it opens again.
+    private static let reopenDelay: Duration = .seconds(1)
+    /// How long a launch gives the SDK to load its saved login before
+    /// authorizing (see `configure()`).
+    private static let savedLoginWait: Duration = .seconds(3)
+    private static let pollInterval: Duration = .milliseconds(250)
 
     /// Diagnostic logging for the reader-reconnect investigation. View in
     /// Console.app (or `log stream`) filtered by subsystem "MoonTea",
@@ -98,7 +126,29 @@ final class SquareService: NSObject {
         shared.connectionState = .unauthorized
         shared.requestLocationPermissionIfNeeded()
         shared.requestBluetoothPermissionIfNeeded()
-        Task { await shared.authorize() }
+        // The SDK loads its saved login in the background after `initialize`
+        // and reports `.notAuthorized` until it's done. Calling `authorize` in
+        // that window can leave a connected reader stuck until it reconnects
+        // (Square fixed this in SDK 2.6.0; still no reason to race it), so
+        // give the saved login a moment first. A phone that has never logged
+        // in just waits out `savedLoginWait`.
+        Task {
+            _ = await shared.wait(upTo: savedLoginWait) {
+                MobilePaymentsSDK.shared.authorizationManager.state != .notAuthorized
+            }
+            await shared.authorize()
+        }
+    }
+
+    /// Checks `condition` every `pollInterval` until it holds (true) or
+    /// `timeout` passes (false).
+    private func wait(upTo timeout: Duration, until condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            guard ContinuousClock.now < deadline,
+                  (try? await Task.sleep(for: Self.pollInterval)) != nil else { return false }
+        }
+        return true
     }
 
     // MARK: - Authorization
@@ -202,8 +252,11 @@ final class SquareService: NSObject {
     /// status is `.ready` — connecting/unavailable states map to `.connecting`
     /// or `.disconnected`.
     fileprivate func refreshConnectionFromReaders() {
-        let before = (state: connectionState, reader: connectedReaderName, reason: readerUnavailableReason)
-        defer { logConnectionChange(from: before) }
+        let before = (state: connectionState, reader: connectedReaderName, reason: readerUnavailableReason, step: connectingTo)
+        defer {
+            if before.state == .ready && connectionState != .ready { lastReaderDropAt = Date() }
+            logConnectionChange(from: before)
+        }
 
         // `readers` always includes a virtual `.tapToPay` entry for the
         // iPhone's own built-in NFC chip ("Tap to Pay on iPhone") — it
@@ -212,6 +265,7 @@ final class SquareService: NSObject {
         // connected (status showed "Ready — Tap to Pay" with nothing paired).
         // We only care about the physical hardware here, so filter it out.
         let readers = MobilePaymentsSDK.shared.readerManager.readers.filter { $0.model != .tapToPay }
+        hasPairedReader = !readers.isEmpty
         for r in readers {
             let reasonCode = r.statusInfo.unavailableReasonInfo.map { Int($0.reason.rawValue) } ?? -1
             log.info("refresh: reader '\(r.name, privacy: .public)' status=\(r.statusInfo.status.rawValue, privacy: .public) unavailableReason=\(reasonCode, privacy: .public)")
@@ -220,11 +274,14 @@ final class SquareService: NSObject {
             connectionState = .ready
             connectedReaderName = ready.name
             readerUnavailableReason = ""
-        } else if readers.contains(where: { $0.statusInfo.status == .connectingToDevice || $0.statusInfo.status == .connectingToSquare }) {
+            connectingTo = ""
+        } else if let connecting = readers.first(where: { $0.statusInfo.status == .connectingToDevice || $0.statusInfo.status == .connectingToSquare }) {
             connectionState = .connecting
             connectedReaderName = ""
             readerUnavailableReason = ""
+            connectingTo = connecting.statusInfo.status == .connectingToSquare ? "Square" : "device"
         } else {
+            connectingTo = ""
             // Re-queue a retry whenever we transition INTO the disconnected
             // state. `retryConnection` is one-shot — the SDK consumes the
             // request when the reader next becomes available and does not
@@ -251,15 +308,15 @@ final class SquareService: NSObject {
 
     /// Records reader connection changes in the activity log. Only actual
     /// changes: `refreshConnectionFromReaders` runs on every SDK callback.
-    private func logConnectionChange(from before: (state: ConnectionState, reader: String, reason: String)) {
+    private func logConnectionChange(from before: (state: ConnectionState, reader: String, reason: String, step: String)) {
         guard before.state != connectionState || before.reader != connectedReaderName
-                || before.reason != readerUnavailableReason else { return }
+                || before.reason != readerUnavailableReason || before.step != connectingTo else { return }
         let from = String(describing: before.state)
         switch connectionState {
         case .ready:
             ActivityLog.shared.info(.reader, "Card reader ready", ["reader": connectedReaderName, "was": from])
         case .connecting:
-            ActivityLog.shared.info(.reader, "Card reader connecting", ["was": from])
+            ActivityLog.shared.info(.reader, "Card reader connecting", ["was": from, "to": connectingTo])
         case .disconnected:
             var details: [String: Any] = ["was": from]
             if !readerUnavailableReason.isEmpty { details["reason"] = readerUnavailableReason }
@@ -294,9 +351,20 @@ final class SquareService: NSObject {
         where reader.model != .tapToPay && reader.statusInfo.status == .readerUnavailable {
             let result = manager.retryConnection(reader)
             ActivityLog.shared.info(.reader, "Retrying card reader connection", [
-                "reader": reader.name, "result": result.rawValue,
+                "reader": reader.name, "result": Self.describe(result),
+                "retryable": reader.isConnectionRetryable,
             ])
             log.info("retryConnection('\(reader.name, privacy: .public)') -> result=\(result.rawValue, privacy: .public)")
+        }
+    }
+
+    private static func describe(_ result: RetryConnectionResult) -> String {
+        switch result {
+        case .startingReconnection:            "reconnecting"
+        case .readerAlreadyConnectingToSquare: "already connecting"
+        case .unableToRetry:                   "unable to retry"
+        case .readerNotFound:                  "reader not found"
+        @unknown default:                      "unknown (\(result.rawValue))"
         }
     }
 
@@ -323,7 +391,14 @@ final class SquareService: NSObject {
 
     func charge(amountCents: Int) async -> ChargeResult {
         let amount = Double(amountCents) / 100
-        let result = await startCharge(amountCents: amountCents)
+        var result = await startCharge(amountCents: amountCents)
+        if case .cancelled = result, shouldReopenAfterCancel(amount: amount) {
+            // Open Square's payment screen again once the reader is back
+            // instead of making staff start over. Only once: a second cancel
+            // is left to staff.
+            try? await Task.sleep(for: Self.reopenDelay)
+            result = await startCharge(amountCents: amountCents)
+        }
         switch result {
         case .success(let transactionID):
             ActivityLog.shared.info(.payment, "Card payment approved", ["amount": amount, "paymentID": transactionID])
@@ -337,16 +412,54 @@ final class SquareService: NSObject {
         return result
     }
 
+    /// Whether to open a cancelled payment again: the reader cut it off, the
+    /// app is still on screen, and Square never got as far as creating the
+    /// payment, so reopening can't charge the card twice. Re-reads the
+    /// reader first, in case Square's cancel arrived before the observer
+    /// reported the drop.
+    private func shouldReopenAfterCancel(amount: Double) -> Bool {
+        refreshConnectionFromReaders()
+        let cutOff = ReaderInterruption.didCutOffCharge(
+            startedAt: chargeStartedAt,
+            cancelledAt: Date(),
+            lastReaderDropAt: lastReaderDropAt,
+            isReaderReadyNow: connectionState == .ready
+        )
+        guard cutOff else { return false }
+        let idempotencyKey = MobilePaymentsSDK.shared.paymentManager
+            .getIdempotencyKey(withPaymentAttemptId: paymentAttemptID)
+        let reachedSquare = cancelledPaymentID != nil || idempotencyKey != nil
+        let isAppActive = UIApplication.shared.applicationState == .active
+        let reopen = !reachedSquare && isAppActive
+        ActivityLog.shared.warning(.payment, "Card payment cut off by the reader reconnecting", [
+            "amount": amount, "readerState": String(describing: connectionState),
+            "reopening": reopen, "paymentID": cancelledPaymentID ?? "none",
+            "hasIdempotencyKey": idempotencyKey != nil, "appActive": isAppActive,
+        ])
+        return reopen
+    }
+
     private func startCharge(amountCents: Int) async -> ChargeResult {
         guard isConfigured else {
             return .failure("Square credentials not configured.")
         }
+        if connectionState == .connecting {
+            // Usually the reader refreshing its secure connection to Square,
+            // back within seconds — wait for it rather than refuse the card.
+            // A failed step drops the reader to `.disconnected` before the
+            // next retry, so keep waiting through that; only `.ready` or
+            // losing authorization ends the wait early.
+            _ = await wait(upTo: Self.reconnectWait) {
+                connectionState != .connecting && connectionState != .disconnected
+            }
+        }
         guard connectionState == .ready else {
-            return .failure(
-                connectionState == .disconnected || connectionState == .connecting
-                    ? "Reader not connected — open Reader Settings to pair."
-                    : "Square not authorized — tap Authorize in Reader Settings."
-            )
+            let message = switch connectionState {
+            case .connecting:   "The card reader is still connecting — wait a moment, then tap Card again."
+            case .disconnected: "Reader not connected — open Reader Settings to pair."
+            default:            "Square not authorized — tap Authorize in Reader Settings."
+            }
+            return .failure(message)
         }
 
         // Square requires at least "When In Use" location permission to verify
@@ -367,22 +480,32 @@ final class SquareService: NSObject {
         ActivityLog.shared.info(.payment, "Card payment started", [
             "amount": Double(amountCents) / 100, "reader": connectedReaderName,
         ])
+        chargeStartedAt = Date()
+        paymentAttemptID = UUID().uuidString
+        cancelledPaymentID = nil
         return await withCheckedContinuation { cont in
             chargeContinuation = cont
             let params = PaymentParameters(
-                paymentAttemptID: UUID().uuidString,
+                paymentAttemptID: paymentAttemptID,
                 amountMoney: Money(amount: UInt(amountCents), currency: .USD),
                 // Never store a card payment to process later: offline
                 // payments can be declined after the customer has left.
                 processingMode: .onlineOnly
             )
             let prompt = PromptParameters(mode: .default, additionalMethods: .all)
-            MobilePaymentsSDK.shared.paymentManager.startPayment(
+            let handle = MobilePaymentsSDK.shared.paymentManager.startPayment(
                 params,
                 promptParameters: prompt,
                 from: vc,
                 delegate: self
             )
+            // No handle means Square didn't start the payment, and it may
+            // never call the delegate — don't leave the payment page waiting
+            // forever. A delegate call that does follow finds nothing to resume.
+            if handle == nil {
+                chargeContinuation?.resume(returning: .failure("Square couldn't start the payment — tap Card to try again."))
+                chargeContinuation = nil
+            }
         }
     }
 
@@ -404,9 +527,8 @@ final class SquareService: NSObject {
     func handleAppDidBecomeActive() {
         log.info("scenePhase -> active (didInitializeSDK=\(Self.didInitializeSDK, privacy: .public))")
         // `MobilePaymentsSDK.shared` asserts (hard crash) if accessed before
-        // `initialize` has run — which happens lazily from `configure()`. The
-        // very first `.active` transition fires at launch, before that's had a
-        // chance to happen, so bail out until the SDK is actually up.
+        // `initialize` has run — which `configure()` skips when the Square
+        // credentials aren't filled in — so bail out unless the SDK is up.
         guard Self.didInitializeSDK, isConfigured,
               MobilePaymentsSDK.shared.authorizationManager.state == .authorized else { return }
         syncWithSDK()
@@ -537,7 +659,9 @@ extension SquareService: PaymentManagerDelegate {
     }
 
     nonisolated func paymentManager(_ manager: PaymentManager, didCancel payment: Payment) {
+        let paymentID = payment.id
         Task { @MainActor in
+            cancelledPaymentID = paymentID
             chargeContinuation?.resume(returning: .cancelled)
             chargeContinuation = nil
         }
