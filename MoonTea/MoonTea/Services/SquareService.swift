@@ -446,7 +446,12 @@ final class SquareService: NSObject {
         if connectionState == .connecting {
             // Usually the reader refreshing its secure connection to Square,
             // back within seconds — wait for it rather than refuse the card.
-            _ = await wait(upTo: Self.reconnectWait) { connectionState != .connecting }
+            // A failed step drops the reader to `.disconnected` before the
+            // next retry, so keep waiting through that; only `.ready` or
+            // losing authorization ends the wait early.
+            _ = await wait(upTo: Self.reconnectWait) {
+                connectionState != .connecting && connectionState != .disconnected
+            }
         }
         guard connectionState == .ready else {
             let message = switch connectionState {
