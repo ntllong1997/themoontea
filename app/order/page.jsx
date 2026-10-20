@@ -377,7 +377,7 @@ export default function OrderSystem() {
                 taxRate={TAX_RATE}
                 totalRevenue={totalRevenue}
                 showRevenue={tab === 'history'}
-                emptyText={tab === 'tickets' ? 'No unpaid tickets.' : 'No paid or cancelled tickets yet.'}
+                emptyText={tab === 'tickets' ? 'No unpaid tickets.' : 'No tickets yet.'}
                 onItemClick={handleItemClick}
                 getItemClassName={getItemClassName}
                 getItemBadge={getItemBadge}
