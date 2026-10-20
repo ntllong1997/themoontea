@@ -24,6 +24,9 @@ final class SquareService: NSObject {
     var connectedReaderName: String = ""
     var lastError: String = ""
     var readerUnavailableReason: String = ""
+    /// A physical reader is paired with this phone, connected or not —
+    /// tells "reader dropped off" apart from "this phone has no reader".
+    private(set) var hasPairedReader = false
 
     private var chargeContinuation: CheckedContinuation<ChargeResult, Never>?
     private var readerObserver: ReaderObserverBridge?
@@ -262,6 +265,7 @@ final class SquareService: NSObject {
         // connected (status showed "Ready — Tap to Pay" with nothing paired).
         // We only care about the physical hardware here, so filter it out.
         let readers = MobilePaymentsSDK.shared.readerManager.readers.filter { $0.model != .tapToPay }
+        hasPairedReader = !readers.isEmpty
         for r in readers {
             let reasonCode = r.statusInfo.unavailableReasonInfo.map { Int($0.reason.rawValue) } ?? -1
             log.info("refresh: reader '\(r.name, privacy: .public)' status=\(r.statusInfo.status.rawValue, privacy: .public) unavailableReason=\(reasonCode, privacy: .public)")
@@ -518,9 +522,8 @@ final class SquareService: NSObject {
     func handleAppDidBecomeActive() {
         log.info("scenePhase -> active (didInitializeSDK=\(Self.didInitializeSDK, privacy: .public))")
         // `MobilePaymentsSDK.shared` asserts (hard crash) if accessed before
-        // `initialize` has run — which happens lazily from `configure()`. The
-        // very first `.active` transition fires at launch, before that's had a
-        // chance to happen, so bail out until the SDK is actually up.
+        // `initialize` has run — which `configure()` skips when the Square
+        // credentials aren't filled in — so bail out unless the SDK is up.
         guard Self.didInitializeSDK, isConfigured,
               MobilePaymentsSDK.shared.authorizationManager.state == .authorized else { return }
         syncWithSDK()

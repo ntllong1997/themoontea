@@ -39,7 +39,6 @@ struct RootView: View {
                 }
         }
         .environment(router)
-        .task { SquareService.configure() }
     }
 }
 

@@ -20,6 +20,17 @@ struct PaymentSheet: View {
     /// The reader refreshes its secure connection to Square every few
     /// minutes; a charge started meanwhile waits a few seconds for it.
     private var readerReconnecting: Bool { square.connectionState == .connecting }
+    /// This phone's reader dropped off and Square won't reconnect it on its
+    /// own. Opening Square's reader screen is what brings it back, so Card
+    /// does that instead of going grey.
+    private var readerNeedsConnecting: Bool {
+        square.connectionState == .disconnected && square.hasPairedReader
+    }
+    private var readerHint: String {
+        if readerReconnecting { return "Reader reconnecting…" }
+        if readerNeedsConnecting { return "Tap to connect the reader" }
+        return "No reader on this phone"
+    }
 
     var body: some View {
         NavigationStack {
@@ -89,9 +100,12 @@ struct PaymentSheet: View {
 
     private func choiceButton(_ choice: PaymentChoice) -> some View {
         let isReaderChoice = choice == .cardReader
-        let isEnabled = !isCharging && (!isReaderChoice || readerReady || readerReconnecting)
+        let isEnabled = !isCharging
+            && (!isReaderChoice || readerReady || readerReconnecting || readerNeedsConnecting)
         return Button {
-            if isReaderChoice {
+            if isReaderChoice && readerNeedsConnecting {
+                square.presentReaderSettings()
+            } else if isReaderChoice {
                 Task { await chargeOnReader() }
             } else {
                 confirming = choice
@@ -105,7 +119,7 @@ struct PaymentSheet: View {
                 }
                 Text(choice.title).font(.system(size: 16, weight: .semibold))
                 if isReaderChoice && !readerReady {
-                    Text(readerReconnecting ? "Reader reconnecting…" : "No reader on this phone")
+                    Text(readerHint)
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.mutedText)
                 }

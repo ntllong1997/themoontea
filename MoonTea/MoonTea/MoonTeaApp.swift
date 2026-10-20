@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct MoonTeaApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -39,5 +40,18 @@ struct MoonTeaApp: App {
                 break
             }
         }
+    }
+}
+
+/// Starts the Square SDK in `didFinishLaunchingWithOptions`, before anything
+/// else touches it — where Square's iOS guide says it must be initialized.
+/// It used to start when the root view first appeared.
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        SquareService.configure()
+        return true
     }
 }
