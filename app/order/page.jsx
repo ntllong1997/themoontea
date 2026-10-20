@@ -172,6 +172,9 @@ export default function OrderSystem() {
             setPhone('');
             setMobileTab('tickets');
             setWideTab('tickets');
+            // Straight to payment while the receipt prints. Closing the
+            // dialog leaves the ticket unpaid on the Tickets tab.
+            setPayingOrderNumber(created.orderNumber);
             tabletHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
             if (printerStatus === 'connected') {
                 try {
@@ -455,7 +458,7 @@ export default function OrderSystem() {
                     {isSending ? 'Getting a ticket number…' : 'Send Order'}
                 </Button>
                 <p className='text-xs text-gray-400 mt-1 text-center'>
-                    Sent as unpaid. Take payment on the Tickets tab, then hand over the receipt.
+                    Saves and prints the ticket, then opens payment. Close it to take payment later from Tickets.
                 </p>
             </CardContent>
         </Card>
