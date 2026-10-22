@@ -204,6 +204,13 @@ impossible rather than retried away.
 write `new Date().toISOString()` into it — i.e. UTC wearing no marker. Any bound you
 compare against must be converted the same way, or every window slides by the UTC offset.
 
+**Live tickets.** `/order` and the station screens read today's rows once, then keep them
+current from Supabase Realtime (`lib/orders/useTodayTickets.js`, `lib/orders/ticketCache.js`),
+re-reading in full every 20 s, on reconnect, and when the page comes back into view. This
+needs `orders` in the `supabase_realtime` publication
+(`supabase/migrations/20261018120000_orders_realtime.sql`); without it the screens still
+work, just on the 20 s refresh.
+
 ---
 
 ## The menu is code, not data

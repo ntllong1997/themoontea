@@ -1,12 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createStaleGuard } from '@/lib/orders/staleGuard';
 import Link from 'next/link';
-import { createOrder, getOrderHistory, updateOrderPhone, updateTicketPayment } from '@/lib/db';
+import { createOrder, updateOrderPhone, updateTicketPayment } from '@/lib/db';
 import { calculateTotalRevenue, formatItemName } from '@/lib/orders/orderModel';
 import {
-    applyPaymentPatch,
     canChangePayment,
     expectedPaymentState,
     isInList,
@@ -16,6 +14,7 @@ import {
 import { useCart } from '@/lib/orders/useCart';
 import { usePrepProgress } from '@/lib/orders/usePrepProgress';
 import { useTillName } from '@/lib/orders/useTillName';
+import { useTodayTickets } from '@/lib/orders/useTodayTickets';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import OrderPanel from '@/components/OrderPanel';
@@ -62,7 +61,8 @@ export default function OrderSystem() {
 
     // This till only ever reads and writes its own location's orders.
     const [locationId, setLocationId] = useDeviceLocation();
-    const [history, setHistory] = useState([]);
+    // Today's tickets, kept live over Supabase Realtime.
+    const { history, addRows, patchOrder } = useTodayTickets(locationId);
     const [phone, setPhone] = useState('');
     // Recorded, not charged — the till takes no payment, this only attributes
     // the sale so the summary is accurate. Mirrors the iPad's picker, and
@@ -119,28 +119,6 @@ export default function OrderSystem() {
         setColSplit(Math.min(Math.max(pct, 15), 80));
     }, []);
 
-    // A poll that started before this page's latest write is dropped, so it
-    // can't put a paid ticket back on Tickets or remove a just-sent one.
-    const historyGuard = useRef(createStaleGuard()).current;
-
-    const fetchHistory = useCallback(async () => {
-        if (!locationId) return;
-        const read = historyGuard.start();
-        try {
-            const groupedOrders = await getOrderHistory(locationId);
-            if (!historyGuard.isCurrent(read)) return;
-            setHistory(groupedOrders);
-        } catch (error) {
-            console.error('Failed to fetch order history:', error);
-        }
-    }, [locationId, historyGuard]);
-
-    useEffect(() => {
-        fetchHistory();
-        const id = setInterval(fetchHistory, 3000);
-        return () => clearInterval(id);
-    }, [fetchHistory]);
-
     useEffect(() => {
         if (mobileTab !== 'order') {
             mobileHistoryRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -178,8 +156,7 @@ export default function OrderSystem() {
                 status: 'pending',
             });
 
-            historyGuard.invalidate();
-            setHistory((prev) => [created, ...prev.filter((o) => o.orderNumber !== created.orderNumber)]);
+            addRows(created.rows);
             if (created.numberSource === 'fallback') {
                 setNumberNote(`The main phone didn't answer, so this order is #${created.orderNumber} (website numbers start at 1000).`);
             }
@@ -210,17 +187,16 @@ export default function OrderSystem() {
         } finally {
             setIsSending(false);
         }
-    }, [orders, phone, locationId, printerStatus, isSending, historyGuard]);
+    }, [orders, phone, locationId, printerStatus, isSending, addRows]);
 
-    // Saves one payment change, then shows it before the next poll does.
+    // Saves one payment change, then shows it before its Realtime echo arrives.
     // Throws (shown in the dialog) if the ticket changed on another device.
     const handlePaymentChange = useCallback(async (ticket, action, method) => {
         const patch = paymentPatch(ticket, action, { method, till: tillName });
         if (!patch) throw new Error('This ticket was changed on another device. Check it and try again.');
         await updateTicketPayment(ticket.orderUuid, expectedPaymentState(ticket), patch);
-        historyGuard.invalidate();
-        setHistory((prev) => prev.map((o) => (o.orderNumber === ticket.orderNumber ? applyPaymentPatch(o, patch) : o)));
-    }, [tillName, historyGuard]);
+        patchOrder(ticket.orderUuid, patch);
+    }, [tillName, patchOrder]);
 
     // Advances a unit through its own category's cycle. An item whose type this
     // build does not recognise still advances, on the catalog's neutral flow.

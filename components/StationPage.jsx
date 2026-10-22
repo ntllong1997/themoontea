@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { getOrderHistory, updateOrderPhone } from '@/lib/db';
+import { getTodayOrder, updateOrderPhone } from '@/lib/db';
 import { TAX_RATE } from '@/lib/constants';
 import { calculateTotalRevenue } from '@/lib/orders/orderModel';
 import { usePrepProgress } from '@/lib/orders/usePrepProgress';
+import { useTodayTickets } from '@/lib/orders/useTodayTickets';
 import HistorySection from '@/components/HistorySection';
 import LocationPicker from '@/components/LocationPicker';
 import { LOCATIONS_ENABLED, locationLabel, useDeviceLocation } from '@/lib/locations';
@@ -21,7 +22,8 @@ export default function StationPage({ category }) {
 
     // A station only shows its own location's orders.
     const [locationId, setLocationId] = useDeviceLocation();
-    const [history, setHistory] = useState([]);
+    // Today's tickets, kept live over Supabase Realtime.
+    const { history, loaded } = useTodayTickets(locationId);
     // Station progress, shared with the order page and other stations on
     // this device, and kept through reloads and restarts.
     const { stageOf, setStage } = usePrepProgress();
@@ -29,46 +31,46 @@ export default function StationPage({ category }) {
     const [phoneOverrides, setPhoneOverrides] = useState({});
     const [printerStatus, setPrinterStatus] = useState('disconnected');
 
-    // Use refs to avoid stale closures in the polling callback
+    // Read from the effects below without re-running them
     const printerStatusRef = useRef('disconnected');
     const seenOrderNumbersRef = useRef(new Set());
     const isInitializedRef = useRef(false);
 
-    const fetchHistory = useCallback(async () => {
-        if (!locationId) return;
+    // Another location's tickets are all new to this screen, not new orders.
+    useEffect(() => {
+        seenOrderNumbersRef.current = new Set();
+        isInitializedRef.current = false;
+    }, [locationId]);
+
+    // Realtime brings a new ticket one row at a time, so it is read again in
+    // full before printing — otherwise a slip could miss the order's last
+    // items. If that read fails, what has arrived is printed.
+    const printNewOrder = useCallback(async (order) => {
+        let complete = order;
         try {
-            const orders = await getOrderHistory(locationId);
-
-            // Auto-print new orders when printer is connected, filtered to this station
-            if (isInitializedRef.current && printerStatusRef.current === 'connected') {
-                const newOrders = orders.filter(
-                    (order) => !seenOrderNumbersRef.current.has(order.orderNumber)
-                );
-                for (const order of newOrders) {
-                    const stationItems = order.items.filter((item) => item.type === categoryKey);
-                    if (stationItems.length > 0) {
-                        printReceipt({ orderNumber: order.orderNumber, items: stationItems, taxRate: TAX_RATE }).catch(
-                            (err) => console.error('[auto-print] failed for order', order.orderNumber, err)
-                        );
-                    }
-                }
-            }
-
-            // Track all seen order numbers after first load
-            orders.forEach((order) => seenOrderNumbersRef.current.add(order.orderNumber));
-            isInitializedRef.current = true;
-
-            setHistory(orders);
-        } catch (e) {
-            console.error('Failed to fetch history:', e);
+            complete = (await getTodayOrder(order.orderNumber, locationId)) ?? order;
+        } catch (err) {
+            console.error('[auto-print] could not re-read order', order.orderNumber, err);
         }
+        const stationItems = complete.items.filter((item) => item.type === categoryKey);
+        if (stationItems.length === 0) return;
+        printReceipt({ orderNumber: complete.orderNumber, items: stationItems, taxRate: TAX_RATE }).catch(
+            (err) => console.error('[auto-print] failed for order', complete.orderNumber, err)
+        );
     }, [categoryKey, locationId]);
 
+    // Auto-print orders that arrive after the first load, when the printer is connected
     useEffect(() => {
-        fetchHistory();
-        const id = setInterval(fetchHistory, 3000);
-        return () => clearInterval(id);
-    }, [fetchHistory]);
+        if (!loaded) return;
+        const newOrders = history.filter((order) => !seenOrderNumbersRef.current.has(order.orderNumber));
+        newOrders.forEach((order) => seenOrderNumbersRef.current.add(order.orderNumber));
+        if (!isInitializedRef.current) {
+            isInitializedRef.current = true;
+            return;
+        }
+        if (printerStatusRef.current !== 'connected') return;
+        newOrders.forEach(printNewOrder);
+    }, [history, loaded, printNewOrder]);
 
     // Printer status polling
     useEffect(() => {
