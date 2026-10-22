@@ -3,9 +3,10 @@
 Next.js 15 (App Router) point-of-sale for The Moon Tea. It covers the staff till,
 customer self-ordering, prep-station screens, inventory counting, and sales reporting.
 
-Supabase is the only backend. The browser talks to it **directly** with the anon key —
-there is no server-side data layer, no ORM, and no API layer between the UI and the
-database. `lib/db.js` and friends are thin wrappers around `@supabase/supabase-js`.
+Supabase is the only backend. The browser talks to it **directly** — there is no ORM and
+no API layer between the staff UI and the database. `lib/db.js` and friends are thin
+wrappers around `@supabase/supabase-js`. Staff tills reach `orders` as a staff login and
+customers' online orders go through the server; see [Order security](#order-security).
 
 A sibling SwiftUI iPad app lives in `MoonTea/` and writes to the **same `orders` table**.
 See [iPad app](#ipad-app).
@@ -43,7 +44,8 @@ Put these in `.env.local` (gitignored via the `.env*` rule).
 | `NEXT_PUBLIC_SUPABASE_URL` | `lib/db.js`, `lib/inventoryDb.js`, `lib/employeesDb.js`, `lib/supabase/server.js` | **yes** |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | same as above | **yes** |
 | `STAFF_PASSWORD` | `middleware.js`, `app/api/login` — the one password staff type at `/login` | **yes** (without it nobody can sign in) |
-| `SUPABASE_SERVICE_ROLE_KEY` | `lib/supabase/admin.js` — server only, used by `/admin/menu` to save items and photos. Supabase → Project Settings → API | **yes** for `/admin/menu` |
+| `SUPABASE_SERVICE_ROLE_KEY` | `lib/supabase/admin.js` — server only, used by `/admin/menu` to save items and photos, and by `/api/online-order` to save customer orders. Supabase → Project Settings → API | **yes** for `/admin/menu` and online orders |
+| `STAFF_SUPABASE_EMAIL` / `STAFF_SUPABASE_PASSWORD` | `app/api/supabase-session` — server only, the staff database login made with `scripts/create-staff-user.mjs`. See [Order security](#order-security) | **yes** once orders are locked down |
 | `NEXT_PUBLIC_INVENTORY_WEBHOOK_URL` | `app/inventory/page.jsx` — posts inventory submissions | optional (defaults to `''`) |
 | `PRINTER_PORT` | `print-server.js` — COM port from Device Manager → Ports | no (default `COM9`) |
 | `PRINTER_BAUD` | `print-server.js` | no (default `9600`) |
@@ -81,6 +83,8 @@ isn't even installed. Safe to drop.
 | `/inventory` | Inventory counting — par/restock levels, prices, locations, case sizes, employee PIN auth |
 | `/menu` | **Public customer site.** Menu with photos and descriptions, plus the pop-up calendar. See [Customer site](#customer-site) |
 | `/cashapp` | Manages the list of Cash App cashtags and picks the active one for receipt QR codes (stored in `localStorage`) |
+| `POST /api/online-order` | Public. Saves a customer's online order after checking every item and price against the catalog |
+| `GET /api/supabase-session` | Staff only. Hands a till a database session for the staff login |
 | `POST /api/receipts/process` | ⚠️ **Stub.** Returns hardcoded `buildMockExtraction()` data. Nothing in the app calls it |
 
 ---
@@ -232,7 +236,7 @@ exist.
 
 ## Database
 
-Supabase-hosted Postgres, accessed straight from the browser with the anon key.
+Supabase-hosted Postgres, accessed straight from the browser.
 
 Tables in use: `orders`, the `inventory_*` family (items, par/restock levels, prices,
 locations, case sizes, daily checks, submissions), `employees` (PINs are SHA-256 hashed
@@ -243,6 +247,43 @@ client-side), and `receipts` / `receipt_items` (only touched by the stub API rou
 > Historical note: a root-level `supabase_schema.sql` used to describe a different,
 > non-matching schema (`order_number text`, an `items jsonb` column, `source` /
 > `print_status`, `next_order_code(prefix)`). It has been removed to avoid confusion.
+
+---
+
+## Order security
+
+`orders` holds customers' phone numbers and every ticket's payment state, so only staff
+may read or change it. The public anon key ships in every page's JavaScript and must not
+be enough.
+
+- **One staff login** in Supabase Auth, with `app_metadata.role = 'staff'`
+  (`scripts/create-staff-user.mjs`). Only the service-role key can set `app_metadata`, so
+  signing yourself up never makes you staff. The database checks it with `public.is_staff()`.
+- **Web tills** get a session for it from `/api/supabase-session` (staff password cookie
+  required) and keep it in the browser (`staffReady()` in `lib/db.js`).
+- **iPhones** sign in with it directly (`StaffAuth.swift`, `Secrets.staffEmail` /
+  `staffPassword`).
+- **Customers** never touch `orders`: `/order/online` posts to `/api/online-order`, which
+  rebuilds every line from the catalog (`catalogLine` in `lib/menu/catalog.js`), so a
+  tampered price or an off-menu item is refused, and saves it with the service-role key.
+
+### Rolling it out — in this order
+
+1. Apply `supabase/migrations/20261022120000_staff_access.sql`. It only **adds** staff
+   access; the anon key keeps working.
+2. Create the login: `NEXT_PUBLIC_SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… node
+   scripts/create-staff-user.mjs <email>`. Put the printed email and password in Vercel
+   (`STAFF_SUPABASE_EMAIL`, `STAFF_SUPABASE_PASSWORD`) and redeploy.
+3. Put the same two values in every iPhone's `Secrets.swift`, build and install.
+4. Check: the website's tills and every iPhone load and save orders, and `/admin/logs` shows
+   no "Staff database sign-in failed".
+5. Only then apply `supabase/pending/lock_down_orders.sql` (and move it into
+   `supabase/migrations/`). It removes anon's access to `orders`, `booth_main_phone` and
+   `ticket_number_requests`, and makes the order functions check for staff. A device still
+   on the anon key stops working at this point.
+
+Also turn off **Allow new users to sign up** (Supabase → Authentication → Sign In / Providers):
+not needed for security, since a sign-up can't become staff, but nobody needs it.
 
 ---
 

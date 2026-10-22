@@ -37,7 +37,7 @@ actor SupabaseService {
         query: [URLQueryItem] = [],
         body: Data? = nil,
         preferReturn: Bool = false
-    ) throws -> URLRequest {
+    ) async throws -> URLRequest {
         guard let baseURL,
               !Secrets.supabaseURL.contains("YOUR-PROJECT-REF"),
               !anonKey.contains("YOUR-SUPABASE-ANON-KEY") else {
@@ -51,7 +51,9 @@ actor SupabaseService {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue(anonKey, forHTTPHeaderField: "apikey")
-        req.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
+        // The staff login's token: orders are staff-only once the database is
+        // locked down. See StaffAuth.
+        req.setValue("Bearer \(await StaffAuth.shared.bearerToken())", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if preferReturn {
             req.setValue("return=representation", forHTTPHeaderField: "Prefer")
@@ -64,6 +66,7 @@ actor SupabaseService {
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw SupabaseError.http(0, "no response") }
         guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { await StaffAuth.shared.invalidate() }
             throw SupabaseError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
         do { return try JSONDecoder().decode(T.self, from: data) }
@@ -75,6 +78,7 @@ actor SupabaseService {
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw SupabaseError.http(0, "no response") }
         guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { await StaffAuth.shared.invalidate() }
             throw SupabaseError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
     }
@@ -172,7 +176,7 @@ actor SupabaseService {
     /// Returns today's orders grouped by orderNumber, newest order first.
     func todaysOrderGroups() async throws -> [OrderGroup] {
         let bounds = todayBounds()
-        let req = try makeRequest(
+        let req = try await makeRequest(
             path: "/rest/v1/orders",
             method: "GET",
             query: [
@@ -214,7 +218,7 @@ actor SupabaseService {
             group_limit: limit,
             p_location: AppConstants.locationID
         ))
-        let req = try makeRequest(path: "/rest/v1/rpc/recent_order_groups", method: "POST", body: body)
+        let req = try await makeRequest(path: "/rest/v1/rpc/recent_order_groups", method: "POST", body: body)
         let rows = try await run(req, as: [Order].self)
 
         var buckets: [Int: [Order]] = [:]
@@ -227,7 +231,7 @@ actor SupabaseService {
     /// Fetch all of this location's paid orders (used by sales summary). A
     /// pending ticket hasn't been paid yet and a cancelled one never was.
     func allOrders() async throws -> [Order] {
-        let req = try makeRequest(
+        let req = try await makeRequest(
             path: "/rest/v1/orders",
             method: "GET",
             query: [
@@ -258,7 +262,7 @@ actor SupabaseService {
             range_end: bounds.end,
             p_location: AppConstants.locationID
         ))
-        let req = try makeRequest(path: "/rest/v1/rpc/next_order_number", method: "POST", body: body)
+        let req = try await makeRequest(path: "/rest/v1/rpc/next_order_number", method: "POST", body: body)
         return try await run(req, as: Int.self)
     }
 
@@ -275,7 +279,7 @@ actor SupabaseService {
         }
         let now = ISO8601DateFormatter().string(from: Date())
         let body = try JSONEncoder().encode([Row(location: AppConstants.locationID, device_id: deviceID, device_name: deviceName, last_seen: now)])
-        var req = try makeRequest(
+        var req = try await makeRequest(
             path: "/rest/v1/booth_main_phone",
             method: "POST",
             query: [.init(name: "on_conflict", value: "location")],
@@ -288,7 +292,7 @@ actor SupabaseService {
     /// Removes this phone's registration only — never one a phone that took
     /// over since has written.
     func unregisterMainPhone(deviceID: String) async throws {
-        var req = try makeRequest(
+        var req = try await makeRequest(
             path: "/rest/v1/booth_main_phone",
             method: "DELETE",
             query: [locationFilter, .init(name: "device_id", value: "eq.\(deviceID)")]
@@ -301,7 +305,7 @@ actor SupabaseService {
     func unansweredNumberRequests() async throws -> [UUID] {
         struct Row: Decodable { let order_uuid: UUID }
         let since = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Self.numberRequestMaxAge))
-        let req = try makeRequest(
+        let req = try await makeRequest(
             path: "/rest/v1/ticket_number_requests",
             method: "GET",
             query: [
@@ -327,7 +331,7 @@ actor SupabaseService {
             let p_device: String
         }
         let body = try JSONEncoder().encode(Params(p_order_uuid: orderUUID, p_number: number, p_device: device))
-        let req = try makeRequest(path: "/rest/v1/rpc/answer_ticket_number_request", method: "POST", body: body)
+        let req = try await makeRequest(path: "/rest/v1/rpc/answer_ticket_number_request", method: "POST", body: body)
         return try await run(req, as: Bool.self)
     }
 
@@ -337,7 +341,7 @@ actor SupabaseService {
     /// order. Called only by `OrderOutbox`.
     func uploadOrderRows(_ orders: [Order]) async throws {
         let body = try JSONEncoder().encode(orders.map(InsertRow.init))
-        var req = try makeRequest(
+        var req = try await makeRequest(
             path: "/rest/v1/orders",
             method: "POST",
             query: [.init(name: "on_conflict", value: "id")],
@@ -359,7 +363,7 @@ actor SupabaseService {
             let new_rows: [InsertRow]
         }
         let body = try JSONEncoder().encode(Params(target_order_uuid: orderUUID, new_rows: rows.map(InsertRow.init)))
-        var req = try makeRequest(path: "/rest/v1/rpc/replace_order_items_by_uuid", method: "POST", body: body)
+        var req = try await makeRequest(path: "/rest/v1/rpc/replace_order_items_by_uuid", method: "POST", body: body)
         req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
         try await runNoContent(req)
     }
@@ -370,7 +374,7 @@ actor SupabaseService {
     func updateOrderPhone(orderUUID: UUID, phone: String?) async throws {
         struct Patch: Encodable { let phone: String? }
         let body = try JSONEncoder().encode(Patch(phone: (phone?.isEmpty == false) ? phone : nil))
-        var req = try makeRequest(
+        var req = try await makeRequest(
             path: "/rest/v1/orders",
             method: "PATCH",
             query: [.init(name: "order_uuid", value: "eq.\(orderUUID.uuidString)")],
@@ -402,7 +406,7 @@ actor SupabaseService {
             }
         }
         let body = try JSONEncoder().encode(Patch(change: change))
-        var req = try makeRequest(
+        var req = try await makeRequest(
             path: "/rest/v1/orders",
             method: "PATCH",
             query: [.init(name: "order_uuid", value: "eq.\(orderUUID.uuidString)")],
@@ -426,7 +430,7 @@ actor SupabaseService {
         let body = try JSONEncoder().encode(Patch(phone: (phone?.isEmpty == false) ? phone : nil))
 
         let bounds = todayBounds()
-        let req = try makeRequest(
+        let req = try await makeRequest(
             path: "/rest/v1/orders",
             method: "PATCH",
             query: [
@@ -451,11 +455,12 @@ actor SupabaseService {
     /// for `ON CONFLICT (id)`. A re-sent row fails with 409 instead, which
     /// `ActivityLog` handles.
     func insertActivityLogs(_ body: Data) async throws {
-        var req = try makeRequest(path: "/rest/v1/activity_log", method: "POST", body: body)
+        var req = try await makeRequest(path: "/rest/v1/activity_log", method: "POST", body: body)
         req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw SupabaseError.http(0, "no response") }
         guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { await StaffAuth.shared.invalidate() }
             throw SupabaseError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
     }

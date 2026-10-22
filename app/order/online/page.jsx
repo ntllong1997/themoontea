@@ -14,7 +14,6 @@
 
 import { useCallback, useState } from 'react';
 import Link from 'next/link';
-import { createOrder } from '@/lib/db';
 import { useCart } from '@/lib/orders/useCart';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -41,12 +40,16 @@ export default function OnlineOrderPage() {
         setIsSending(true);
         setSubmitError('');
         try {
-            const created = await createOrder({
-                cartItems: cart,
-                phone,
-                paymentMethod: 'online',
+            // Checked against the menu and saved by the server; this page
+            // never writes to the database itself.
+            const res = await fetch('/api/online-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cartItems: cart, phone }),
             });
-            setPlacedOrder(created);
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(body.error ?? `Order failed (${res.status})`);
+            setPlacedOrder(body);
             clearCart();
             setName('');
             setPhone('');

@@ -28,6 +28,8 @@ actor SupabaseRealtime {
     private var reconnectTask: Task<Void, Never>?
     private var refCounter: Int = 0
     private var joinRef: String = ""
+    /// The access token the server last got from us, so a renewed one is sent on.
+    private var sentToken: String?
     private var onChange: PostgresChangeHandler?
     private var onJoin: (@Sendable () -> Void)?
     private var isStopped: Bool = true
@@ -178,13 +180,16 @@ actor SupabaseRealtime {
     private func sendJoin() async {
         let ref = nextRef()
         joinRef = ref
+        // The staff login's token, so this channel sees the rows staff may read.
+        let token = await StaffAuth.shared.bearerToken()
+        sentToken = token
         let payload: [String: Any] = [
             "topic": topic,
             "event": "phx_join",
             "ref": ref,
             "join_ref": ref,
             "payload": [
-                "access_token": Secrets.supabaseAnonKey,
+                "access_token": token,
                 "config": [
                     "postgres_changes": [
                         ["event": "*", "schema": "public", "table": table]
@@ -203,6 +208,23 @@ actor SupabaseRealtime {
             "ref": nextRef()
         ]
         await sendJSON(payload)
+        await sendRenewedToken()
+    }
+
+    /// Realtime closes a channel whose token expires, so each heartbeat hands
+    /// it the renewed one (StaffAuth renews a minute before expiry).
+    private func sendRenewedToken() async {
+        guard isJoined else { return }
+        let token = await StaffAuth.shared.bearerToken()
+        guard token != sentToken else { return }
+        sentToken = token
+        await sendJSON([
+            "topic": topic,
+            "event": "access_token",
+            "payload": ["access_token": token],
+            "ref": nextRef(),
+            "join_ref": joinRef
+        ])
     }
 
     private func sendJSON(_ obj: [String: Any]) async {
