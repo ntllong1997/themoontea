@@ -28,7 +28,9 @@ struct BoothStatusBadge: View {
                     icon: "link.badge.plus",
                     color: .red,
                     title: "Main phone not connected",
-                    detail: "Orders can't be sent until it is. Keep the main phone's app open, with WiFi and Bluetooth on, nearby."
+                    detail: booth.isMainOverdue
+                        ? "Can't find it. On both phones: Settings → Privacy & Security → Local Network → MoonTea on; WiFi and Bluetooth on; app open, nearby."
+                        : "Orders can't be sent until it is. Keep the main phone's app open, with WiFi and Bluetooth on, nearby."
                 )
             }
         }

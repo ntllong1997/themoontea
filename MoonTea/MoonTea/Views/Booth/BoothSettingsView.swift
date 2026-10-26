@@ -69,6 +69,11 @@ struct BoothSettingsView: View {
             Section("Status") {
                 row("Main phone", booth.mainPhoneName ?? "Not connected")
                 row("Waiting for the main phone", "\(booth.pendingEntries.count)")
+                if booth.isMainOverdue {
+                    Text("Can't find the main phone. On both phones, check Settings → Privacy & Security → Local Network: MoonTea must be on. Also keep WiFi and Bluetooth on and the app open on the main phone, nearby.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.orange)
+                }
             }
         }
     }

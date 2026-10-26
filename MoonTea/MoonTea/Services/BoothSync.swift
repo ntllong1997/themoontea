@@ -23,10 +23,14 @@ final class BoothSync: NSObject {
     private(set) var sendList: TillSendList
     var pendingEntries: [OutboxEntry] { sendList.entries }
     var isConnectedToMain: Bool { mainPeer != nil }
+    /// Till: true once it has looked for the main phone for a while without
+    /// connecting, so the screen can say what to check.
+    private(set) var isMainOverdue = false
 
     private static let serviceType = "moontea-booth"
     private static let roleKey = "role"
     private static let numberTimeoutSeconds: UInt64 = 5
+    private static let searchHintSeconds: UInt64 = 15
     private static let sendListKey = "boothSendList"
     private static let receivedKey = "boothReceivedChanges"
     private static let peerIDKey = "boothPeerID"
@@ -43,6 +47,10 @@ final class BoothSync: NSObject {
     @ObservationIgnored private var numberWaiters: [UUID: CheckedContinuation<Int, Error>] = [:]
     @ObservationIgnored private var received: ReceivedChanges
     @ObservationIgnored private var runningRole: BoothRole?
+    @ObservationIgnored private var searchTimer: Task<Void, Never>?
+    /// Till: how often it has seen a phone advertising the booth link since it
+    /// started looking. Never at all usually means Local Network access is off.
+    @ObservationIgnored private var sightings = 0
 
     private override init() {
         peerID = Self.loadPeerID()
@@ -96,6 +104,7 @@ final class BoothSync: NSObject {
             browser.delegate = self
             browser.startBrowsingForPeers()
             self.browser = browser
+            startSearchTimer()
         }
         ActivityLog.shared.info(.sync, "Booth link started", ["role": role.rawValue])
     }
@@ -121,6 +130,10 @@ final class BoothSync: NSObject {
         mainPhoneName = nil
         tillNames = [:]
         connectedTills = []
+        searchTimer?.cancel()
+        searchTimer = nil
+        isMainOverdue = false
+        sightings = 0
         failNumberWaiters()
     }
 
@@ -171,11 +184,31 @@ final class BoothSync: NSObject {
     private func connectedToMain(_ peer: MCPeerID) {
         mainPeer = peer
         mainPhoneName = peer.displayName
+        searchTimer?.cancel()
+        searchTimer = nil
+        isMainOverdue = false
         send(.hello(tillName: TillSettings.name), to: [peer])
         // Anything not confirmed before the link dropped, oldest first. The
         // main phone skips what it already has.
         for entry in sendList.entries { send(.change(entry), to: [peer]) }
         ActivityLog.shared.info(.sync, "Connected to main phone", ["main": peer.displayName, "unsent": sendList.entries.count])
+    }
+
+    /// After a while without the main phone, flags it for the screen and logs
+    /// how far the search got, so /admin/logs shows where it stopped.
+    private func startSearchTimer() {
+        searchTimer?.cancel()
+        isMainOverdue = false
+        searchTimer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.searchHintSeconds * 1_000_000_000)
+            guard !Task.isCancelled, let self, self.runningRole == .till, self.mainPeer == nil else { return }
+            self.isMainOverdue = true
+            ActivityLog.shared.warning(.sync, "Till can't find the main phone", [
+                "seconds": Self.searchHintSeconds,
+                "sightings": self.sightings,
+                "hint": self.sightings == 0 ? "no booth phones seen: check Local Network access on both phones" : "saw booth phones but couldn't join the main phone",
+            ])
+        }
     }
 
     private func handleOnTill(_ message: BoothMessage) {
@@ -267,6 +300,11 @@ final class BoothSync: NSObject {
     fileprivate func peer(_ peer: MCPeerID, changedTo state: MCSessionState) {
         switch runningRole {
         case .main:
+            if state == .connected {
+                ActivityLog.shared.info(.sync, "Till joined", ["till": peer.displayName])
+            } else if state == .notConnected {
+                ActivityLog.shared.info(.sync, "Till left or couldn't join", ["till": tillNames[peer] ?? peer.displayName])
+            }
             if state != .connected { tillNames.removeValue(forKey: peer) }
             refreshConnectedTills()
         case .till:
@@ -281,6 +319,9 @@ final class BoothSync: NSObject {
                 failNumberWaiters()
                 if wasConnected {
                     ActivityLog.shared.warning(.sync, "Main phone disconnected", ["main": peer.displayName])
+                    startSearchTimer()
+                } else {
+                    ActivityLog.shared.warning(.sync, "Couldn't join the main phone", ["main": peer.displayName])
                 }
                 lookForMainAgain()
             }
@@ -302,8 +343,11 @@ final class BoothSync: NSObject {
     }
 
     fileprivate func found(_ peer: MCPeerID, info: [String: String]?) {
-        guard runningRole == .till, invitedMain == nil, let browser, let session,
+        guard runningRole == .till else { return }
+        sightings += 1
+        guard invitedMain == nil, let browser, let session,
               info?[Self.roleKey] == BoothRole.main.rawValue else { return }
+        ActivityLog.shared.info(.sync, "Found the main phone, joining", ["main": peer.displayName])
         invitedMain = peer
         browser.invitePeer(peer, to: session, withContext: nil, timeout: 10)
     }
@@ -318,9 +362,11 @@ final class BoothSync: NSObject {
 
     fileprivate func invited(by peer: MCPeerID, reply: (Bool, MCSession?) -> Void) {
         guard runningRole == .main, let session else {
+            ActivityLog.shared.warning(.sync, "Turned away a till: this phone isn't the main phone", ["till": peer.displayName])
             reply(false, nil)
             return
         }
+        ActivityLog.shared.info(.sync, "Till asked to join", ["till": peer.displayName])
         reply(true, session)
     }
 

@@ -500,7 +500,7 @@
 				INFOPLIST_FILE = MoonTea/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "MoonTea uses Bluetooth to connect to your receipt printer.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "MoonTea connects to your Epson receipt printer over the local network. ";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "MoonTea connects to your Epson receipt printer and to the other phones at your booth (main phone and tills) over the local network.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -545,7 +545,7 @@
 				INFOPLIST_FILE = MoonTea/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "MoonTea uses Bluetooth to connect to your receipt printer.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "MoonTea connects to your Epson receipt printer over the local network. ";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "MoonTea connects to your Epson receipt printer and to the other phones at your booth (main phone and tills) over the local network.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
