@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		3650F6B72FD2862900EEC267 /* libepos2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3650F6912FD2861D00EEC267 /* libepos2.xcframework */; };
 		3650F6B82FD2862900EEC267 /* libepos2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3650F6912FD2861D00EEC267 /* libepos2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		3650F7242FD51BF100EEC267 /* MockReaderUI in Frameworks */ = {isa = PBXBuildFile; productRef = 3650F7232FD51BF100EEC267 /* MockReaderUI */; };
 		3650F7262FD51BF100EEC267 /* SquareMobilePaymentsSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 3650F7252FD51BF100EEC267 /* SquareMobilePaymentsSDK */; };
 /* End PBXBuildFile section */
 
@@ -85,7 +84,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				3650F6B72FD2862900EEC267 /* libepos2.xcframework in Frameworks */,
-				3650F7242FD51BF100EEC267 /* MockReaderUI in Frameworks */,
 				3650F7262FD51BF100EEC267 /* SquareMobilePaymentsSDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -278,7 +276,6 @@
 			);
 			name = MoonTea;
 			packageProductDependencies = (
-				3650F7232FD51BF100EEC267 /* MockReaderUI */,
 				3650F7252FD51BF100EEC267 /* SquareMobilePaymentsSDK */,
 			);
 			productName = MoonTea;
@@ -610,11 +607,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		3650F7232FD51BF100EEC267 /* MockReaderUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3650F7222FD51BF100EEC267 /* XCRemoteSwiftPackageReference "mobile-payments-sdk-ios" */;
-			productName = MockReaderUI;
-		};
 		3650F7252FD51BF100EEC267 /* SquareMobilePaymentsSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3650F7222FD51BF100EEC267 /* XCRemoteSwiftPackageReference "mobile-payments-sdk-ios" */;

@@ -4,9 +4,6 @@ import UIKit
 import CoreLocation
 import CoreBluetooth
 import SquareMobilePaymentsSDK
-#if DEBUG && canImport(MockReaderUI)
-import MockReaderUI
-#endif
 
 @MainActor
 @Observable
@@ -109,14 +106,10 @@ final class SquareService: NSObject {
         bluetoothManager = CBCentralManager(delegate: self, queue: nil)
     }
 
-    private var credentials: SquareCredentials { .active }
-
-    var isConfigured: Bool { credentials.isConfigured }
-
-    /// True when the SDK runs against Square Sandbox, where only mock
-    /// readers exist and physical readers can never be found.
-    var isSandbox: Bool {
-        Self.didInitializeSDK && MobilePaymentsSDK.shared.settingsManager.sdkSettings.environment == .sandbox
+    var isConfigured: Bool {
+        !Secrets.squareApplicationID.hasPrefix("YOUR-") &&
+        !Secrets.squareLocationID.hasPrefix("YOUR-") &&
+        !Secrets.squareAccessToken.hasPrefix("YOUR-")
     }
 
     // MARK: - App-launch setup
@@ -129,7 +122,7 @@ final class SquareService: NSObject {
         shared.log.info("configure() running — first SDK initialize this process (COLD launch path)")
         didInitializeSDK = true
         ActivityLog.shared.info(.reader, "Square SDK started")
-        MobilePaymentsSDK.initialize(squareApplicationID: shared.credentials.applicationID)
+        MobilePaymentsSDK.initialize(squareApplicationID: Secrets.squareApplicationID)
         shared.connectionState = .unauthorized
         shared.requestLocationPermissionIfNeeded()
         shared.requestBluetoothPermissionIfNeeded()
@@ -175,8 +168,8 @@ final class SquareService: NSObject {
         }
 
         MobilePaymentsSDK.shared.authorizationManager.authorize(
-            withAccessToken: credentials.accessToken,
-            locationID: credentials.locationID
+            withAccessToken: Secrets.squareAccessToken,
+            locationID: Secrets.squareLocationID
         ) { [weak self] error in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -392,46 +385,6 @@ final class SquareService: NSObject {
                 self?.lastError = error.localizedDescription
             }
         }
-    }
-
-    // MARK: - Mock reader (Sandbox, Debug only)
-
-    #if DEBUG && canImport(MockReaderUI)
-    private var mockReader: MockReaderUI?
-    var isMockReaderPresented = false
-
-    /// Shows Square's floating mock-reader button. Tap it to add a virtual
-    /// contactless & chip reader, then tap/insert a test card during a payment.
-    func toggleMockReader() {
-        if isMockReaderPresented {
-            mockReader?.dismiss()
-            isMockReaderPresented = false
-            return
-        }
-        guard isSandbox, MobilePaymentsSDK.shared.authorizationManager.state == .authorized else {
-            lastError = "Mock readers need Sandbox — turn on \"Use Square Sandbox\" and relaunch."
-            return
-        }
-        do {
-            let reader = try mockReader ?? MockReaderUI(for: MobilePaymentsSDK.shared)
-            mockReader = reader
-            try reader.present()
-            isMockReaderPresented = true
-            ActivityLog.shared.info(.reader, "Mock reader shown")
-        } catch {
-            lastError = "Couldn't show mock reader: \(error.localizedDescription)"
-            ActivityLog.shared.warning(.reader, "Mock reader failed", ["error": error.localizedDescription])
-        }
-    }
-    #endif
-
-    /// Switches between production and Sandbox credentials. Signs out first so
-    /// the next launch authorizes against the new environment from scratch.
-    func setUsesSandbox(_ useSandbox: Bool) {
-        SquareCredentials.prefersSandbox = useSandbox
-        ActivityLog.shared.info(.reader, "Square environment switched", ["sandbox": useSandbox])
-        guard Self.didInitializeSDK else { return }
-        MobilePaymentsSDK.shared.authorizationManager.deauthorize {}
     }
 
     // MARK: - Charging
