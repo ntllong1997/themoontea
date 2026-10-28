@@ -85,6 +85,10 @@ struct OrderView: View {
                 Rectangle().frame(height: 0.5).foregroundStyle(Theme.cardBorder)
             }
         }
+        // A ticket just sent: show it on the work list.
+        .onChange(of: vm.lastSentOrderNumber) { _, number in
+            if number != nil { tab = .tickets }
+        }
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle("Orders")
         .navigationBarTitleDisplayMode(.inline)
