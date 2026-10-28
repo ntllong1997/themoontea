@@ -2,11 +2,15 @@ import SwiftUI
 
 struct ReaderSettingsView: View {
     @State private var square = SquareService.shared
+    @State private var usesSandbox = SquareCredentials.prefersSandbox
 
     var body: some View {
         Form {
             statusSection
             actionsSection
+            #if DEBUG
+            testingSection
+            #endif
             setupSection
         }
         .navigationTitle("Card Reader")
@@ -79,6 +83,42 @@ struct ReaderSettingsView: View {
             }
         }
     }
+
+    // MARK: - Testing (Debug only)
+
+    #if DEBUG
+    private var testingSection: some View {
+        Section {
+            Toggle("Use Square Sandbox", isOn: $usesSandbox)
+                .disabled(!SquareCredentials.sandbox.isConfigured)
+                .onChange(of: usesSandbox) { _, newValue in square.setUsesSandbox(newValue) }
+
+            #if canImport(MockReaderUI)
+            if square.isSandbox {
+                Button(square.isMockReaderPresented ? "Hide mock reader" : "Show mock reader") {
+                    square.toggleMockReader()
+                }
+            }
+            #endif
+        } header: {
+            Text("Testing")
+        } footer: {
+            Text(testingFooter)
+        }
+    }
+
+    private var testingFooter: String {
+        if !SquareCredentials.sandbox.isConfigured {
+            return "Add Sandbox credentials to Secrets.swift to test with a mock reader."
+        }
+        if usesSandbox != square.isSandbox {
+            return "Relaunch the app to switch environments."
+        }
+        return square.isSandbox
+            ? "Sandbox: real readers can't connect. Use the mock reader's floating button to add a reader and tap a test card."
+            : "Production: real readers and real charges."
+    }
+    #endif
 
     // MARK: - Setup guide
 

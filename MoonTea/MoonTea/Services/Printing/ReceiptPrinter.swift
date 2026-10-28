@@ -5,7 +5,8 @@ import Foundation
 /// The receipt prints when the ticket is sent, before payment: staff keep it
 /// and hand it over once the customer has paid. So an unpaid ticket's receipt
 /// shows no payment line. On a booth, the main phone is the print hub: it
-/// prints every new ticket, including the tills' and the website's.
+/// prints every new ticket, including the tills' and the website's. A
+/// standalone phone prints the website's too.
 @MainActor
 enum ReceiptPrinter {
     private static let printedKey = "printedTickets"
@@ -24,7 +25,8 @@ enum ReceiptPrinter {
         await printReceipt(for: ticket)
     }
 
-    /// Main phone: prints a ticket that appeared from a till or the website,
+    /// Main or standalone phone: prints a ticket that appeared from another
+    /// device (a till or the website),
     /// once, after its rows have had a moment to arrive.
     static func printIfNew(orderNumber: Int) {
         guard let ticket = TicketStore.shared.history.first(where: { $0.orderNumber == orderNumber }),
