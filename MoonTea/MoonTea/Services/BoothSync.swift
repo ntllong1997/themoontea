@@ -27,6 +27,10 @@ final class BoothSync: NSObject {
     private static let serviceType = "moontea-booth"
     private static let roleKey = "role"
     private static let numberTimeoutSeconds: UInt64 = 5
+    /// How often a till that hasn't reached the main phone starts looking
+    /// afresh. A main phone that stops and restarts advertising under the same
+    /// peer id (a role switch, a relaunch) may never be reported again.
+    private static let searchRestartSeconds: UInt64 = 10
     private static let sendListKey = "boothSendList"
     private static let receivedKey = "boothReceivedChanges"
     private static let peerIDKey = "boothPeerID"
@@ -43,6 +47,7 @@ final class BoothSync: NSObject {
     @ObservationIgnored private var numberWaiters: [UUID: CheckedContinuation<Int, Error>] = [:]
     @ObservationIgnored private var received: ReceivedChanges
     @ObservationIgnored private var runningRole: BoothRole?
+    @ObservationIgnored private var searchTask: Task<Void, Never>?
 
     private override init() {
         peerID = Self.loadPeerID()
@@ -72,6 +77,11 @@ final class BoothSync: NSObject {
 
         switch role {
         case .standalone:
+            // No booth link, but the website's orders still print here.
+            TicketStore.shared.onTicketChanged = { number, _ in
+                ReceiptPrinter.printIfNew(orderNumber: number)
+            }
+            TicketStore.shared.onHistoryReplaced = { Self.printMissedTickets() }
             return
         case .main:
             let session = makeSession()
@@ -87,8 +97,7 @@ final class BoothSync: NSObject {
             }
             TicketStore.shared.onHistoryReplaced = { [weak self] in
                 self?.broadcast(.snapshot(rows: TicketStore.shared.allRows))
-                // Website pre-orders that came in while the link to Supabase was down.
-                for ticket in TicketStore.shared.history { ReceiptPrinter.printIfNew(orderNumber: ticket.orderNumber) }
+                Self.printMissedTickets()
             }
         case .till:
             session = makeSession()
@@ -96,8 +105,14 @@ final class BoothSync: NSObject {
             browser.delegate = self
             browser.startBrowsingForPeers()
             self.browser = browser
+            keepLookingForMain()
         }
         ActivityLog.shared.info(.sync, "Booth link started", ["role": role.rawValue])
+    }
+
+    /// Website pre-orders that came in while the link to Supabase was down.
+    private static func printMissedTickets() {
+        for ticket in TicketStore.shared.history { ReceiptPrinter.printIfNew(orderNumber: ticket.orderNumber) }
     }
 
     /// Back in the foreground: restart the link if the background dropped it.
@@ -110,6 +125,14 @@ final class BoothSync: NSObject {
 
     func stop() {
         runningRole = nil
+        searchTask?.cancel()
+        searchTask = nil
+        // Detach before tearing down: a stopped session still reports its
+        // peers dropping, and those late reports must not reach the next
+        // session (they'd drop a till's fresh link to the same main phone).
+        advertiser?.delegate = nil
+        browser?.delegate = nil
+        session?.delegate = nil
         advertiser?.stopAdvertisingPeer()
         browser?.stopBrowsingForPeers()
         session?.disconnect()
@@ -267,6 +290,11 @@ final class BoothSync: NSObject {
     fileprivate func peer(_ peer: MCPeerID, changedTo state: MCSessionState) {
         switch runningRole {
         case .main:
+            if state == .connected {
+                ActivityLog.shared.info(.sync, "Till connected", ["till": peer.displayName])
+            } else if state == .notConnected {
+                ActivityLog.shared.warning(.sync, "Till disconnected", ["till": tillNames[peer] ?? peer.displayName])
+            }
             if state != .connected { tillNames.removeValue(forKey: peer) }
             refreshConnectedTills()
         case .till:
@@ -314,6 +342,36 @@ final class BoothSync: NSObject {
         guard runningRole == .till, let browser else { return }
         browser.stopBrowsingForPeers()
         browser.startBrowsingForPeers()
+    }
+
+    /// The main phone went away before the invitation was answered: forget it,
+    /// so a main phone found next (or this one coming back) gets invited.
+    fileprivate func lost(_ peer: MCPeerID) {
+        guard runningRole == .till, peer == invitedMain, mainPeer == nil else { return }
+        invitedMain = nil
+        lookForMainAgain()
+    }
+
+    /// Till: while the main phone isn't connected, look again every few
+    /// seconds. The first miss is logged, since a phone that never finds the
+    /// main phone usually has Local Network access turned off.
+    private func keepLookingForMain() {
+        searchTask = Task { [weak self] in
+            var hasWarned = false
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.searchRestartSeconds * 1_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                guard self.mainPeer == nil else { continue }
+                if !hasWarned {
+                    hasWarned = true
+                    ActivityLog.shared.warning(.sync, "Main phone not found yet", [
+                        "hint": "Both phones need the app open, WiFi and Bluetooth on, and Settings → MoonTea → Local Network on",
+                    ])
+                }
+                // An invitation in flight answers (or times out) on its own.
+                if self.invitedMain == nil { self.lookForMainAgain() }
+            }
+        }
     }
 
     fileprivate func invited(by peer: MCPeerID, reply: (Bool, MCSession?) -> Void) {
@@ -377,15 +435,30 @@ final class BoothSync: NSObject {
 
 // MARK: - MultipeerConnectivity delegates
 //
-// Called on MultipeerConnectivity's own queues; each hops to the main actor.
+// Called on MultipeerConnectivity's own queues; each hops to the main actor
+// and drops reports from a session or browser a role switch already replaced.
+
+extension BoothSync {
+    fileprivate func isCurrent(_ source: ObjectIdentifier, _ current: AnyObject?) -> Bool {
+        current.map(ObjectIdentifier.init) == source
+    }
+}
 
 extension BoothSync: MCSessionDelegate {
     nonisolated func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        Task { @MainActor in self.peer(peerID, changedTo: state) }
+        let source = ObjectIdentifier(session)
+        Task { @MainActor in
+            guard self.isCurrent(source, self.session) else { return }
+            self.peer(peerID, changedTo: state)
+        }
     }
 
     nonisolated func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
-        Task { @MainActor in self.receive(data, from: peerID) }
+        let source = ObjectIdentifier(session)
+        Task { @MainActor in
+            guard self.isCurrent(source, self.session) else { return }
+            self.receive(data, from: peerID)
+        }
     }
 
     nonisolated func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {}
@@ -413,10 +486,20 @@ extension BoothSync: MCNearbyServiceAdvertiserDelegate {
 
 extension BoothSync: MCNearbyServiceBrowserDelegate {
     nonisolated func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String: String]?) {
-        Task { @MainActor in self.found(peerID, info: info) }
+        let source = ObjectIdentifier(browser)
+        Task { @MainActor in
+            guard self.isCurrent(source, self.browser) else { return }
+            self.found(peerID, info: info)
+        }
     }
 
-    nonisolated func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {}
+    nonisolated func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
+        let source = ObjectIdentifier(browser)
+        Task { @MainActor in
+            guard self.isCurrent(source, self.browser) else { return }
+            self.lost(peerID)
+        }
+    }
 
     nonisolated func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {
         Task { @MainActor in
