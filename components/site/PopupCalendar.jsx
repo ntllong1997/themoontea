@@ -42,14 +42,14 @@ function useToday() {
     return today;
 }
 
-export function NextPopupTeaser({ popups }) {
+export function NextPopupTeaser({ popups, href = '#popups' }) {
     const today = useToday();
     if (!today) return null;
     const [next] = upcomingPopups(popups, today);
     if (!next) return null;
     return (
         <a
-            href='#popups'
+            href={href}
             className='inline-flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-semibold text-moon-ink shadow-sm ring-1 ring-moon-caramel/30 transition hover:bg-white'
         >
             <span className='relative flex h-2.5 w-2.5' aria-hidden>

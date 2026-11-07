@@ -5,6 +5,8 @@ import Image from 'next/image';
 import { buildSections } from '@/lib/site/menu';
 import { getPublicMenuItems, getPublicPopups } from '@/lib/site/menuData';
 import PopupCalendar, { NextPopupTeaser } from '@/components/site/PopupCalendar';
+import SectionHeading from '@/components/site/SectionHeading';
+import SiteHeader from '@/components/site/SiteHeader';
 
 // Re-read the menu at most once a minute. Saving on /admin/menu refreshes it
 // straight away (revalidatePath), so this is only a safety net.
@@ -27,7 +29,7 @@ export default async function MenuPage() {
     const sections = buildSections(items);
     const nav = [
         ...sections.map((section) => ({ href: `#${section.id}`, label: section.navLabel ?? section.title })),
-        { href: '#popups', label: 'Pop-ups' },
+        { href: '#popups', label: 'Pop-ups', accent: true },
     ];
     return (
         <div className='bg-[radial-gradient(ellipse_at_top,_#FDF8F1_0%,_#F8EFE3_60%)]'>
@@ -38,7 +40,7 @@ export default async function MenuPage() {
             >
                 Skip to the menu
             </a>
-            <Header nav={nav} />
+            <SiteHeader nav={nav} />
             <Hero drinks={heroDrinks(sections)} firstSectionId={sections[0]?.id ?? 'popups'} popups={popups} />
             {sections.map((section) =>
                 section.choices ? (
@@ -59,56 +61,6 @@ export default async function MenuPage() {
             </section>
             <Footer />
         </div>
-    );
-}
-
-function Header({ nav }) {
-    return (
-        <header className='sticky top-0 z-30 border-b border-moon-caramel/20 bg-moon-cream/95 backdrop-blur'>
-            <div className='mx-auto flex max-w-6xl items-center gap-4 px-4 py-1.5 sm:px-6 md:py-2'>
-                <a href='#top' className='flex shrink-0 items-center gap-2'>
-                    <Image src='/menu/logo.jpg' alt='' width={30} height={46} className='h-9 w-auto mix-blend-multiply md:h-11' />
-                    <span className='font-display text-lg md:text-xl'>The Moon Tea</span>
-                </a>
-                <nav aria-label='Menu sections' className='ml-auto hidden md:block'>
-                    <ul className='flex gap-1 whitespace-nowrap text-sm font-semibold'>
-                        {nav.map((link) => (
-                            <li key={link.href}>
-                                <a
-                                    href={link.href}
-                                    className={
-                                        link.href === '#popups'
-                                            ? 'block rounded-full bg-moon-ink px-3 py-1.5 text-white transition hover:bg-moon-orange'
-                                            : 'block rounded-full px-3 py-1.5 transition hover:bg-white'
-                                    }
-                                >
-                                    {link.label}
-                                </a>
-                            </li>
-                        ))}
-                    </ul>
-                </nav>
-            </div>
-            {/* Phones: every section one thumb-swipe away. */}
-            <nav aria-label='Menu sections' className='overflow-x-auto [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden'>
-                <ul className='flex w-max gap-2 px-4 pb-2 text-sm font-bold'>
-                    {nav.map((link) => (
-                        <li key={link.href}>
-                            <a
-                                href={link.href}
-                                className={
-                                    link.href === '#popups'
-                                        ? 'block rounded-full bg-moon-ink px-4 py-2 text-white active:bg-moon-orange'
-                                        : 'block rounded-full bg-white px-4 py-2 ring-1 ring-moon-caramel/30 active:bg-moon-caramel active:text-white'
-                                }
-                            >
-                                {link.label}
-                            </a>
-                        </li>
-                    ))}
-                </ul>
-            </nav>
-        </header>
     );
 }
 
@@ -168,22 +120,6 @@ function Hero({ drinks, firstSectionId, popups }) {
                 </div>
             </div>
         </section>
-    );
-}
-
-function SectionHeading({ eyebrow, title, price }) {
-    return (
-        <div className='mb-3 flex flex-wrap items-end gap-x-4 gap-y-1'>
-            <h2 className='leading-none'>
-                <span className='block font-script text-2xl text-moon-orange sm:text-4xl'>{eyebrow}</span>
-                <span className='font-display text-[2.1rem] sm:text-5xl'>{title}</span>
-            </h2>
-            {price && (
-                <span className='mb-1 rounded-full bg-moon-caramel px-3 py-1 text-sm font-bold text-moon-ink'>
-                    {price} each
-                </span>
-            )}
-        </div>
     );
 }
 

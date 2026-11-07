@@ -1,0 +1,168 @@
+{
+  "name": "The Moon Tea",
+  "tagline": "Boba & Bites",
+  "currency": "USD",
+  "drinkOptions": [
+    { "name": "Sugar Level", "choices": ["No Added", "Less", "Regular", "Extra"] },
+    { "name": "Ice Level", "choices": ["No Added", "Less", "Regular", "Extra"] }
+  ],
+  "categories": [
+    {
+      "id": "milk-tea",
+      "name": "Milk Tea",
+      "kind": "drink",
+      "items": [
+        { "id": "the-moon-tea", "name": "The Moon Tea", "description": null, "price": null, "image": "/shop/the-moon-tea.webp", "signature": true },
+        { "id": "matcha-brown-sugar", "name": "Matcha Brown Sugar", "description": null, "price": null, "image": "/shop/matcha-brown-sugar.webp" },
+        { "id": "matcha-strawberry", "name": "Matcha Strawberry", "description": null, "price": null, "image": "/shop/matcha-strawberry.webp" },
+        { "id": "korean-strawberry", "name": "Korean Strawberry", "description": null, "price": null, "image": "/shop/korean-strawberry.webp" },
+        { "id": "taro-island", "name": "Taro Island", "description": null, "price": null, "image": "/shop/taro-island.webp" },
+        { "id": "golden-taro", "name": "Golden Taro", "description": null, "price": null, "image": "/shop/golden-taro.webp" },
+        { "id": "taro-ube", "name": "Taro Ube", "description": null, "price": null, "image": "/shop/taro-ube.webp" },
+        { "id": "coco-taro", "name": "Coco Taro", "description": null, "price": null, "image": "/shop/coco-taro.webp" },
+        { "id": "brown-sugar-milk-tea", "name": "Brown Sugar", "description": null, "price": null, "image": "/shop/brown-sugar-milk-tea.webp" },
+        { "id": "double-cheese", "name": "Double Cheese", "description": null, "price": null, "image": "/shop/double-cheese.webp" },
+        { "id": "cheese-oreo", "name": "Cheese Oreo", "description": null, "price": null, "image": "/shop/cheese-oreo.webp" },
+        { "id": "tiramisu", "name": "Tiramisu", "description": null, "price": null, "image": "/shop/tiramisu.webp" },
+        { "id": "thai-green-tea", "name": "Thai Green Tea", "description": null, "price": null, "image": "/shop/thai-green-tea.webp" },
+        { "id": "thai-red-tea", "name": "Thai Red Tea", "description": null, "price": null, "image": "/shop/thai-red-tea.webp" },
+        { "id": "jasmine-milk-tea", "name": "Jasmine Milk Tea", "description": null, "price": null, "image": "/shop/jasmine-milk-tea.webp" }
+      ]
+    },
+    {
+      "id": "fruit-tea",
+      "name": "Fruit Tea",
+      "kind": "drink",
+      "items": [
+        { "id": "sunset-vibe", "name": "Sunset Vibe", "description": null, "price": null, "image": "/shop/sunset-vibe.webp" },
+        { "id": "tropical-fruit-tea", "name": "Tropical Fruit Tea", "description": null, "price": null, "image": "/shop/tropical-fruit-tea.webp" },
+        { "id": "hawaii-aloha", "name": "Hawaii Aloha", "description": null, "price": null, "image": "/shop/hawaii-aloha.webp" },
+        { "id": "purple-rain", "name": "Purple Rain", "description": null, "price": null, "image": "/shop/purple-rain.webp" },
+        { "id": "peachy-cloud", "name": "Peachy Cloud", "description": null, "price": null, "image": "/shop/peachy-cloud.webp" },
+        { "id": "island-time", "name": "Island Time", "description": null, "price": null, "image": "/shop/island-time.webp" },
+        { "id": "sunny-lychee", "name": "Sunny Lychee", "description": null, "price": null, "image": "/shop/sunny-lychee.webp" },
+        { "id": "passion-chill", "name": "Passion Chill", "description": null, "price": null, "image": "/shop/passion-chill.webp" },
+        { "id": "pink-rose", "name": "Pink Rose", "description": null, "price": null, "image": "/shop/pink-rose.webp" },
+        { "id": "orange-guava", "name": "Orange Guava", "description": null, "price": null, "image": "/shop/orange-guava.webp" },
+        { "id": "sweet-sunshine", "name": "Sweet Sunshine", "description": null, "price": null, "image": "/shop/sweet-sunshine.webp" },
+        { "id": "strawberry-fruit-tea", "name": "Strawberry Fruit Tea", "description": null, "price": null, "image": null, "group": "Classic" },
+        { "id": "peach-fruit-tea", "name": "Peach Fruit Tea", "description": null, "price": null, "image": null, "group": "Classic" },
+        { "id": "guava-fruit-tea", "name": "Guava Fruit Tea", "description": null, "price": null, "image": null, "group": "Classic" },
+        { "id": "pineapple-fruit-tea", "name": "Pineapple Fruit Tea", "description": null, "price": null, "image": null, "group": "Classic" },
+        { "id": "lychee-fruit-tea", "name": "Lychee Fruit Tea", "description": null, "price": null, "image": null, "group": "Classic" },
+        { "id": "passion-fruit-tea", "name": "Passion Fruit Tea", "description": null, "price": null, "image": null, "group": "Classic" },
+        { "id": "grape-fruit-tea", "name": "Grape Fruit Tea", "description": null, "price": null, "image": null, "group": "Classic" },
+        { "id": "mango-fruit-tea", "name": "Mango Fruit Tea", "description": null, "price": null, "image": null, "group": "Classic" }
+      ]
+    },
+    {
+      "id": "smoothie",
+      "name": "Smoothie",
+      "kind": "drink",
+      "items": [
+        { "id": "nutella-banana", "name": "Nutella Banana", "description": null, "price": null, "image": "/shop/nutella-banana.webp" },
+        { "id": "pecona", "name": "Pecona", "description": "Peanut butter with coconut and banana.", "price": null, "image": "/shop/pecona.webp" },
+        { "id": "biscoff", "name": "Biscoff", "description": null, "price": null, "image": "/shop/biscoff.webp" },
+        { "id": "cookie-and-cream", "name": "Cookie & Cream", "description": null, "price": null, "image": "/shop/cookie-and-cream.webp" },
+        { "id": "cocomango", "name": "Cocomango", "description": null, "price": null, "image": "/shop/cocomango.webp" },
+        { "id": "mangonada", "name": "Mangonada", "description": null, "price": null, "image": "/shop/mangonada.webp" },
+        { "id": "brown-sugar-smoothie", "name": "Brown Sugar", "description": null, "price": null, "image": "/shop/brown-sugar-smoothie.webp" },
+        { "id": "lychee-strawberry", "name": "Lychee Strawberry", "description": null, "price": null, "image": "/shop/lychee-strawberry.webp" },
+        { "id": "coconut-strawberry", "name": "Coconut Strawberry", "description": null, "price": null, "image": "/shop/coconut-strawberry.webp" },
+        { "id": "snow-strawberry", "name": "Snow Strawberry", "description": null, "price": null, "image": "/shop/snow-strawberry.webp" },
+        { "id": "thai-coconut", "name": "Thai Coconut", "description": null, "price": null, "image": "/shop/thai-coconut.webp" },
+        { "id": "thai-oreo", "name": "Thai Oreo", "description": null, "price": null, "image": "/shop/thai-oreo.webp" },
+        { "id": "taro-smoothie", "name": "Taro", "description": null, "price": null, "image": "/shop/taro-smoothie.webp" },
+        { "id": "honeydew", "name": "Honeydew", "description": null, "price": null, "image": "/shop/honeydew.webp" }
+      ]
+    },
+    {
+      "id": "coffee",
+      "name": "Coffee",
+      "kind": "drink",
+      "items": [
+        { "id": "creme-brulee-coffee", "name": "Creme Brulee Coffee", "description": null, "price": null, "image": "/shop/creme-brulee-coffee.webp" },
+        { "id": "vietnamese-coffee", "name": "Vietnamese Coffee", "description": null, "price": null, "image": "/shop/vietnamese-coffee.webp" },
+        { "id": "matcha-coffee", "name": "Matcha Coffee", "description": null, "price": null, "image": null },
+        { "id": "ube-coffee", "name": "Ube Coffee", "description": null, "price": null, "image": null },
+        { "id": "vietnamese-egg-coffee", "name": "Vietnamese Egg Coffee", "description": null, "price": null, "image": null },
+        { "id": "coco-coffee", "name": "Coco Coffee", "description": null, "price": null, "image": null },
+        { "id": "peanut-butter-coffee", "name": "Peanut Butter Coffee", "description": null, "price": null, "image": null }
+      ]
+    },
+    {
+      "id": "matcha",
+      "name": "Matcha",
+      "kind": "drink",
+      "items": [
+        { "id": "matcha-cheese-foam", "name": "Matcha Cheese Foam", "description": null, "price": null, "image": "/shop/matcha-cheese-foam.webp" },
+        { "id": "floral-matcha", "name": "Floral Matcha", "description": null, "price": null, "image": "/shop/floral-matcha.webp" },
+        { "id": "double-matcha", "name": "Double Matcha", "description": null, "price": null, "image": null },
+        { "id": "matcha-mango", "name": "Matcha Mango", "description": null, "price": null, "image": null },
+        { "id": "matcha-taro", "name": "Matcha Taro", "description": null, "price": null, "image": null },
+        { "id": "coco-matcha", "name": "Coco Matcha", "description": null, "price": null, "image": null },
+        { "id": "banana-matcha", "name": "Banana Matcha", "description": null, "price": null, "image": null }
+      ]
+    },
+    {
+      "id": "toppings",
+      "name": "Toppings",
+      "kind": "topping",
+      "items": [
+        { "id": "tapioca", "name": "Tapioca", "description": null, "price": 0.75, "image": null },
+        { "id": "crystal-boba", "name": "Crystal Boba", "description": null, "price": 0.75, "image": null },
+        { "id": "egg-pudding", "name": "Egg Pudding", "description": null, "price": 0.75, "image": null },
+        { "id": "egg-foam", "name": "Egg Foam", "description": null, "price": 0.75, "image": null },
+        { "id": "kiwi-popping", "name": "Kiwi Popping", "description": null, "price": 0.75, "image": null },
+        { "id": "lychee-popping", "name": "Lychee Popping", "description": null, "price": 0.75, "image": null },
+        { "id": "mango-popping", "name": "Mango Popping", "description": null, "price": 0.75, "image": null },
+        { "id": "strawberry-popping", "name": "Strawberry Popping", "description": null, "price": 0.75, "image": null },
+        { "id": "blueberry-popping", "name": "Blueberry Popping", "description": null, "price": 0.75, "image": null },
+        { "id": "peach-popping", "name": "Peach Popping", "description": null, "price": 0.75, "image": null },
+        { "id": "lychee-jelly", "name": "Lychee Jelly", "description": null, "price": 0.75, "image": null },
+        { "id": "rainbow-jelly", "name": "Rainbow Jelly", "description": null, "price": 0.75, "image": null },
+        { "id": "coconut-jelly", "name": "Coconut Jelly", "description": null, "price": 0.75, "image": null },
+        { "id": "grass-jelly", "name": "Grass Jelly", "description": null, "price": 0.75, "image": null },
+        { "id": "cheese-foam", "name": "Cheese Foam", "description": null, "price": 0.75, "image": null },
+        { "id": "taro-foam", "name": "Taro Foam", "description": null, "price": 0.75, "image": null },
+        { "id": "matcha-foam", "name": "Matcha Foam", "description": null, "price": 0.75, "image": null },
+        { "id": "house-foam", "name": "House Foam", "description": null, "price": 0.75, "image": null }
+      ]
+    },
+    {
+      "id": "korean-corndog",
+      "name": "Korean Corndog",
+      "kind": "food",
+      "items": [
+        { "id": "corndog-sausage", "name": "Sausage", "description": null, "price": null, "image": "/shop/corndog-sausage.webp", "group": "Inside" },
+        { "id": "corndog-half-and-half", "name": "Half & Half", "description": null, "price": null, "image": "/shop/corndog-half-and-half.webp", "group": "Inside" },
+        { "id": "corndog-cheese", "name": "Cheese", "description": null, "price": null, "image": "/shop/corndog-cheese.webp", "group": "Inside" },
+        { "id": "corndog-hot-cheeto", "name": "Hot Cheeto", "description": null, "price": null, "image": "/shop/corndog-hot-cheeto.webp", "group": "Outside" },
+        { "id": "corndog-potato", "name": "Potato", "description": null, "price": null, "image": "/shop/corndog-potato.webp", "group": "Outside" },
+        { "id": "corndog-original", "name": "Original", "description": null, "price": null, "image": "/shop/corndog-original.webp", "group": "Outside" },
+        { "id": "corndog-corn-flakes", "name": "Corn Flakes", "description": null, "price": null, "image": "/shop/corndog-corn-flakes.webp", "group": "Outside" },
+        { "id": "corndog-fruity-cereal", "name": "Fruity Cereal", "description": null, "price": null, "image": "/shop/corndog-fruity-cereal.webp", "group": "Outside" },
+        { "id": "corndog-ramen", "name": "Ramen", "description": null, "price": null, "image": "/shop/corndog-ramen.webp", "group": "Outside" }
+      ]
+    },
+    {
+      "id": "buldak-elote",
+      "name": "Buldak Elote",
+      "kind": "food",
+      "items": [
+        { "id": "buldak-elote", "name": "Buldak Elote", "description": null, "price": null, "image": "/shop/buldak-elote.webp", "ingredients": ["Carbonara Buldak", "Corn", "Cotija Cheese", "Hot Cheeto", "Nacho Cheese"] }
+      ]
+    },
+    {
+      "id": "sides",
+      "name": "Sides",
+      "kind": "food",
+      "items": [
+        { "id": "popcorn-chicken", "name": "Popcorn Chicken", "description": null, "price": null, "image": "/shop/popcorn-chicken.webp", "options": [{ "name": "Flavor", "choices": ["Salt & Pepper", "Korean Spicy"] }] },
+        { "id": "onion-ring", "name": "Onion Ring", "description": null, "price": null, "image": "/shop/onion-ring.webp" },
+        { "id": "tornado-fry", "name": "Tornado Fry", "description": null, "price": null, "image": "/shop/tornado-fry.webp", "options": [{ "name": "Seasoning", "choices": ["Parmesan", "Cheddar", "Cajun"] }] },
+        { "id": "french-fry", "name": "French Fry", "description": null, "price": null, "image": "/shop/french-fry.webp", "options": [{ "name": "Seasoning", "choices": ["Parmesan", "Cheddar", "Cajun"] }] }
+      ]
+    }
+  ]
+}

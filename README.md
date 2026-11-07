@@ -66,7 +66,7 @@ isn't even installed. Safe to drop.
 
 | Route | What it is |
 |---|---|
-| `/login` | Staff sign-in. **Every route except `/menu`, `/order/online`, `/login` and the `/staff-calendar/<token>.ics` feeds needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
+| `/login` | Staff sign-in. **Every route except `/menu`, `/shop`, `/order/online`, `/login` and the `/staff-calendar/<token>.ics` feeds needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
 | `/admin/menu` | Manage the customer menu: Available / Sold out / Hidden, reorder, add and edit items with a photo |
 | `/admin/popups` | Manage the customer pop-up calendar: add, edit, copy to a new date, delete |
 | `/admin/schedule` | **Staff schedule.** Weekly shifts, one-day changes, days off, and each employee's private calendar link. See [Staff schedule](#staff-schedule) |
@@ -80,6 +80,7 @@ isn't even installed. Safe to drop.
 | `/summary` | Sales summary with date-range pills, per-category and per-payment-method breakdown |
 | `/inventory` | Inventory counting — par/restock levels, prices, locations, case sizes, employee PIN auth |
 | `/menu` | **Public customer site.** Menu with photos and descriptions, plus the pop-up calendar. See [Customer site](#customer-site) |
+| `/shop` | **Public main-shop site.** The full shop menu (drinks, toppings, food) from the printed menu boards. See [Shop site](#shop-site) |
 | `/cashapp` | Manages the list of Cash App cashtags and picks the active one for receipt QR codes (stored in `localStorage`) |
 | `POST /api/receipts/process` | ⚠️ **Stub.** Returns hardcoded `buildMockExtraction()` data. Nothing in the app calls it |
 
@@ -110,9 +111,32 @@ table, etc.). It needs no sign-in.
 
 ---
 
+## Shop site
+
+`/shop` is the customer page for the main shop, in the same style as the pop-up site
+(`/menu`). It needs no sign-in.
+
+- **The menu is a JSON file:** `lib/shop/menu.json`, transcribed from the shop's printed
+  menu boards. Categories in page order (`milk-tea`, `fruit-tea`, `smoothie`, `coffee`,
+  `matcha`, `toppings`, `korean-corndog`, `buldak-elote`, `sides`), each with its items.
+  Edit it and redeploy to change the shop menu; it is not in Supabase and `/admin/menu` doesn't touch it.
+- **Item fields:** `id` (unique across the menu), `name`, `description`, `price`, `image`, and
+  optionally `group` (the corndog's `Inside` / `Outside` steps, the classic fruit teas),
+  `options` (e.g. a fry seasoning), `ingredients`, and `signature`. The boards print no drink
+  prices, so `price` is `null` except the $0.75 toppings; fill one in and the page shows it.
+  Sugar and ice levels are `drinkOptions` at the top.
+- **Photos** are in `public/shop/`, cut out of the menu boards. A drink with no `image`
+  is listed by name under its photo grid (like the classic fruit teas).
+- How each category reads (eyebrow, blurb) is `COPY` in `app/shop/page.jsx`; a new category
+  in the JSON shows up without it, under its own name. `lib/shop/menu.test.js` checks the
+  file: unique ids, every photo exists, and no unused photos in `public/shop/`.
+- The page links to `/menu#popups` for pop-up dates and shows the next pop-up when there is one.
+
+---
+
 ## Accessibility
 
-The customer site and the staff site editors are checked against WCAG 2.2 AA with
+The customer sites (`/menu`, `/shop`) and the staff site editors are checked against WCAG 2.2 AA with
 axe-core (0 violations) plus keyboard testing. Keep these when changing them:
 
 - **Colour:** `moon-caramel` is a fill. Put `moon-ink` text on it, never white
@@ -294,7 +318,7 @@ delete from public.activity_log where created_at < now() - interval '90 days';
 | `npm run build` | Production build |
 | `npm start` | Serve the production build |
 | `npm run lint` | `next lint` |
-| `npm test` | `node --test lib/**/*.test.js` — covers the catalog, order model, payment methods, date ranges, and the activity log helpers |
+| `npm test` | `node --test lib/**/*.test.js` — covers the catalog, order model, payment methods, date ranges, the activity log helpers, and the shop menu JSON |
 | `npm run print-server` | USB ESC/POS print server on :3333 |
 
 `lib/package.json` exists only to declare `"type": "module"` for `lib/`, so `node --test`
