@@ -12,8 +12,11 @@ export const viewport = {
 
 const MainLayout = ({ children }) => {
     return (
-        <html lang='en' className='h-full'>
-            <body className='h-full'>
+        // Browser extensions (Grammarly, dark-mode and translate tools) stamp their
+        // own attributes on <html> and <body> before React loads. Ignore those two
+        // tags' attributes only; mismatches anywhere inside are still reported.
+        <html lang='en' className='h-full' suppressHydrationWarning>
+            <body className='h-full' suppressHydrationWarning>
                 {/* The page's one main landmark; pages use plain containers inside it. */}
                 <main className='h-full'>{children}</main>
             </body>
