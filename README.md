@@ -20,12 +20,13 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:3000> — `/` redirects to `/vendor`, the internal hub.
+Open <http://localhost:3000> — `/` opens the shop's customer page (`/shop`). Staff sign in at
+<http://localhost:3000/login>, which leads to `/vendor`, the internal hub.
 
 **On a phone or iPad on the same Wi-Fi:** `npm run dev` prints a `Network:` address
 (e.g. `http://192.168.1.20:3000`). Open that address plus the page: `/shop` and `/menu`
-need no sign-in. Everything else (including the bare address, which goes to `/vendor`)
-asks for the staff password, so `STAFF_PASSWORD` must be in `.env.local`; restart
+(and the bare address, which opens `/shop`) need no sign-in. `/login` and every staff page
+ask for the staff password, so `STAFF_PASSWORD` must be in `.env.local`; restart
 `npm run dev` after changing it. If the phone can't connect at all, allow Node through the
 computer's firewall.
 
@@ -73,12 +74,12 @@ isn't even installed. Safe to drop.
 
 | Route | What it is |
 |---|---|
-| `/login` | Staff sign-in. **Every route except `/menu`, `/shop`, `/order/online`, `/login` and the `/staff-calendar/<token>.ics` feeds needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
+| `/login` | Staff sign-in. **Every route except `/`, `/menu`, `/shop`, `/order/online`, `/login` and the `/staff-calendar/<token>.ics` feeds needs the staff password** (enforced in `middleware.js`; a device stays signed in for 30 days, and changing `STAFF_PASSWORD` signs everyone out) |
 | `/admin/menu` | Manage the customer menu: Available / Sold out / Hidden, reorder, add and edit items with a photo |
 | `/admin/popups` | Manage the customer pop-up calendar: add, edit, copy to a new date, delete |
 | `/admin/schedule` | **Staff schedule.** Weekly shifts, one-day changes, days off, and each employee's private calendar link. See [Staff schedule](#staff-schedule) |
 | `/admin/logs` | **iPad activity log**, live: printer and card-reader connections, prints, payments, orders, station taps. See [iPad activity log](#ipad-activity-log) |
-| `/` | Redirect to `/vendor` |
+| `/` | Redirect to `/shop`, the customer home page. Staff go to `/login`, which leads to `/vendor` |
 | `/vendor` | Internal hub — links to Order Track, Inventory, Sales Summary |
 | `/order` | **The staff till.** Cart, payment method, receipt printing, today's history |
 | `/order/online` | Customer-facing self-order. Writes to the same `orders` table but never prints |

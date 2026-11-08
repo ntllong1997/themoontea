@@ -1801,7 +1801,7 @@ export default function InventoryPage() {
                 {/* Row 1: title + user */}
                 <div className='flex items-center justify-between px-4 py-3 sm:px-6'>
                     <div>
-                        <Link href='/' className='text-xl font-bold sm:text-2xl hover:opacity-70 transition-opacity'>Inventory</Link>
+                        <Link href='/vendor' className='text-xl font-bold sm:text-2xl hover:opacity-70 transition-opacity'>Inventory</Link>
                         <p className='text-xs text-gray-500 sm:text-sm'>The Moon Tea · Palmhurst, TX</p>
                     </div>
                     <div className='text-right'>
