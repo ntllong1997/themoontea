@@ -70,8 +70,9 @@ function heroDrinks(drinks) {
 // Sugar and ice dots, from "No Added" to "Extra", as on the menu board.
 const LEVEL_COLORS = ['#F6DF8E', '#EBC544', '#D79E57', '#A86F4C'];
 
-// Sticky header height, so a tapped section isn't hidden under it.
-const SCROLL_MARGIN = 'scroll-mt-28 sm:scroll-mt-20';
+// Sticky header height, so a tapped section isn't hidden under it. The
+// header is one row at every width (the phone links fold into the burger).
+const SCROLL_MARGIN = 'scroll-mt-20';
 
 export default async function ShopPage() {
     const popups = await getPublicPopups();
@@ -100,7 +101,7 @@ export default async function ShopPage() {
             >
                 Skip to the menu
             </a>
-            <SiteHeader nav={nav} inlineFrom='sm' spread />
+            <SiteHeader nav={nav} inlineFrom='sm' burger />
             <Hero drinks={heroDrinks(drinks)} count={drinkCount(menu)} hasDrinks={drinks.length > 0} hasFood={food.length > 0} />
 
             {/* Big sections span the row; on wide screens small ones (coffee, matcha) pair up side by side. */}
