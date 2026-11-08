@@ -1,16 +1,19 @@
 // The sticky header shared by the customer sites (/menu and /shop): the logo,
 // and a pill per section. An `accent` link is drawn dark, for the one place
 // the page most wants people to go next.
+//
+// Below `inlineFrom` the pills move to a row under the logo. With `spread`
+// (for a few links) that row shares the full width evenly so every link is
+// in view; otherwise it's one thumb-swipe row that scrolls sideways.
 import Image from 'next/image';
 
 // Full class names (not built from the breakpoint) so Tailwind can see them.
-// Below the breakpoint the pills become one thumb-swipe row under the logo.
 const BREAKPOINTS = {
+    sm: { inline: 'ml-auto hidden sm:block', row: 'sm:hidden' },
     md: { inline: 'ml-auto hidden md:block', row: 'md:hidden' },
-    xl: { inline: 'ml-auto hidden xl:block', row: 'xl:hidden' },
 };
 
-export default function SiteHeader({ nav, title = 'The Moon Tea', inlineFrom = 'md' }) {
+export default function SiteHeader({ nav, title = 'The Moon Tea', inlineFrom = 'md', spread = false }) {
     const layout = BREAKPOINTS[inlineFrom];
     return (
         <header className='sticky top-0 z-30 border-b border-moon-caramel/20 bg-moon-cream/95 backdrop-blur'>
@@ -40,18 +43,21 @@ export default function SiteHeader({ nav, title = 'The Moon Tea', inlineFrom = '
             </div>
             <nav
                 aria-label='Menu sections'
-                className={`overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${layout.row}`}
+                className={`${spread ? '' : 'overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'} ${layout.row}`}
             >
-                <ul className='flex w-max gap-2 px-4 pb-2 text-sm font-bold'>
+                <ul
+                    className={spread ? 'grid gap-1.5 px-4 pb-2 text-sm font-bold' : 'flex w-max gap-2 px-4 pb-2 text-sm font-bold'}
+                    style={spread ? { gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` } : undefined}
+                >
                     {nav.map((link) => (
                         <li key={link.href}>
                             <a
                                 href={link.href}
-                                className={
+                                className={`block rounded-full py-2 ${spread ? 'px-1 text-center' : 'px-4'} ${
                                     link.accent
-                                        ? 'block rounded-full bg-moon-ink px-4 py-2 text-white active:bg-moon-orange'
-                                        : 'block rounded-full bg-white px-4 py-2 ring-1 ring-moon-caramel/30 active:bg-moon-caramel active:text-white'
-                                }
+                                        ? 'bg-moon-ink text-white active:bg-moon-orange'
+                                        : 'bg-white ring-1 ring-moon-caramel/30 active:bg-moon-caramel active:text-white'
+                                }`}
                             >
                                 {link.label}
                             </a>

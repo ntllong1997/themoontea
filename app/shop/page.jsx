@@ -28,7 +28,7 @@ const COPY = {
         blurb: 'From our signature The Moon Tea to taro, matcha, Thai tea and cheesy favorites.',
     },
     'fruit-tea': { eyebrow: 'Fruity', blurb: 'Signature fruit tea blends, or keep it simple with a classic.' },
-    smoothie: { eyebrow: 'Blended', title: 'Smoothies', nav: 'Smoothies', blurb: 'Thick and icy, from Nutella Banana to Mangonada.' },
+    smoothie: { eyebrow: 'Blended', title: 'Smoothies', blurb: 'Thick and icy, from Nutella Banana to Mangonada.' },
     coffee: { eyebrow: 'Wake up', blurb: 'Creme brulee, Vietnamese, ube, coco and more.' },
     matcha: { eyebrow: 'Go green', blurb: 'Cheese foam, floral, mango, taro and more.' },
     toppings: {
@@ -39,12 +39,10 @@ const COPY = {
     'korean-corndog': {
         eyebrow: 'Korean',
         title: 'Corndogs',
-        nav: 'Corndogs',
         blurb: 'Golden and crunchy outside. Build yours in two steps.',
     },
     'buldak-elote': {
         eyebrow: 'Spicy',
-        nav: 'Elote',
         blurb: 'Carbonara Buldak noodles with corn, nacho cheese, cotija cheese and Hot Cheeto.',
     },
     sides: { eyebrow: 'To share', blurb: 'Crispy, crunchy and made for sharing.' },
@@ -56,7 +54,6 @@ const withCopy = (section) => {
         ...section,
         eyebrow: copy.eyebrow ?? 'More',
         title: copy.title ?? section.name,
-        navLabel: copy.nav ?? section.name,
         blurb: copy.blurb ?? '',
     };
 };
@@ -74,7 +71,7 @@ function heroDrinks(drinks) {
 const LEVEL_COLORS = ['#F6DF8E', '#EBC544', '#D79E57', '#A86F4C'];
 
 // Sticky header height, so a tapped section isn't hidden under it.
-const SCROLL_MARGIN = 'scroll-mt-28 xl:scroll-mt-20';
+const SCROLL_MARGIN = 'scroll-mt-28 sm:scroll-mt-20';
 
 export default async function ShopPage() {
     const popups = await getPublicPopups();
@@ -82,11 +79,13 @@ export default async function ShopPage() {
     const drinks = sections.filter((s) => s.kind === 'drink');
     const toppings = sections.find((s) => s.kind === 'topping');
     const food = sections.filter((s) => s.kind !== 'drink' && s.kind !== 'topping');
+    // Just the big stops; each part of the menu is a scroll away from there.
     const nav = [
-        ...[...drinks, toppings, ...food].filter(Boolean).map((s) => ({ href: `#${s.id}`, label: s.navLabel })),
+        drinks.length > 0 && { href: '#drinks', label: 'Drinks' },
+        food.length > 0 && { href: '#food', label: 'Food' },
         { href: POPUPS_HREF, label: 'Pop-ups' },
         { href: '#visit', label: 'Visit', accent: true },
-    ];
+    ].filter(Boolean);
     return (
         <div className='bg-[radial-gradient(ellipse_at_top,_#FDF8F1_0%,_#F8EFE3_60%)]'>
             <script
@@ -96,16 +95,16 @@ export default async function ShopPage() {
             />
             {/* First thing a keyboard or screen-reader user reaches. */}
             <a
-                href={`#${drinks[0]?.id ?? 'top'}`}
+                href={drinks.length ? '#drinks' : '#visit'}
                 className='sr-only rounded-full bg-moon-ink px-4 py-2 font-bold text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50'
             >
                 Skip to the menu
             </a>
-            <SiteHeader nav={nav} inlineFrom='xl' />
-            <Hero drinks={heroDrinks(drinks)} count={drinkCount(menu)} drinksId={drinks[0]?.id} foodId={food[0]?.id} />
+            <SiteHeader nav={nav} inlineFrom='sm' spread />
+            <Hero drinks={heroDrinks(drinks)} count={drinkCount(menu)} hasDrinks={drinks.length > 0} hasFood={food.length > 0} />
 
-            {/* Big sections span the row; small ones (coffee, matcha) pair up side by side. */}
-            <div className='mx-auto grid max-w-6xl gap-x-10 px-4 sm:px-6 md:grid-cols-2'>
+            {/* Big sections span the row; on wide screens small ones (coffee, matcha) pair up side by side. */}
+            <div id='drinks' className={`${SCROLL_MARGIN} mx-auto grid max-w-6xl gap-x-10 px-4 sm:px-6 lg:grid-cols-2`}>
                 {drinks.map((section) => (
                     <DrinkSection key={section.id} section={section} />
                 ))}
@@ -113,15 +112,17 @@ export default async function ShopPage() {
 
             {toppings && <CustomizeSection section={toppings} options={menu.drinkOptions ?? []} />}
 
-            {food.map((section) =>
-                section.groups.some((group) => group.name) ? (
-                    <BuildSection key={section.id} section={section} />
-                ) : section.items.length === 1 ? (
-                    <FeatureSection key={section.id} section={section} />
-                ) : (
-                    <FoodGridSection key={section.id} section={section} />
-                )
-            )}
+            <div id='food' className={SCROLL_MARGIN}>
+                {food.map((section) =>
+                    section.groups.some((group) => group.name) ? (
+                        <BuildSection key={section.id} section={section} />
+                    ) : section.items.length === 1 ? (
+                        <FeatureSection key={section.id} section={section} />
+                    ) : (
+                        <FoodGridSection key={section.id} section={section} />
+                    )
+                )}
+            </div>
 
             <VisitSection />
             <PopupBand popups={popups} />
@@ -130,7 +131,7 @@ export default async function ShopPage() {
     );
 }
 
-function Hero({ drinks, count, drinksId, foodId }) {
+function Hero({ drinks, count, hasDrinks, hasFood }) {
     return (
         <section id='top' className='relative overflow-hidden'>
             <div className='mx-auto grid max-w-6xl items-center gap-6 px-4 pb-8 pt-6 sm:px-6 md:grid-cols-[1.1fr_1fr] md:gap-8 md:pb-16 md:pt-16'>
@@ -146,17 +147,17 @@ function Hero({ drinks, count, drinksId, foodId }) {
                         plus Korean corndogs, Buldak elote and crispy sides.
                     </p>
                     <div className='mt-5 grid grid-cols-2 gap-2 sm:mt-6 sm:flex sm:flex-wrap sm:gap-3'>
-                        {drinksId && (
+                        {hasDrinks && (
                             <a
-                                href={`#${drinksId}`}
+                                href='#drinks'
                                 className='rounded-full bg-moon-ink px-4 py-3 text-center text-sm font-bold text-white shadow-sm transition hover:bg-moon-orange sm:px-6 sm:text-base'
                             >
                                 See the drinks
                             </a>
                         )}
-                        {foodId && (
+                        {hasFood && (
                             <a
-                                href={`#${foodId}`}
+                                href='#food'
                                 className='rounded-full bg-moon-caramel px-4 py-3 text-center text-sm font-bold text-moon-ink shadow-sm transition hover:bg-moon-orange hover:text-white sm:px-6 sm:text-base'
                             >
                                 See the food
@@ -170,7 +171,10 @@ function Hero({ drinks, count, drinksId, foodId }) {
                             className='inline-flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-semibold text-moon-ink shadow-sm ring-1 ring-moon-caramel/30 transition hover:bg-white'
                         >
                             <MapPin aria-hidden className='h-4 w-4 shrink-0 text-moon-orange' />
-                            {info.address.street}, {info.address.city}
+                            <span>
+                                {info.address.street}
+                                <span className='hidden sm:inline'>, {info.address.city}</span>
+                            </span>
                         </a>
                     </div>
                 </div>
@@ -202,7 +206,8 @@ function Hero({ drinks, count, drinksId, foodId }) {
 function DrinkSection({ section }) {
     const photos = section.items.filter((item) => item.image);
     const extras = groupItems(section.items.filter((item) => !item.image));
-    // Up to three photos fit beside their list in half a row.
+    // A few photos sit beside their list (or above it, when the section only
+    // has half the row on a wide screen); a long grid takes the full row.
     const small = photos.length <= 3;
     const tiles = photos.map((item) =>
         item.signature ? (
@@ -213,7 +218,7 @@ function DrinkSection({ section }) {
                 item={item}
                 sizes={
                     small
-                        ? '(min-width: 768px) 130px, (min-width: 640px) 25vw, 32vw'
+                        ? '(min-width: 640px) 144px, 32vw'
                         : '(min-width: 1024px) 150px, (min-width: 768px) 20vw, (min-width: 640px) 25vw, 32vw'
                 }
             />
@@ -227,12 +232,12 @@ function DrinkSection({ section }) {
         />
     ));
     return (
-        <section id={section.id} className={`${SCROLL_MARGIN} py-8 sm:py-12 ${small ? '' : 'md:col-span-2'}`}>
+        <section id={section.id} className={`${SCROLL_MARGIN} py-8 sm:py-12 ${small ? '' : 'lg:col-span-2'}`}>
             <SectionHeading eyebrow={section.eyebrow} title={section.title} price={section.price} />
             {section.blurb && <p className='mb-5 max-w-xl text-moon-muted sm:mb-6'>{section.blurb}</p>}
             {small ? (
-                <div className='grid gap-3 sm:grid-cols-2 sm:items-start sm:gap-4'>
-                    <ul className='grid grid-cols-3 gap-2.5 sm:grid-cols-2 sm:gap-4'>{tiles}</ul>
+                <div className='grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-start sm:gap-4 lg:grid-cols-1'>
+                    <ul className='grid grid-cols-3 gap-2.5 sm:grid-cols-[repeat(2,9rem)] sm:gap-4'>{tiles}</ul>
                     <div className='space-y-3'>{lists}</div>
                 </div>
             ) : (
@@ -260,7 +265,9 @@ function DrinkTile({ item, sizes }) {
                 />
             </div>
             <div className='flex flex-1 flex-col items-center justify-center gap-0.5 px-1.5 py-2 text-center sm:px-2 sm:py-3'>
-                <h3 className='text-xs font-extrabold uppercase leading-tight tracking-wide sm:text-sm'>{item.name}</h3>
+                <h3 className='hyphens-auto break-words text-xs font-extrabold uppercase leading-tight tracking-wide sm:text-sm'>
+                    {item.name}
+                </h3>
                 {item.description && <p className='text-xs leading-snug text-moon-muted'>{item.description}</p>}
                 {item.price && <p className='text-sm font-bold text-moon-orange'>{item.price}</p>}
             </div>
@@ -508,7 +515,7 @@ function VisitSection() {
                 <p className='mb-6 max-w-xl text-moon-muted sm:mb-8'>
                     Find us on N Conway Ave in {info.address.city}. Stop by for a drink and a bite.
                 </p>
-                <div className='grid gap-4 md:grid-cols-2 md:gap-6'>
+                <div className='grid gap-4 lg:grid-cols-2 lg:gap-6'>
                     <div className='flex flex-col gap-5 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-moon-caramel/20 sm:p-6'>
                         <div className='min-h-[2.5rem]'>
                             <ShopOpenStatus info={info} />
@@ -526,18 +533,18 @@ function VisitSection() {
                                 {info.phone}
                             </a>
                         </div>
-                        <div className='mt-auto grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3'>
+                        <div className='mt-auto flex flex-wrap gap-2 sm:gap-3'>
                             <a
                                 href={mapsUrl(info)}
                                 target='_blank'
                                 rel='noopener noreferrer'
-                                className='rounded-full bg-moon-ink px-4 py-3 text-center text-sm font-bold text-white shadow-sm transition hover:bg-moon-orange sm:px-6 sm:text-base'
+                                className='flex-1 whitespace-nowrap rounded-full bg-moon-ink px-4 py-3 text-center text-sm font-bold text-white shadow-sm transition hover:bg-moon-orange sm:flex-none sm:px-6 sm:text-base'
                             >
                                 Get directions
                             </a>
                             <a
                                 href={telHref(info.phone)}
-                                className='rounded-full bg-moon-caramel px-4 py-3 text-center text-sm font-bold text-moon-ink shadow-sm transition hover:bg-moon-orange hover:text-white sm:px-6 sm:text-base'
+                                className='flex-1 whitespace-nowrap rounded-full bg-moon-caramel px-4 py-3 text-center text-sm font-bold text-moon-ink shadow-sm transition hover:bg-moon-orange hover:text-white sm:flex-none sm:px-6 sm:text-base'
                             >
                                 Call the shop
                             </a>
@@ -552,10 +559,10 @@ function VisitSection() {
                             {hoursRows(info).map((row) => (
                                 <div
                                     key={row.days}
-                                    className='flex flex-col gap-0.5 rounded-2xl bg-white px-4 py-3 shadow-[0_3px_0_#241810] sm:flex-row sm:items-baseline sm:justify-between sm:gap-4'
+                                    className='flex flex-col gap-0.5 rounded-2xl bg-white px-4 py-3 shadow-[0_3px_0_#241810] sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-4'
                                 >
-                                    <dt className='font-extrabold'>{row.days}</dt>
-                                    <dd className='font-bold'>{row.time}</dd>
+                                    <dt className='whitespace-nowrap font-extrabold'>{row.days}</dt>
+                                    <dd className='whitespace-nowrap font-bold'>{row.time}</dd>
                                 </div>
                             ))}
                         </dl>
