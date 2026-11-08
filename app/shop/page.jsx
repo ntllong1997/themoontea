@@ -219,8 +219,8 @@ function DrinkSection({ section }) {
                 item={item}
                 sizes={
                     small
-                        ? '(min-width: 640px) 144px, 32vw'
-                        : '(min-width: 1024px) 150px, (min-width: 768px) 20vw, (min-width: 640px) 25vw, 32vw'
+                        ? '(min-width: 1024px) 168px, (min-width: 640px) 144px, 48vw'
+                        : '(min-width: 1024px) 180px, (min-width: 768px) 25vw, (min-width: 640px) 33vw, 48vw'
                 }
             />
         )
@@ -238,12 +238,12 @@ function DrinkSection({ section }) {
             {section.blurb && <p className='mb-5 max-w-xl text-moon-muted sm:mb-6'>{section.blurb}</p>}
             {small ? (
                 <div className='grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-start sm:gap-4 lg:grid-cols-1'>
-                    <ul className='grid grid-cols-3 gap-2.5 sm:grid-cols-[repeat(2,9rem)] sm:gap-4'>{tiles}</ul>
+                    <ul className='grid grid-cols-2 gap-3 sm:grid-cols-[repeat(2,9rem)] sm:gap-4 lg:grid-cols-[repeat(2,10.5rem)]'>{tiles}</ul>
                     <div className='space-y-3'>{lists}</div>
                 </div>
             ) : (
                 <>
-                    <ul className='grid grid-flow-dense grid-cols-3 gap-2.5 sm:grid-cols-4 sm:gap-4 md:grid-cols-5 lg:grid-cols-7'>
+                    <ul className='grid grid-flow-dense grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-6'>
                         {tiles}
                     </ul>
                     {lists.length > 0 && <div className='mt-4 space-y-3'>{lists}</div>}
@@ -278,13 +278,13 @@ function DrinkTile({ item, sizes }) {
 
 function SignatureTile({ item }) {
     return (
-        <li className='group col-span-2 row-span-2 flex flex-col overflow-hidden rounded-2xl bg-moon-caramel/30 shadow-sm ring-1 ring-moon-caramel/40 sm:rounded-3xl'>
-            <div className='relative min-h-[14rem] flex-1'>
+        <li className='group col-span-2 flex flex-col overflow-hidden rounded-2xl bg-moon-caramel/30 shadow-sm ring-1 ring-moon-caramel/40 sm:row-span-2 sm:rounded-3xl'>
+            <div className='relative min-h-[18rem] flex-1 sm:min-h-[14rem]'>
                 <Image
                     src={item.image}
                     alt=''
                     fill
-                    sizes='(min-width: 1024px) 300px, (min-width: 640px) 50vw, 64vw'
+                    sizes='(min-width: 1024px) 380px, (min-width: 640px) 66vw, 96vw'
                     className='object-contain p-3 mix-blend-multiply transition duration-300 group-hover:scale-105'
                 />
             </div>
