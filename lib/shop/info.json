@@ -1,0 +1,15 @@
+{
+  "name": "The Moon Tea",
+  "address": {
+    "street": "4423 N Conway Ave #210",
+    "city": "Palmhurst",
+    "state": "TX",
+    "zip": "78573"
+  },
+  "phone": "(956) 598-5088",
+  "timeZone": "America/Chicago",
+  "hours": [
+    { "days": ["Sun", "Mon", "Tue", "Wed", "Thu"], "open": "11:30", "close": "21:00" },
+    { "days": ["Fri", "Sat"], "open": "11:30", "close": "22:00" }
+  ]
+}

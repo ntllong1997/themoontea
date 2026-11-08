@@ -80,7 +80,7 @@ isn't even installed. Safe to drop.
 | `/summary` | Sales summary with date-range pills, per-category and per-payment-method breakdown |
 | `/inventory` | Inventory counting — par/restock levels, prices, locations, case sizes, employee PIN auth |
 | `/menu` | **Public customer site.** Menu with photos and descriptions, plus the pop-up calendar. See [Customer site](#customer-site) |
-| `/shop` | **Public main-shop site.** The full shop menu (drinks, toppings, food) from the printed menu boards. See [Shop site](#shop-site) |
+| `/shop` | **Public main-shop site.** The full shop menu (drinks, toppings, food), plus address, phone and hours. See [Shop site](#shop-site) |
 | `/cashapp` | Manages the list of Cash App cashtags and picks the active one for receipt QR codes (stored in `localStorage`) |
 | `POST /api/receipts/process` | ⚠️ **Stub.** Returns hardcoded `buildMockExtraction()` data. Nothing in the app calls it |
 
@@ -130,6 +130,11 @@ table, etc.). It needs no sign-in.
 - How each category reads (eyebrow, blurb) is `COPY` in `app/shop/page.jsx`; a new category
   in the JSON shows up without it, under its own name. `lib/shop/menu.test.js` checks the
   file: unique ids, every photo exists, and no unused photos in `public/shop/`.
+- **Address, phone and hours** are in `lib/shop/info.json`. Hours are 24-hour `HH:MM` on the
+  shop's clock (`timeZone`, `America/Chicago`), one row per set of days. They feed the Visit
+  section, the footer, the "Open now · until 9 PM" line (worked out in the browser on the
+  shop's clock, so it's right for visitors in any time zone), and the schema.org data that
+  lets search engines show the shop's hours. `lib/shop/info.test.js` checks the file.
 - The page links to `/menu#popups` for pop-up dates and shows the next pop-up when there is one.
 
 ---
@@ -318,7 +323,7 @@ delete from public.activity_log where created_at < now() - interval '90 days';
 | `npm run build` | Production build |
 | `npm start` | Serve the production build |
 | `npm run lint` | `next lint` |
-| `npm test` | `node --test lib/**/*.test.js` — covers the catalog, order model, payment methods, date ranges, the activity log helpers, and the shop menu JSON |
+| `npm test` | `node --test lib/**/*.test.js` — covers the catalog, order model, payment methods, date ranges, the activity log helpers, and the shop menu and hours |
 | `npm run print-server` | USB ESC/POS print server on :3333 |
 
 `lib/package.json` exists only to declare `"type": "module"` for `lib/`, so `node --test`

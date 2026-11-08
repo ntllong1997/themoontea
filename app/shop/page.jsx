@@ -1,13 +1,18 @@
-// The main shop's customer site: the full shop menu. Items come from
-// lib/shop/menu.json (transcribed from the printed menu boards); this file
-// only decides how they look. It shares the pop-up site's look (/menu) and
+// The main shop's customer site: the full shop menu, and where and when to
+// find the shop. Items come from lib/shop/menu.json (transcribed from the
+// printed menu boards), the address and hours from lib/shop/info.json; this
+// file only decides how they look. It shares the pop-up site's look (/menu) and
 // sends people there for pop-up dates.
 import Image from 'next/image';
+import { Clock, MapPin, Phone } from 'lucide-react';
+import info from '@/lib/shop/info.json';
 import menu from '@/lib/shop/menu.json';
+import { fullAddress, hoursRows, mapsUrl, openEveryDay, structuredData, telHref } from '@/lib/shop/info';
 import { drinkCount, groupItems, shopSections } from '@/lib/shop/menu';
 import { getPublicPopups } from '@/lib/site/menuData';
 import { NextPopupTeaser } from '@/components/site/PopupCalendar';
 import SectionHeading from '@/components/site/SectionHeading';
+import ShopOpenStatus from '@/components/site/ShopOpenStatus';
 import SiteHeader from '@/components/site/SiteHeader';
 
 // The menu is in the code; this only keeps the "next pop-up" line fresh.
@@ -79,10 +84,16 @@ export default async function ShopPage() {
     const food = sections.filter((s) => s.kind !== 'drink' && s.kind !== 'topping');
     const nav = [
         ...[...drinks, toppings, ...food].filter(Boolean).map((s) => ({ href: `#${s.id}`, label: s.navLabel })),
-        { href: POPUPS_HREF, label: 'Pop-ups', accent: true },
+        { href: POPUPS_HREF, label: 'Pop-ups' },
+        { href: '#visit', label: 'Visit', accent: true },
     ];
     return (
         <div className='bg-[radial-gradient(ellipse_at_top,_#FDF8F1_0%,_#F8EFE3_60%)]'>
+            <script
+                type='application/ld+json'
+                // Our own data, but escape '<' so nothing in it can close the tag.
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData(info)).replace(/</g, '\\u003c') }}
+            />
             {/* First thing a keyboard or screen-reader user reaches. */}
             <a
                 href={`#${drinks[0]?.id ?? 'top'}`}
@@ -112,6 +123,7 @@ export default async function ShopPage() {
                 )
             )}
 
+            <VisitSection />
             <PopupBand popups={popups} />
             <Footer />
         </div>
@@ -150,6 +162,16 @@ function Hero({ drinks, count, drinksId, foodId }) {
                                 See the food
                             </a>
                         )}
+                    </div>
+                    <div className='mt-4 flex flex-wrap gap-2 sm:mt-5'>
+                        <ShopOpenStatus info={info} href='#visit' />
+                        <a
+                            href='#visit'
+                            className='inline-flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-semibold text-moon-ink shadow-sm ring-1 ring-moon-caramel/30 transition hover:bg-white'
+                        >
+                            <MapPin aria-hidden className='h-4 w-4 shrink-0 text-moon-orange' />
+                            {info.address.street}, {info.address.city}
+                        </a>
                     </div>
                 </div>
                 <div className='relative mx-auto flex w-full max-w-[260px] items-end justify-center sm:max-w-md'>
@@ -478,6 +500,73 @@ function ItemOptions({ item }) {
     ));
 }
 
+function VisitSection() {
+    return (
+        <section id='visit' className={`${SCROLL_MARGIN} py-10 sm:py-16`}>
+            <div className='mx-auto max-w-6xl px-4 sm:px-6'>
+                <SectionHeading eyebrow='Come say hi' title='Visit the Shop' />
+                <p className='mb-6 max-w-xl text-moon-muted sm:mb-8'>
+                    Find us on N Conway Ave in {info.address.city}. Stop by for a drink and a bite.
+                </p>
+                <div className='grid gap-4 md:grid-cols-2 md:gap-6'>
+                    <div className='flex flex-col gap-5 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-moon-caramel/20 sm:p-6'>
+                        <div className='min-h-[2.5rem]'>
+                            <ShopOpenStatus info={info} />
+                        </div>
+                        <div className='flex gap-3'>
+                            <MapPin aria-hidden className='mt-1 h-5 w-5 shrink-0 text-moon-orange' />
+                            <address className='not-italic'>
+                                <span className='block text-lg font-extrabold'>{info.address.street}</span>
+                                {info.address.city}, {info.address.state} {info.address.zip}
+                            </address>
+                        </div>
+                        <div className='flex gap-3'>
+                            <Phone aria-hidden className='mt-0.5 h-5 w-5 shrink-0 text-moon-orange' />
+                            <a href={telHref(info.phone)} className='text-lg font-extrabold underline-offset-4 hover:underline'>
+                                {info.phone}
+                            </a>
+                        </div>
+                        <div className='mt-auto grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3'>
+                            <a
+                                href={mapsUrl(info)}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                                className='rounded-full bg-moon-ink px-4 py-3 text-center text-sm font-bold text-white shadow-sm transition hover:bg-moon-orange sm:px-6 sm:text-base'
+                            >
+                                Get directions
+                            </a>
+                            <a
+                                href={telHref(info.phone)}
+                                className='rounded-full bg-moon-caramel px-4 py-3 text-center text-sm font-bold text-moon-ink shadow-sm transition hover:bg-moon-orange hover:text-white sm:px-6 sm:text-base'
+                            >
+                                Call the shop
+                            </a>
+                        </div>
+                    </div>
+                    <div className='rounded-3xl bg-moon-caramel p-5 text-moon-ink shadow-sm sm:p-6'>
+                        <h3 className='mb-3 flex items-center gap-2 font-display text-2xl'>
+                            <Clock aria-hidden className='h-5 w-5 shrink-0' />
+                            Hours
+                        </h3>
+                        <dl className='space-y-2'>
+                            {hoursRows(info).map((row) => (
+                                <div
+                                    key={row.days}
+                                    className='flex flex-col gap-0.5 rounded-2xl bg-white px-4 py-3 shadow-[0_3px_0_#241810] sm:flex-row sm:items-baseline sm:justify-between sm:gap-4'
+                                >
+                                    <dt className='font-extrabold'>{row.days}</dt>
+                                    <dd className='font-bold'>{row.time}</dd>
+                                </div>
+                            ))}
+                        </dl>
+                        {openEveryDay(info) && <p className='mt-4 font-bold'>Open 7 days a week.</p>}
+                    </div>
+                </div>
+            </div>
+        </section>
+    );
+}
+
 function PopupBand({ popups }) {
     return (
         <section aria-labelledby='popups-heading' className='pb-12 pt-4 sm:pb-20'>
@@ -511,6 +600,20 @@ function Footer() {
             <div className='mx-auto flex max-w-6xl flex-col items-center gap-3 px-4 text-center sm:px-6'>
                 <p className='font-display text-2xl'>The Moon Tea</p>
                 <p className='font-script text-lg text-moon-caramel'>{menu.tagline}</p>
+                <p className='text-sm'>
+                    <a href={mapsUrl(info)} target='_blank' rel='noopener noreferrer' className='underline-offset-4 hover:underline'>
+                        {fullAddress(info)}
+                    </a>
+                    <span aria-hidden> · </span>
+                    <a href={telHref(info.phone)} className='whitespace-nowrap underline-offset-4 hover:underline'>
+                        {info.phone}
+                    </a>
+                </p>
+                <p className='text-sm text-moon-cream/70'>
+                    {hoursRows(info)
+                        .map((row) => `${row.days}: ${row.time}`)
+                        .join(' · ')}
+                </p>
                 <p className='text-sm text-moon-cream/70'>
                     Every drink can be made with your choice of sugar and ice. Menu items may change.
                 </p>
