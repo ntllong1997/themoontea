@@ -20,8 +20,12 @@ export default function Dialog({ title, onClose, onSubmit, children }) {
     useEffect(() => {
         const opener = document.activeElement;
         const node = panel.current;
-        // Start on the first field, so typing can begin straight away.
-        const first = node?.querySelector('input:not([type="file"]):not([type="hidden"]), select, textarea');
+        // Start on the first field, so typing can begin straight away. A field
+        // marked data-no-autofocus is skipped (a phone would pop its keyboard
+        // over a message that's there to read, not to type).
+        const first = node?.querySelector(
+            'input:not([type="file"]):not([type="hidden"]):not([data-no-autofocus]), select:not([data-no-autofocus]), textarea:not([data-no-autofocus])'
+        );
         (first ?? node)?.focus();
 
         const onKey = (event) => {

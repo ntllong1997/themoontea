@@ -1,13 +1,15 @@
 'use client';
 
-// The schedule page's pop-ups: add a shift, change a shift, days off, and an
-// employee's calendar link.
+// The schedule page's pop-ups: add a shift, change a shift, days off, an
+// employee's calendar link, and their shifts as a text message.
 
-import { useState } from 'react';
-import { CalendarCheck, Check, Copy, MessageSquare, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarCheck, Check, Copy, MessageSquare, RefreshCw, Share2, Smartphone } from 'lucide-react';
 import Dialog from '@/components/admin/Dialog';
 import { api, jsonRequest } from '@/lib/site/adminApi';
+import { dateKey } from '@/lib/site/popups';
 import { weekdayOf } from '@/lib/schedule/schedule';
+import { defaultRangeId, scheduleText, textRanges } from '@/lib/schedule/scheduleText';
 import { everyWeekday, feedUrls, inputClass, longDate, timeRange } from './scheduleUi';
 
 function ErrorText({ error }) {
@@ -262,13 +264,13 @@ export function TimeOffDialog({ employees, employeeId = '', date, onClose, onSav
 }
 
 /** An employee's private calendar link: add it on this phone, copy it, or text it. */
-export function CalendarLinkDialog({ employee, onClose, onChanged }) {
+export function CalendarLinkDialog({ employee, onClose, onChanged, onTextInstead }) {
     const [token, setToken] = useState(employee.calendarToken);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
     const urls = feedUrls(token);
-    const message = `Hi ${employee.name}! Tap to add your Moon Tea work shifts to your phone's calendar: ${urls.webcal}  (Android / Google Calendar: ${urls.https})`;
+    const message = `Hi ${employee.name}! Tap to add your Moon Tea work shifts to your iPhone's calendar: ${urls.webcal}  (Google Calendar on a computer: Other calendars → From URL → ${urls.https})`;
 
     async function copy() {
         try {
@@ -319,10 +321,119 @@ export function CalendarLinkDialog({ employee, onClose, onChanged }) {
                 <p className='sr-only' aria-live='polite'>
                     {copied ? 'Link copied' : ''}
                 </p>
+                <div className='rounded-xl bg-gray-50 p-3 text-sm text-gray-700 ring-1 ring-gray-200'>
+                    <p className='flex items-start gap-2'>
+                        <Smartphone className='mt-0.5 h-4 w-4 shrink-0' aria-hidden />
+                        <span>
+                            <strong>On Android?</strong> Android phones can&apos;t subscribe to a calendar link. Send{' '}
+                            {employee.name} their shifts as a text instead.
+                        </span>
+                    </p>
+                    <button
+                        type='button'
+                        onClick={onTextInstead}
+                        className='mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-white py-2.5 font-semibold ring-1 ring-gray-300 hover:bg-gray-100'
+                    >
+                        <MessageSquare className='h-4 w-4' aria-hidden /> Text {employee.name} their shifts
+                    </button>
+                </div>
                 <ErrorText error={error} />
                 <button type='button' onClick={reset} disabled={busy} className='flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-black disabled:opacity-40'>
                     <RefreshCw className='h-4 w-4' aria-hidden /> Make a new link (stops the old one)
                 </button>
+            </div>
+        </Dialog>
+    );
+}
+
+/**
+ * An employee's shifts as a ready-to-send message: pick the week, check (or
+ * edit) the text, then send it as a text, copy it, or share it to WhatsApp and
+ * the like. For people whose phone can't subscribe to the calendar link.
+ */
+export function ScheduleTextDialog({ employee, schedule, onClose }) {
+    const today = dateKey(new Date());
+    const ranges = useMemo(() => textRanges(today), [today]);
+    const [rangeId, setRangeId] = useState(() => defaultRangeId(today));
+    const range = ranges.find((r) => r.id === rangeId);
+    const generated = useMemo(
+        () => scheduleText({ employee, shifts: schedule.shifts, timeOff: schedule.timeOff, from: range.from, to: range.to, period: range.period }),
+        [employee, schedule, range]
+    );
+    const [text, setText] = useState(generated);
+    // A different week writes a fresh message.
+    useEffect(() => setText(generated), [generated]);
+    const [copied, setCopied] = useState(false);
+    const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+    async function copy() {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2500);
+        } catch {
+            window.prompt('Copy this message:', text);
+        }
+    }
+
+    async function share() {
+        try {
+            await navigator.share({ text });
+        } catch {
+            // Closing the share sheet without picking anything lands here; nothing to do.
+        }
+    }
+
+    return (
+        <Dialog title={`Text ${employee.name} their shifts`} onClose={onClose} onSubmit={(e) => e.preventDefault()}>
+            <div className='space-y-4'>
+                <div role='group' aria-label='Which shifts' className='grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1'>
+                    {ranges.map((r) => (
+                        <button
+                            key={r.id}
+                            type='button'
+                            onClick={() => setRangeId(r.id)}
+                            aria-pressed={rangeId === r.id}
+                            className={`rounded-lg px-1 py-2 text-sm font-semibold ${rangeId === r.id ? 'bg-black text-white shadow-sm' : 'text-gray-700 hover:bg-white'}`}
+                        >
+                            {r.label}
+                        </button>
+                    ))}
+                </div>
+                <label className='block'>
+                    <span className='mb-1 block text-sm font-semibold'>Message (you can edit it)</span>
+                    <textarea
+                        data-no-autofocus
+                        value={text}
+                        onChange={(e) => setText(e.target.value)}
+                        rows={Math.min(14, Math.max(5, text.split('\n').length + 1))}
+                        className={`${inputClass} text-sm leading-relaxed`}
+                    />
+                </label>
+                <a
+                    href={`sms:?&body=${encodeURIComponent(text)}`}
+                    className='flex w-full items-center justify-center gap-2 rounded-xl bg-black py-3 font-semibold text-white hover:opacity-80'
+                >
+                    <MessageSquare className='h-5 w-5' aria-hidden /> Send as a text
+                </a>
+                <div className={`grid gap-2 ${canShare ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    <button type='button' onClick={copy} className='flex items-center justify-center gap-2 rounded-xl py-3 font-semibold ring-1 ring-gray-300 hover:bg-gray-50'>
+                        {copied ? <Check className='h-4 w-4' aria-hidden /> : <Copy className='h-4 w-4' aria-hidden />}
+                        {copied ? 'Copied' : 'Copy message'}
+                    </button>
+                    {canShare && (
+                        <button type='button' onClick={share} className='flex items-center justify-center gap-2 rounded-xl py-3 font-semibold ring-1 ring-gray-300 hover:bg-gray-50'>
+                            <Share2 className='h-4 w-4' aria-hidden /> Share…
+                        </button>
+                    )}
+                </div>
+                <p className='sr-only' aria-live='polite'>
+                    {copied ? 'Message copied' : ''}
+                </p>
+                <p className='text-sm text-gray-600'>
+                    &ldquo;Send as a text&rdquo; opens Messages with this filled in; pick {employee.name} and send. Copy or share it
+                    to use WhatsApp or another app. If shifts change, send a new one.
+                </p>
             </div>
         </Dialog>
     );

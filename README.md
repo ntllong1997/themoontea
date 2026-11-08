@@ -80,7 +80,7 @@ isn't even installed. Safe to drop.
 | `/admin/schedule` | **Staff schedule.** Weekly shifts, one-day changes, days off, and each employee's private calendar link. See [Staff schedule](#staff-schedule) |
 | `/admin/logs` | **iPad activity log**, live: printer and card-reader connections, prints, payments, orders, station taps. See [iPad activity log](#ipad-activity-log) |
 | `/` | Redirect to `/shop`, the customer home page. Staff go to `/login`, which leads to `/vendor` |
-| `/vendor` | Internal hub — links to Order Track, Inventory, Sales Summary |
+| `/vendor` | **Staff hub**, where `/login` lands. Order Track first, then grouped links: Run the shop (Inventory, Sales Summary, Staff Schedule), Website (both customer sites, pop-up menu items and calendar), Devices & payments (Cash App tags, iPad activity log) |
 | `/order` | **The staff till.** Cart, payment method, receipt printing, today's history |
 | `/order/online` | Customer-facing self-order. Writes to the same `orders` table but never prints |
 | `/order/[station]` | Prep-station screen. Valid slugs come from `station.slug` in the catalog — currently `corndog` and `drink`. Anything else 404s |
@@ -197,6 +197,11 @@ pop-up calendar.
   120 days ahead. The link is public by design,
   because phones can't sign in, so the token is the key. **Make a new link** on the Team view stops an
   old one working.
+- **Schedule as a text (Android):** Android phones can't subscribe to a calendar link, so **Text shifts**
+  on the Team view (also offered in the calendar link dialog) writes that person's shifts and days off
+  for this week, next week or both as a message (`lib/schedule/scheduleText.js`), ready to send as a
+  text, copy, or share to WhatsApp. It's a snapshot, so send a new one when shifts change. Day-off
+  notes are left out of it.
 - The three schedule tables have RLS on and no policies. Only the staff-only API routes
   (`app/api/admin/schedule/*`) and the feed route can reach them, through the service-role key.
 

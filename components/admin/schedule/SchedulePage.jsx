@@ -1,15 +1,15 @@
 'use client';
 
 // The store's staff schedule: a week at a glance (tap a shift to change it), and the
-// team (add people, days off, each person's calendar link).
+// team (add people, days off, each person's calendar link, their shifts as a text).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { CalendarCheck, ChevronLeft, ChevronRight, Loader2, MapPin, Palmtree, Pencil, Plus, Repeat, Trash2, X } from 'lucide-react';
+import { CalendarCheck, ChevronLeft, ChevronRight, Loader2, MapPin, MessageSquare, Palmtree, Pencil, Plus, Repeat, Trash2, X } from 'lucide-react';
 import { api, jsonRequest } from '@/lib/site/adminApi';
 import { dateKey } from '@/lib/site/popups';
 import { addDays, datesBetween, expandShifts, isOff, weekStart, WEEKDAYS } from '@/lib/schedule/schedule';
-import { AddShiftDialog, CalendarLinkDialog, EditShiftDialog, TimeOffDialog } from './ScheduleDialogs';
+import { AddShiftDialog, CalendarLinkDialog, EditShiftDialog, ScheduleTextDialog, TimeOffDialog } from './ScheduleDialogs';
 import { colorFor, inputClass, shortDate, timeRange } from './scheduleUi';
 
 export default function SchedulePage() {
@@ -65,7 +65,7 @@ export default function SchedulePage() {
                 </nav>
             </header>
 
-            <main className='mx-auto max-w-3xl space-y-4 px-4 pt-4'>
+            <div className='mx-auto max-w-3xl space-y-4 px-4 pt-4'>
                 {error && (
                     <div role='alert' className='flex items-start gap-3 rounded-2xl bg-red-50 p-4 text-sm text-red-800'>
                         <span className='flex-1'>{error}</span>
@@ -90,12 +90,20 @@ export default function SchedulePage() {
                 )}
                 {data && data.employees.length > 0 && view === 'week' && <WeekView data={data} byId={byId} setDialog={setDialog} />}
                 {data && view === 'team' && <TeamView data={data} setDialog={setDialog} reload={load} setError={setError} />}
-            </main>
+            </div>
 
             {dialog?.kind === 'add' && <AddShiftDialog employees={data.employees} date={dialog.date} employeeId={dialog.employeeId} onClose={() => setDialog(null)} onSaved={saved} />}
             {dialog?.kind === 'edit' && <EditShiftDialog shift={dialog.shift} employee={byId.get(dialog.shift.employeeId)} onClose={() => setDialog(null)} onSaved={saved} />}
             {dialog?.kind === 'off' && <TimeOffDialog employees={data.employees} employeeId={dialog.employeeId} date={dialog.date} onClose={() => setDialog(null)} onSaved={saved} />}
-            {dialog?.kind === 'link' && <CalendarLinkDialog employee={dialog.employee} onClose={() => setDialog(null)} onChanged={load} />}
+            {dialog?.kind === 'link' && (
+                <CalendarLinkDialog
+                    employee={dialog.employee}
+                    onClose={() => setDialog(null)}
+                    onChanged={load}
+                    onTextInstead={() => setDialog({ kind: 'text', employee: dialog.employee })}
+                />
+            )}
+            {dialog?.kind === 'text' && <ScheduleTextDialog employee={dialog.employee} schedule={data} onClose={() => setDialog(null)} />}
         </div>
     );
 }
@@ -269,20 +277,28 @@ function TeamView({ data, setDialog, reload, setError }) {
                                 </button>
                             </div>
                             <p className='mt-1 text-sm text-gray-600'>{regularHours(data.shifts, employee.id, today)}</p>
-                            <div className='mt-2 grid grid-cols-2 gap-2'>
+                            {/* Icon over label on phones so three fit across. */}
+                            <div className='mt-2 grid grid-cols-3 gap-2'>
                                 <button
                                     type='button'
                                     onClick={() => setDialog({ kind: 'link', employee })}
-                                    className='flex items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-semibold ring-1 ring-gray-300 hover:bg-gray-50'
+                                    className='flex flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-xs font-semibold ring-1 ring-gray-300 hover:bg-gray-50 sm:flex-row sm:gap-1.5 sm:text-sm'
                                 >
-                                    <CalendarCheck className='h-4 w-4' aria-hidden /> Calendar link
+                                    <CalendarCheck className='h-4 w-4' aria-hidden /> Calendar link<span className='sr-only'> for {employee.name}</span>
+                                </button>
+                                <button
+                                    type='button'
+                                    onClick={() => setDialog({ kind: 'text', employee })}
+                                    className='flex flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-xs font-semibold ring-1 ring-gray-300 hover:bg-gray-50 sm:flex-row sm:gap-1.5 sm:text-sm'
+                                >
+                                    <MessageSquare className='h-4 w-4' aria-hidden /> Text shifts<span className='sr-only'> to {employee.name}</span>
                                 </button>
                                 <button
                                     type='button'
                                     onClick={() => setDialog({ kind: 'off', employeeId: employee.id, date: today })}
-                                    className='flex items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-semibold ring-1 ring-gray-300 hover:bg-gray-50'
+                                    className='flex flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-xs font-semibold ring-1 ring-gray-300 hover:bg-gray-50 sm:flex-row sm:gap-1.5 sm:text-sm'
                                 >
-                                    <Palmtree className='h-4 w-4' aria-hidden /> Day off
+                                    <Palmtree className='h-4 w-4' aria-hidden /> Day off<span className='sr-only'> for {employee.name}</span>
                                 </button>
                             </div>
                         </li>
