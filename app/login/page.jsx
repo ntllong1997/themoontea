@@ -71,9 +71,10 @@ function LoginForm() {
             />
             {notConfigured && (
                 <p role='status' className='rounded-xl bg-amber-50 p-3 text-center text-sm text-amber-900'>
-                    No staff password is set up on this copy of the site yet. Add <b>STAFF_PASSWORD</b> in
-                    Vercel → Settings → Environment Variables (tick <b>Production</b> and <b>Preview</b>), then
-                    redeploy.
+                    No staff password is set up on this copy of the site yet. Running it on your own computer? Add
+                    the line <b>STAFF_PASSWORD=your-password</b> to the <b>.env.local</b> file and restart{' '}
+                    <b>npm run dev</b>. On Vercel: add <b>STAFF_PASSWORD</b> in Settings → Environment Variables
+                    (tick <b>Production</b> and <b>Preview</b>), then redeploy.
                 </p>
             )}
             {error && (

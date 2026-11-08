@@ -22,6 +22,13 @@ npm run dev
 
 Open <http://localhost:3000> — `/` redirects to `/vendor`, the internal hub.
 
+**On a phone or iPad on the same Wi-Fi:** `npm run dev` prints a `Network:` address
+(e.g. `http://192.168.1.20:3000`). Open that address plus the page: `/shop` and `/menu`
+need no sign-in. Everything else (including the bare address, which goes to `/vendor`)
+asks for the staff password, so `STAFF_PASSWORD` must be in `.env.local`; restart
+`npm run dev` after changing it. If the phone can't connect at all, allow Node through the
+computer's firewall.
+
 Receipt printing needs a second process:
 
 ```bash

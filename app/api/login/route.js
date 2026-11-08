@@ -30,7 +30,7 @@ export async function POST(request) {
         return NextResponse.json(
             {
                 error:
-                    'This deployment has no staff password. Add STAFF_PASSWORD in Vercel (tick Production AND Preview), then redeploy.',
+                    'This copy of the site has no staff password. On your own computer, add STAFF_PASSWORD=your-password to .env.local and restart npm run dev. On Vercel, add STAFF_PASSWORD (tick Production AND Preview), then redeploy.',
             },
             { status: 503 }
         );
