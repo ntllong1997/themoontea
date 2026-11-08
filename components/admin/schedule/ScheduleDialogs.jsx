@@ -1,7 +1,8 @@
 'use client';
 
 // The schedule page's pop-ups: add a shift, change a shift, days off, an
-// employee's calendar link, and their shifts as a text message.
+// employee's calendar link, and shifts as a text message (one person's, or the
+// team's week for the group chat).
 
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarCheck, Check, Copy, MessageSquare, RefreshCw, Share2, Smartphone } from 'lucide-react';
@@ -9,7 +10,7 @@ import Dialog from '@/components/admin/Dialog';
 import { api, jsonRequest } from '@/lib/site/adminApi';
 import { dateKey } from '@/lib/site/popups';
 import { weekdayOf } from '@/lib/schedule/schedule';
-import { defaultRangeId, scheduleText, textRanges } from '@/lib/schedule/scheduleText';
+import { defaultRangeId, scheduleText, teamScheduleText, textRanges } from '@/lib/schedule/scheduleText';
 import { everyWeekday, feedUrls, inputClass, longDate, timeRange } from './scheduleUi';
 
 function ErrorText({ error }) {
@@ -347,21 +348,12 @@ export function CalendarLinkDialog({ employee, onClose, onChanged, onTextInstead
 }
 
 /**
- * An employee's shifts as a ready-to-send message: pick the week, check (or
- * edit) the text, then send it as a text, copy it, or share it to WhatsApp and
- * the like. For people whose phone can't subscribe to the calendar link.
+ * A ready-to-send message: the text (editable), then send it as a text, copy
+ * it, or share it to WhatsApp and the like. `generated` replaces any edits
+ * when it changes (e.g. a different week is picked).
  */
-export function ScheduleTextDialog({ employee, schedule, onClose }) {
-    const today = dateKey(new Date());
-    const ranges = useMemo(() => textRanges(today), [today]);
-    const [rangeId, setRangeId] = useState(() => defaultRangeId(today));
-    const range = ranges.find((r) => r.id === rangeId);
-    const generated = useMemo(
-        () => scheduleText({ employee, shifts: schedule.shifts, timeOff: schedule.timeOff, from: range.from, to: range.to, period: range.period }),
-        [employee, schedule, range]
-    );
+function MessageComposer({ generated, sendHint }) {
     const [text, setText] = useState(generated);
-    // A different week writes a fresh message.
     useEffect(() => setText(generated), [generated]);
     const [copied, setCopied] = useState(false);
     const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -385,6 +377,58 @@ export function ScheduleTextDialog({ employee, schedule, onClose }) {
     }
 
     return (
+        <>
+            <label className='block'>
+                <span className='mb-1 block text-sm font-semibold'>Message (you can edit it)</span>
+                <textarea
+                    data-no-autofocus
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    rows={Math.min(14, Math.max(5, text.split('\n').length + 1))}
+                    className={`${inputClass} text-sm leading-relaxed`}
+                />
+            </label>
+            <a
+                href={`sms:?&body=${encodeURIComponent(text)}`}
+                className='flex w-full items-center justify-center gap-2 rounded-xl bg-black py-3 font-semibold text-white hover:opacity-80'
+            >
+                <MessageSquare className='h-5 w-5' aria-hidden /> Send as a text
+            </a>
+            <div className={`grid gap-2 ${canShare ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                <button type='button' onClick={copy} className='flex items-center justify-center gap-2 rounded-xl py-3 font-semibold ring-1 ring-gray-300 hover:bg-gray-50'>
+                    {copied ? <Check className='h-4 w-4' aria-hidden /> : <Copy className='h-4 w-4' aria-hidden />}
+                    {copied ? 'Copied' : 'Copy message'}
+                </button>
+                {canShare && (
+                    <button type='button' onClick={share} className='flex items-center justify-center gap-2 rounded-xl py-3 font-semibold ring-1 ring-gray-300 hover:bg-gray-50'>
+                        <Share2 className='h-4 w-4' aria-hidden /> Share…
+                    </button>
+                )}
+            </div>
+            <p className='sr-only' aria-live='polite'>
+                {copied ? 'Message copied' : ''}
+            </p>
+            <p className='text-sm text-gray-600'>{sendHint} If shifts change, send a new one.</p>
+        </>
+    );
+}
+
+/**
+ * An employee's shifts as a ready-to-send message: pick the week, check (or
+ * edit) the text, then send it. For people whose phone can't subscribe to
+ * the calendar link.
+ */
+export function ScheduleTextDialog({ employee, schedule, onClose }) {
+    const today = dateKey(new Date());
+    const ranges = useMemo(() => textRanges(today), [today]);
+    const [rangeId, setRangeId] = useState(() => defaultRangeId(today));
+    const range = ranges.find((r) => r.id === rangeId);
+    const generated = useMemo(
+        () => scheduleText({ employee, shifts: schedule.shifts, timeOff: schedule.timeOff, from: range.from, to: range.to, period: range.period }),
+        [employee, schedule, range]
+    );
+
+    return (
         <Dialog title={`Text ${employee.name} their shifts`} onClose={onClose} onSubmit={(e) => e.preventDefault()}>
             <div className='space-y-4'>
                 <div role='group' aria-label='Which shifts' className='grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1'>
@@ -400,40 +444,28 @@ export function ScheduleTextDialog({ employee, schedule, onClose }) {
                         </button>
                     ))}
                 </div>
-                <label className='block'>
-                    <span className='mb-1 block text-sm font-semibold'>Message (you can edit it)</span>
-                    <textarea
-                        data-no-autofocus
-                        value={text}
-                        onChange={(e) => setText(e.target.value)}
-                        rows={Math.min(14, Math.max(5, text.split('\n').length + 1))}
-                        className={`${inputClass} text-sm leading-relaxed`}
-                    />
-                </label>
-                <a
-                    href={`sms:?&body=${encodeURIComponent(text)}`}
-                    className='flex w-full items-center justify-center gap-2 rounded-xl bg-black py-3 font-semibold text-white hover:opacity-80'
-                >
-                    <MessageSquare className='h-5 w-5' aria-hidden /> Send as a text
-                </a>
-                <div className={`grid gap-2 ${canShare ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                    <button type='button' onClick={copy} className='flex items-center justify-center gap-2 rounded-xl py-3 font-semibold ring-1 ring-gray-300 hover:bg-gray-50'>
-                        {copied ? <Check className='h-4 w-4' aria-hidden /> : <Copy className='h-4 w-4' aria-hidden />}
-                        {copied ? 'Copied' : 'Copy message'}
-                    </button>
-                    {canShare && (
-                        <button type='button' onClick={share} className='flex items-center justify-center gap-2 rounded-xl py-3 font-semibold ring-1 ring-gray-300 hover:bg-gray-50'>
-                            <Share2 className='h-4 w-4' aria-hidden /> Share…
-                        </button>
-                    )}
-                </div>
-                <p className='sr-only' aria-live='polite'>
-                    {copied ? 'Message copied' : ''}
-                </p>
-                <p className='text-sm text-gray-600'>
-                    &ldquo;Send as a text&rdquo; opens Messages with this filled in; pick {employee.name} and send. Copy or share it
-                    to use WhatsApp or another app. If shifts change, send a new one.
-                </p>
+                <MessageComposer
+                    generated={generated}
+                    sendHint={`“Send as a text” opens Messages with this filled in; pick ${employee.name} and send. Copy or share it to use WhatsApp or another app.`}
+                />
+            </div>
+        </Dialog>
+    );
+}
+
+/** The whole team's week (the one the Week view shows), for the staff group chat. */
+export function TeamTextDialog({ schedule, from, to, period, onClose }) {
+    const generated = useMemo(
+        () => teamScheduleText({ employees: schedule.employees, shifts: schedule.shifts, timeOff: schedule.timeOff, from, to, period }),
+        [schedule, from, to, period]
+    );
+    return (
+        <Dialog title='Text the week to the group chat' onClose={onClose} onSubmit={(e) => e.preventDefault()}>
+            <div className='space-y-4'>
+                <MessageComposer
+                    generated={generated}
+                    sendHint='“Send as a text” opens Messages with this filled in; pick your staff group and send. Copy or share it to post it in WhatsApp or another group app.'
+                />
             </div>
         </Dialog>
     );

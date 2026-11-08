@@ -202,6 +202,8 @@ pop-up calendar.
   for this week, next week or both as a message (`lib/schedule/scheduleText.js`), ready to send as a
   text, copy, or share to WhatsApp. It's a snapshot, so send a new one when shifts change. Day-off
   notes are left out of it.
+- **Group chat:** **Text this week to the group chat** on the Week view writes the week it's showing,
+  day by day: who works when, and who's off (`teamScheduleText`), ready for the staff group chat.
 - The three schedule tables have RLS on and no policies. Only the staff-only API routes
   (`app/api/admin/schedule/*`) and the feed route can reach them, through the service-role key.
 

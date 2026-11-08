@@ -9,7 +9,8 @@ import { CalendarCheck, ChevronLeft, ChevronRight, Loader2, MapPin, MessageSquar
 import { api, jsonRequest } from '@/lib/site/adminApi';
 import { dateKey } from '@/lib/site/popups';
 import { addDays, datesBetween, expandShifts, isOff, weekStart, WEEKDAYS } from '@/lib/schedule/schedule';
-import { AddShiftDialog, CalendarLinkDialog, EditShiftDialog, ScheduleTextDialog, TimeOffDialog } from './ScheduleDialogs';
+import { rangeLabel } from '@/lib/schedule/scheduleText';
+import { AddShiftDialog, CalendarLinkDialog, EditShiftDialog, ScheduleTextDialog, TeamTextDialog, TimeOffDialog } from './ScheduleDialogs';
 import { colorFor, inputClass, shortDate, timeRange } from './scheduleUi';
 
 export default function SchedulePage() {
@@ -104,6 +105,9 @@ export default function SchedulePage() {
                 />
             )}
             {dialog?.kind === 'text' && <ScheduleTextDialog employee={dialog.employee} schedule={data} onClose={() => setDialog(null)} />}
+            {dialog?.kind === 'team-text' && (
+                <TeamTextDialog schedule={data} from={dialog.from} to={dialog.to} period={dialog.period} onClose={() => setDialog(null)} />
+            )}
         </div>
     );
 }
@@ -118,6 +122,9 @@ function WeekView({ data, byId, setDialog }) {
     const shifts = useMemo(() => expandShifts({ shifts: data.shifts, timeOff: data.timeOff, from: monday, to: sunday }), [data, monday, sunday]);
     const hours = shifts.reduce((sum, s) => sum + minutes(s.end) - minutes(s.start), 0) / 60;
     const weekEvents = (data.popups ?? []).filter((p) => p.date >= monday && p.date <= sunday);
+    // How the group-chat message names this week; weeks further out go by their dates.
+    const weeksAway = Math.round((Date.parse(monday) - Date.parse(weekStart(today))) / (7 * 86400000));
+    const period = { [-1]: 'last week', 0: 'this week', 1: 'next week' }[weeksAway] ?? '';
 
     return (
         <>
@@ -141,6 +148,13 @@ function WeekView({ data, byId, setDialog }) {
                     Back to this week
                 </button>
             )}
+            <button
+                type='button'
+                onClick={() => setDialog({ kind: 'team-text', from: monday, to: sunday, period })}
+                className='flex w-full items-center justify-center gap-2 rounded-xl bg-white py-2.5 text-sm font-semibold ring-1 ring-gray-300 hover:bg-gray-50'
+            >
+                <MessageSquare className='h-4 w-4' aria-hidden /> Text {period || rangeLabel(monday, sunday)} to the group chat
+            </button>
 
             <ol className='space-y-3'>
                 {days.map((day) => {
