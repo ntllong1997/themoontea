@@ -61,7 +61,7 @@ could be charged with no order saved.
    page (the record):** paid and cancelled tickets, filter All / Paid /
    Cancelled; payment corrections only.
 3. **Payment page:** Card (in-app, only on the phone with the Square Reader),
-   Square app (staff charge in the Square app, then confirm), Cash, Cash App.
+   Square app (staff charge in the Square app, then confirm), Cash, Cash App (shows a QR code with the amount filled in), Zelle.
    Staff confirm themselves; no lock, no copy-amount helpers needed.
 - **The receipt prints when the ticket is sent** (decided 2026-10-17), before
   payment. Staff keep it and hand it to the customer only once payment is
@@ -113,7 +113,7 @@ Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
   the same actions; only tickets saved before that column existed show none.
   "Paid total" counts paid tickets only. Each phone sets a till name here.
 - **Payment page** (`PaymentSheet`): Card (reader on this phone only),
-  Square app, Cash, Cash App; no default; each non-reader choice asks to
+  Square app, Cash, Cash App, Zelle; no default; each non-reader choice asks to
   confirm. Paying prints the receipt. Square app and reader cards are both
   stored as `Card`; `square_payment_id` marks the reader's.
 - **Correction page** (`PaymentCorrectionSheet`): change method, mark unpaid,

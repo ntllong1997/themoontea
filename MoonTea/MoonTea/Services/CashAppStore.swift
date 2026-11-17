@@ -36,6 +36,13 @@ final class CashAppStore {
         active.isEmpty ? AppConstants.defaultCashAppURL : active
     }
 
+    /// The active tag's link with the amount filled in, e.g.
+    /// `https://cash.app/$themoontea/12.50`. Scanned, it opens Cash App on the
+    /// customer's phone ready to send exactly that much.
+    func payURL(amount: Double) -> String {
+        "\(activeURL)/\(String(format: "%.2f", amount))"
+    }
+
     func addTag(_ raw: String) {
         let clean = raw.trimmingCharacters(in: .whitespaces)
             .replacingOccurrences(of: "^[@$]", with: "", options: .regularExpression)
