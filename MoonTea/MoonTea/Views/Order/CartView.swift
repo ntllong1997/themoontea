@@ -85,13 +85,15 @@ struct CartView: View {
 
     // MARK: - Send button
 
-    /// Sends the ticket to the stations as pending. OrderView then switches to
-    /// Tickets and opens its payment page while the receipt prints. Closing it
-    /// leaves the ticket unpaid, payable later from "Pay now" below or the
-    /// Tickets tab.
+    /// Sends the ticket to the stations as pending and opens its payment page
+    /// while the receipt prints. Closing it leaves the ticket unpaid, payable
+    /// later from "Pay now" below or the Tickets tab.
     private var sendButton: some View {
         Button {
-            Task { _ = await vm.sendOrder() }
+            Task {
+                guard let number = await vm.sendOrder() else { return }
+                payTarget = PayTarget(orderNumber: number)
+            }
         } label: {
             Group {
                 if vm.isSending {

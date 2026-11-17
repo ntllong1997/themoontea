@@ -7,17 +7,11 @@ struct OrderView: View {
     @State private var tillName = TillSettings.name
     @State private var tillNameDraft = ""
     @State private var isRenamingTill = false
-    @State private var payTarget: PayTarget?
     @Environment(AppRouter.self) private var router
 
     /// Order: build and send. Tickets: unpaid tickets waiting to be paid —
     /// the work list. History: the day's record of paid and cancelled tickets.
     enum Tab: Hashable { case order, tickets, history }
-
-    private struct PayTarget: Identifiable {
-        let orderNumber: Int
-        var id: Int { orderNumber }
-    }
 
     enum HistoryFilter: CaseIterable, Hashable {
         case all, paid, cancelled
@@ -91,17 +85,9 @@ struct OrderView: View {
                 Rectangle().frame(height: 0.5).foregroundStyle(Theme.cardBorder)
             }
         }
-        // A ticket just sent: show it on the work list with its payment page
-        // open. The sheet hangs here, not on the cart, because switching tabs
-        // removes the cart and would take the sheet with it. Closing it leaves
-        // the ticket unpaid on Tickets.
+        // A ticket just sent: show it on the work list.
         .onChange(of: vm.lastSentOrderNumber) { _, number in
-            guard let number else { return }
-            tab = .tickets
-            payTarget = PayTarget(orderNumber: number)
-        }
-        .sheet(item: $payTarget) { target in
-            PaymentSheet(vm: vm, orderNumber: target.orderNumber)
+            if number != nil { tab = .tickets }
         }
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle("Orders")

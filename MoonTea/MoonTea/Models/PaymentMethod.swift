@@ -7,7 +7,6 @@ nonisolated enum PaymentMethod: String, CaseIterable, Codable, Identifiable, Sen
     case cash = "Cash"
     case cashApp = "CashApp"
     case card = "Card"
-    case zelle = "Zelle"
 
     var id: String { rawValue }
 
@@ -16,7 +15,6 @@ nonisolated enum PaymentMethod: String, CaseIterable, Codable, Identifiable, Sen
         case .cash:    "Cash"
         case .cashApp: "Cash App"
         case .card:    "Card"
-        case .zelle:   "Zelle"
         }
     }
 
@@ -25,16 +23,14 @@ nonisolated enum PaymentMethod: String, CaseIterable, Codable, Identifiable, Sen
         case .cash:    "banknote"
         case .cashApp: "dollarsign.circle"
         case .card:    "creditcard"
-        case .zelle:   "building.columns"
         }
     }
 }
 
 /// The buttons on the payment page. Two of them are cards: one charged here on
 /// the reader, one charged by staff in the Square app and only confirmed here.
-/// Cash App shows the customer a QR code for the amount before it's confirmed.
 enum PaymentChoice: CaseIterable, Identifiable {
-    case cardReader, squareApp, cash, cashApp, zelle
+    case cardReader, squareApp, cash, cashApp
 
     var id: Self { self }
 
@@ -43,7 +39,6 @@ enum PaymentChoice: CaseIterable, Identifiable {
         case .cardReader, .squareApp: .card
         case .cash:                   .cash
         case .cashApp:                .cashApp
-        case .zelle:                  .zelle
         }
     }
 
@@ -53,7 +48,6 @@ enum PaymentChoice: CaseIterable, Identifiable {
         case .squareApp:  "Square app"
         case .cash:       "Cash"
         case .cashApp:    "Cash App"
-        case .zelle:      "Zelle"
         }
     }
 
@@ -63,7 +57,6 @@ enum PaymentChoice: CaseIterable, Identifiable {
         case .squareApp:  "square.grid.2x2"
         case .cash:       "banknote"
         case .cashApp:    "dollarsign.circle"
-        case .zelle:      "building.columns"
         }
     }
 }

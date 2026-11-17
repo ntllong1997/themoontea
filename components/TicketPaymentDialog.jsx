@@ -2,20 +2,15 @@
 
 // One ticket's payment page, like the iPhone app's Pay and Payment sheets.
 // Unpaid: pick how the customer paid (no default), or cancel a walk-away.
-// Cash App shows a QR code that opens Cash App with the amount filled in.
 // Paid: change the method or mark it unpaid. Cancelled: restore it.
 // Every choice asks once more before it's saved.
 
 import { useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
 import Dialog from '@/components/admin/Dialog';
-import { getActiveCashApp } from '@/lib/printer';
 import {
     PAY_CHOICES,
     PAYMENT_METHOD_KEYS,
     canChangePayment,
-    cashAppPayUrl,
-    cashtagOf,
     isChargedOnReader,
     methodLabel,
     paymentStateLabel,
@@ -101,14 +96,12 @@ export default function TicketPaymentDialog({ ticket, onClose, onChange }) {
                     isSaving={isSaving}
                     onConfirm={save}
                     onBack={() => setConfirming(null)}
-                >
-                    {confirming.action === 'pay' && confirming.method === 'CashApp' && <CashAppCode total={total} />}
-                </ConfirmStep>
+                />
             )}
 
             {isChangeable && !confirming && status === 'pending' && (
                 <div className='space-y-3'>
-                    <div className='grid grid-cols-2 gap-3'>
+                    <div className='grid grid-cols-3 gap-3'>
                         {PAY_CHOICES.map((choice) => (
                             <button key={choice.method} type='button' className={choiceClass} onClick={ask('pay', choice.method)}>
                                 {choice.title}
@@ -130,7 +123,7 @@ export default function TicketPaymentDialog({ ticket, onClose, onChange }) {
                         </p>
                     )}
                     <p className='text-xs font-medium tracking-widest text-gray-500'>CHANGE PAYMENT METHOD</p>
-                    <div className='grid grid-cols-2 gap-3'>
+                    <div className='grid grid-cols-3 gap-3'>
                         {PAYMENT_METHOD_KEYS.map((method) => {
                             const isCurrent = ticket.paymentMethod === method;
                             return (
@@ -175,31 +168,10 @@ export default function TicketPaymentDialog({ ticket, onClose, onChange }) {
     );
 }
 
-/** The QR a customer scans to open Cash App with this ticket's amount filled in. */
-function CashAppCode({ total }) {
-    const cashtagUrl = getActiveCashApp();
-    return (
-        <div className='flex flex-col items-center gap-2'>
-            <QRCodeSVG
-                value={cashAppPayUrl(cashtagUrl, total)}
-                size={208}
-                marginSize={2}
-                level='M'
-                title={`Cash App QR code for $${total.toFixed(2)}`}
-                className='rounded-xl border border-gray-200'
-            />
-            <p className='text-sm font-semibold text-green-700'>
-                {cashtagOf(cashtagUrl)} · ${total.toFixed(2)}
-            </p>
-        </div>
-    );
-}
-
-function ConfirmStep({ copy, isDestructive, isSaving, onConfirm, onBack, children }) {
+function ConfirmStep({ copy, isDestructive, isSaving, onConfirm, onBack }) {
     return (
         <div className='space-y-3 rounded-xl border border-gray-200 p-4 text-center'>
             <p className='font-semibold'>{copy.question}</p>
-            {children}
             {copy.hint && <p className='text-sm text-gray-500'>{copy.hint}</p>}
             <div className='flex gap-2'>
                 <button type='button' className={actionClass} onClick={onBack} disabled={isSaving}>
