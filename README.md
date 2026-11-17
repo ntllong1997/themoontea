@@ -261,13 +261,17 @@ What gets logged (`ActivityLog.shared.info/warning/error(...)` in the Swift code
 - **Printer** — scans, printers found and selected, every connect and its result (with the
   Epson error code and how long it took), links found dead, background reconnect attempts,
   receipts queued / printed / failed, and print retries.
-- **Card reader** — Square authorization, reader ready / connecting / not connected (with
-  Square's reason), retries, pairing, Bluetooth on/off, location permission.
-- **Payments** — card payments started, approved, cancelled, failed (amount, never card data).
+- **Card reader** — Square authorization, reader ready (with its battery) / connecting / not
+  connected (with Square's reason, whether Square will take a retry, and what network the
+  phone was on), the app retrying or restarting a dropped reader, pairing, Bluetooth on/off,
+  location permission.
+- **Payments** — card payments started (with the reader's battery and the age of its
+  connection to Square), approved, cancelled, failed (amount, never card data).
 - **Orders** — sent (number, item count, total, payment method), failed to save, edited,
   reprinted, phone number saved (never the number), ready text sent.
 - **Stations** — every item status tap.
-- **Order sync / App** — live-update connects and drops, launches, foreground/background.
+- **Order sync / App** — live-update connects and drops, launches, foreground/background,
+  and the phone changing network (Wi-Fi, hotspot, cellular, none).
 
 Entries are written to a file on the iPad first and uploaded in batches a couple of seconds
 later, so nothing is lost offline or if the app is killed — they upload when it's back.

@@ -68,14 +68,30 @@ struct ReaderSettingsView: View {
                 Button("Connect / Pair Reader") {
                     square.presentReaderSettings()
                 }
+                restartButton
 
             case .ready:
                 Button("Reader Settings") {
                     square.presentReaderSettings()
                 }
+                restartButton
                 Button("Disconnect reader", role: .destructive) {
                     square.disconnectReaders()
                 }
+            }
+        } footer: {
+            if square.canRestartReader {
+                Text("Restart reader switches the reader off and on from here; it then reconnects by itself. The app does the same on its own when the reader loses its connection to Square and Square won't take a retry.")
+            }
+        }
+    }
+
+    /// Only for a reader that can be restarted from the app.
+    @ViewBuilder
+    private var restartButton: some View {
+        if square.canRestartReader {
+            Button("Restart reader") {
+                square.restartReaders()
             }
         }
     }
