@@ -21,13 +21,17 @@ struct PaymentSheet: View {
     private var total: Double { ticket?.total(taxRate: AppConstants.taxRate) ?? 0 }
     private var readerReady: Bool { square.connectionState == .ready }
     /// The reader refreshes its secure connection to Square every few
-    /// minutes; a charge started meanwhile waits a few seconds for it.
-    private var readerReconnecting: Bool { square.connectionState == .connecting }
-    /// This phone's reader dropped off and Square won't reconnect it on its
-    /// own. Opening Square's reader screen is what brings it back, so Card
-    /// does that instead of going grey.
+    /// minutes; a charge started meanwhile waits a few seconds for it. The
+    /// same goes while the app is retrying or restarting a reader that
+    /// dropped off.
+    private var readerReconnecting: Bool {
+        square.connectionState == .connecting || square.isRecoveringReader
+    }
+    /// This phone's reader dropped off and neither Square nor the app is
+    /// bringing it back. Opening Square's reader screen is what's left, so
+    /// Card does that instead of going grey.
     private var readerNeedsConnecting: Bool {
-        square.connectionState == .disconnected && square.hasPairedReader
+        square.connectionState == .disconnected && square.hasPairedReader && !square.isRecoveringReader
     }
     private var readerHint: String {
         if readerReconnecting { return "Reader reconnecting…" }

@@ -7,6 +7,7 @@ struct MoonTeaApp: App {
 
     init() {
         ActivityLog.shared.info(.app, "App launched")
+        NetworkStatus.shared.start()
     }
 
     var body: some Scene {

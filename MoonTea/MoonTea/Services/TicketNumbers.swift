@@ -10,7 +10,7 @@ enum TicketNumbers {
         var errorDescription: String? {
             switch self {
             case .mainPhoneNotConnected:
-                "Main phone not connected. Check the main phone has the app open, and WiFi and Bluetooth are on."
+                "This phone is connected to a main phone that isn't answering. Check the main phone has the app open, and WiFi and Bluetooth are on — or tap “Work on my own” at the bottom of the screen to use this phone's internet instead."
             case .mainPhoneCantNumber(let reason):
                 reason
             }

@@ -103,6 +103,9 @@ struct OrderView: View {
         .sheet(item: $payTarget) { target in
             PaymentSheet(vm: vm, orderNumber: target.orderNumber)
         }
+        // The name can also be changed on the Booth screen, opened from the
+        // status line below.
+        .onAppear { tillName = TillSettings.name }
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle("Orders")
         .navigationBarTitleDisplayMode(.inline)

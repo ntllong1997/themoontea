@@ -27,6 +27,11 @@ final class SquareService: NSObject {
     /// A physical reader is paired with this phone, connected or not —
     /// tells "reader dropped off" apart from "this phone has no reader".
     private(set) var hasPairedReader = false
+    /// The app is bringing a dropped reader back by itself — retrying its
+    /// connection or restarting it — so staff only need to wait.
+    private(set) var isRecoveringReader = false
+    /// A paired reader can be restarted from the app.
+    private(set) var canRestartReader = false
 
     private var chargeContinuation: CheckedContinuation<ChargeResult, Never>?
     private var readerObserver: ReaderObserverBridge?
@@ -34,15 +39,14 @@ final class SquareService: NSObject {
     private let locationManager = CLLocationManager()
     private var bluetoothManager: CBCentralManager?
 
-    // When a known reader is unreachable, retryConnection() fails almost
-    // immediately, which flips connectionState .connecting -> .disconnected,
-    // which (via the `wasConnectedOrConnecting` guard below) re-triggers
-    // another retry — a tight loop with no delay between attempts that was
-    // spamming the console with reconnect/log churn on every launch. This
-    // cooldown caps automatic retries to once every few seconds so a reader
-    // that's truly off just sits disconnected instead of being hammered.
-    private var lastAutoReconnectAt: Date = .distantPast
-    private static let autoReconnectCooldown: TimeInterval = 5
+    // What has been tried since the reader last worked, and the loop that
+    // looks at a dropped reader every couple of seconds (`ReaderRecovery`).
+    // It acts only when Square will take a retry or a restart is due, so a
+    // reader that is simply switched off sits disconnected instead of being
+    // hammered with retries Square refuses.
+    private var recoveryAttempts = ReaderRecovery.Attempts()
+    private var recoveryTask: Task<Void, Never>?
+    private static let recoveryInterval: Duration = .seconds(2)
 
     // The reader re-establishes its secure connection to Square every few
     // minutes, often right as a payment starts, and Square cancels a payment
@@ -50,6 +54,10 @@ final class SquareService: NSObject {
     // from staff cancelling (`ReaderInterruption`).
     private var lastReaderDropAt: Date = .distantPast
     private var chargeStartedAt: Date = .distantFuture
+    /// When the reader last became ready, i.e. how old its secure connection
+    /// is. Logged with each payment: Square refreshes a connection older than
+    /// about four minutes as the payment starts.
+    private var lastReadyAt: Date = .distantPast
     /// The current payment's attempt ID, and the server ID Square gave the
     /// payment if it got that far before being cancelled — either one
     /// reaching Square rules out reopening the payment (no double charge).
@@ -223,16 +231,12 @@ final class SquareService: NSObject {
     // MARK: - Reader observation
 
     /// Re-syncs everything that depends on the SDK's reader state: makes sure
-    /// we're observing changes, re-derives `connectionState` from what's
-    /// currently reported, and kicks off a reconnect attempt for any reader
-    /// Square already knows about but hasn't reconnected to on its own.
+    /// we're observing changes and re-derives `connectionState` from what's
+    /// currently reported, which also starts looking after any reader Square
+    /// knows about but can't use.
     private func syncWithSDK() {
         installReaderObserver()
         refreshConnectionFromReaders()
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            await MainActor.run { self?.reconnectKnownReadersThrottled() }
-        }
     }
 
     /// Registers a ReaderObserver with Square's ReaderManager. The observer
@@ -255,7 +259,9 @@ final class SquareService: NSObject {
         let before = (state: connectionState, reader: connectedReaderName, reason: readerUnavailableReason, step: connectingTo)
         defer {
             if before.state == .ready && connectionState != .ready { lastReaderDropAt = Date() }
+            if before.state != .ready && connectionState == .ready { lastReadyAt = Date() }
             logConnectionChange(from: before)
+            updateReaderRecovery()
         }
 
         // `readers` always includes a virtual `.tapToPay` entry for the
@@ -266,6 +272,7 @@ final class SquareService: NSObject {
         // We only care about the physical hardware here, so filter it out.
         let readers = MobilePaymentsSDK.shared.readerManager.readers.filter { $0.model != .tapToPay }
         hasPairedReader = !readers.isEmpty
+        canRestartReader = readers.contains { $0.isRebootable }
         for r in readers {
             let reasonCode = r.statusInfo.unavailableReasonInfo.map { Int($0.reason.rawValue) } ?? -1
             log.info("refresh: reader '\(r.name, privacy: .public)' status=\(r.statusInfo.status.rawValue, privacy: .public) unavailableReason=\(reasonCode, privacy: .public)")
@@ -281,13 +288,9 @@ final class SquareService: NSObject {
             readerUnavailableReason = ""
             connectingTo = connecting.statusInfo.status == .connectingToSquare ? "Square" : "device"
         } else {
+            // Getting the reader back is `updateReaderRecovery`'s job, run
+            // once this state is settled.
             connectingTo = ""
-            // Re-queue a retry whenever we transition INTO the disconnected
-            // state. `retryConnection` is one-shot — the SDK consumes the
-            // request when the reader next becomes available and does not
-            // automatically queue another one. Without this, every other
-            // reader power-cycle fails because no retry is pending.
-            let wasConnectedOrConnecting = connectionState == .ready || connectionState == .connecting
             connectionState = .disconnected
             connectedReaderName = ""
             // Surface *why* a known reader can't be reached (e.g. Bluetooth
@@ -298,9 +301,6 @@ final class SquareService: NSObject {
                 readerUnavailableReason = "\(reasonInfo.title): \(reasonInfo.detail)"
             } else {
                 readerUnavailableReason = ""
-            }
-            if wasConnectedOrConnecting {
-                reconnectKnownReadersThrottled()
             }
         }
         log.info("refresh -> connectionState=\(String(describing: self.connectionState), privacy: .public) reader='\(self.connectedReaderName, privacy: .public)' reason='\(self.readerUnavailableReason, privacy: .public)'")
@@ -314,47 +314,152 @@ final class SquareService: NSObject {
         let from = String(describing: before.state)
         switch connectionState {
         case .ready:
-            ActivityLog.shared.info(.reader, "Card reader ready", ["reader": connectedReaderName, "was": from])
+            var details: [String: Any] = ["reader": connectedReaderName, "was": from]
+            if let battery = readerBatteryText { details["battery"] = battery }
+            ActivityLog.shared.info(.reader, "Card reader ready", details)
         case .connecting:
             ActivityLog.shared.info(.reader, "Card reader connecting", ["was": from, "to": connectingTo])
         case .disconnected:
             var details: [String: Any] = ["was": from]
             if !readerUnavailableReason.isEmpty { details["reason"] = readerUnavailableReason }
             if !before.reader.isEmpty { details["reader"] = before.reader }
+            details.merge(unavailableReaderDetails()) { current, _ in current }
             ActivityLog.shared.warning(.reader, "Card reader not connected", details)
         case .notConfigured, .unauthorized:
             ActivityLog.shared.info(.reader, "Card reader state changed", ["state": String(describing: connectionState), "was": from])
         }
     }
 
-    /// Gates `reconnectKnownReaders()` behind `autoReconnectCooldown` so a
-    /// reader that keeps failing to reconnect (powered off, out of range)
-    /// can't re-trigger itself in a tight loop — every failed retry flips
-    /// connectionState back to `.disconnected`, which would otherwise queue
-    /// another retry immediately.
-    private func reconnectKnownReadersThrottled() {
-        let now = Date()
-        guard now.timeIntervalSince(lastAutoReconnectAt) >= Self.autoReconnectCooldown else { return }
-        lastAutoReconnectAt = now
-        reconnectKnownReaders()
+    /// "85%" or "85% charging", for the activity log.
+    private var readerBatteryText: String? {
+        let readers = MobilePaymentsSDK.shared.readerManager.readers
+        guard let battery = readers.first(where: { $0.model != .tapToPay })?.batteryStatus else { return nil }
+        return "\(battery.percentage)%" + (battery.isCharging ? " charging" : "")
     }
 
-    /// Square remembers readers you've paired before across launches, but
-    /// doesn't automatically re-establish their connection — they just sit in
-    /// `readers` as `.readerUnavailable` until something nudges the SDK to
-    /// retry. Rather than making you open Reader Settings and tap Connect by
-    /// hand every time the app restarts, proactively retry every known reader
-    /// that isn't already connected/connecting.
-    private func reconnectKnownReaders() {
+    /// What the activity log needs to explain a reader Square can't use:
+    /// whether Square will take a retry, whether the reader can be restarted,
+    /// everything Square says about the reason, and what the phone's internet
+    /// was doing — every failure so far has been Square not reaching its
+    /// servers.
+    private func unavailableReaderDetails() -> [String: Any] {
+        var details: [String: Any] = ["network": NetworkStatus.shared.summary]
+        guard let reader = MobilePaymentsSDK.shared.readerManager.readers.first(where: {
+            $0.model != .tapToPay && $0.statusInfo.status == .readerUnavailable
+        }) else { return details }
+        details["retryable"] = reader.isConnectionRetryable
+        details["rebootable"] = reader.isRebootable
+        if let battery = readerBatteryText { details["battery"] = battery }
+        if let info = reader.statusInfo.unavailableReasonInfo {
+            details["reasonCode"] = Int(info.reason.rawValue)
+            details["reasonInfo"] = String(describing: info.dictionaryRepresentation)
+        }
+        return details
+    }
+
+    // MARK: - Reader recovery
+
+    /// Starts or stops looking after a dropped reader, to match the state
+    /// just derived. A phone with no reader never starts.
+    private func updateReaderRecovery() {
+        switch connectionState {
+        case .ready:
+            recoveryAttempts = ReaderRecovery.Attempts()
+            stopReaderRecovery()
+        case .disconnected where hasPairedReader || isRecoveringReader:
+            startReaderRecovery()
+        default:
+            // Connecting: Square is working on it, and a failure comes back
+            // through `.disconnected` with `recoveryAttempts` kept.
+            stopReaderRecovery()
+        }
+    }
+
+    private func startReaderRecovery() {
+        guard recoveryTask == nil else { return }
+        // The first look happens now, so the pay sheet never flashes "tap to
+        // connect" for a reader that is about to be retried or restarted.
+        recoverReader()
+        recoveryTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: SquareService.recoveryInterval)
+                guard !Task.isCancelled else { return }
+                self?.recoverReader()
+            }
+        }
+    }
+
+    private func stopReaderRecovery() {
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        if isRecoveringReader { isRecoveringReader = false }
+    }
+
+    /// One look at a dropped reader: retries its connection when Square will
+    /// take a retry, restarts it when Square won't (`ReaderRecovery`).
+    ///
+    /// Square remembers paired readers across launches and reconnects them by
+    /// itself; `retryConnection` only does anything while the reader reports
+    /// `isConnectionRetryable`, and returns "unable to retry" otherwise.
+    private func recoverReader() {
         let manager = MobilePaymentsSDK.shared.readerManager
-        for reader in manager.readers
-        where reader.model != .tapToPay && reader.statusInfo.status == .readerUnavailable {
-            let result = manager.retryConnection(reader)
-            ActivityLog.shared.info(.reader, "Retrying card reader connection", [
-                "reader": reader.name, "result": Self.describe(result),
-                "retryable": reader.isConnectionRetryable,
-            ])
-            log.info("retryConnection('\(reader.name, privacy: .public)') -> result=\(result.rawValue, privacy: .public)")
+        let now = Date()
+        var look: ReaderRecovery.Reader?
+
+        if let reader = manager.readers.first(where: {
+            $0.model != .tapToPay && $0.statusInfo.status == .readerUnavailable
+        }) {
+            if recoveryAttempts.downSince == nil { recoveryAttempts.downSince = now }
+            let reason = reader.statusInfo.unavailableReasonInfo
+            let unavailable = ReaderRecovery.Reader(
+                failure: Self.recoveryFailure(reason?.reason),
+                isRetryable: reader.isConnectionRetryable,
+                isRebootable: reader.isRebootable
+            )
+            look = unavailable
+
+            let action = ReaderRecovery.nextAction(
+                for: unavailable,
+                attempts: recoveryAttempts,
+                isCharging: chargeContinuation != nil,
+                now: now
+            )
+            switch action {
+            case .wait:
+                break
+            case .retry:
+                recoveryAttempts.retries += 1
+                recoveryAttempts.lastRetryAt = now
+                let result = manager.retryConnection(reader)
+                ActivityLog.shared.info(.reader, "Retrying card reader connection", [
+                    "reader": reader.name, "result": Self.describe(result),
+                    "attempt": recoveryAttempts.retries,
+                ])
+                log.info("retryConnection('\(reader.name, privacy: .public)') -> result=\(result.rawValue, privacy: .public)")
+            case .reboot:
+                recoveryAttempts.reboots += 1
+                recoveryAttempts.lastRebootAt = now
+                ActivityLog.shared.warning(.reader, "Restarting card reader", [
+                    "reader": reader.name, "reason": reason?.title ?? "",
+                    "attempt": recoveryAttempts.reboots,
+                    "downFor": Int(now.timeIntervalSince(recoveryAttempts.downSince ?? now)),
+                ])
+                manager.rebootReader(reader)
+            }
+        }
+
+        let isWorking = ReaderRecovery.isWorking(on: look, attempts: recoveryAttempts, now: now)
+        if isRecoveringReader != isWorking { isRecoveringReader = isWorking }
+        // A restarted reader that never came back: nothing left to look at.
+        if !hasPairedReader && !isWorking { stopReaderRecovery() }
+    }
+
+    private static func recoveryFailure(_ reason: ReaderUnavailableReason?) -> ReaderRecovery.Failure {
+        guard let reason else { return .other }
+        switch reason {
+        case .secureConnectionToSquareFailure: return .secureConnection
+        case .secureConnectionNetworkFailure:  return .network
+        default:                               return .other
         }
     }
 
@@ -439,27 +544,36 @@ final class SquareService: NSObject {
         return reopen
     }
 
+    /// Why Card can't charge right now, worded as what staff should do.
+    private var notReadyMessage: String {
+        switch connectionState {
+        case .connecting:
+            return "The card reader is still connecting — wait a moment, then tap Card again."
+        case .disconnected where isRecoveringReader:
+            return "The card reader is reconnecting by itself — wait a moment, then tap Card again."
+        case .disconnected:
+            return "Reader not connected — open Reader Settings to pair."
+        default:
+            return "Square not authorized — tap Authorize in Reader Settings."
+        }
+    }
+
     private func startCharge(amountCents: Int) async -> ChargeResult {
         guard isConfigured else {
             return .failure("Square credentials not configured.")
         }
-        if connectionState == .connecting {
+        if connectionState == .connecting || isRecoveringReader {
             // Usually the reader refreshing its secure connection to Square,
             // back within seconds — wait for it rather than refuse the card.
             // A failed step drops the reader to `.disconnected` before the
-            // next retry, so keep waiting through that; only `.ready` or
-            // losing authorization ends the wait early.
+            // next retry or restart, so keep waiting through that; only
+            // `.ready` or losing authorization ends the wait early.
             _ = await wait(upTo: Self.reconnectWait) {
                 connectionState != .connecting && connectionState != .disconnected
             }
         }
         guard connectionState == .ready else {
-            let message = switch connectionState {
-            case .connecting:   "The card reader is still connecting — wait a moment, then tap Card again."
-            case .disconnected: "Reader not connected — open Reader Settings to pair."
-            default:            "Square not authorized — tap Authorize in Reader Settings."
-            }
-            return .failure(message)
+            return .failure(notReadyMessage)
         }
 
         // Square requires at least "When In Use" location permission to verify
@@ -477,9 +591,15 @@ final class SquareService: NSObject {
             return .failure("Could not find a view controller to present from.")
         }
 
-        ActivityLog.shared.info(.payment, "Card payment started", [
+        // `connectionAge` and `battery` are here to explain payments that sit
+        // unanswered until staff cancel and retry (31 of 178 on 2026-11-14,
+        // with the reader reporting ready throughout).
+        var startDetails: [String: Any] = [
             "amount": Double(amountCents) / 100, "reader": connectedReaderName,
-        ])
+            "connectionAge": Int(Date().timeIntervalSince(lastReadyAt)),
+        ]
+        if let battery = readerBatteryText { startDetails["battery"] = battery }
+        ActivityLog.shared.info(.payment, "Card payment started", startDetails)
         chargeStartedAt = Date()
         paymentAttemptID = UUID().uuidString
         cancelledPaymentID = nil
@@ -519,6 +639,9 @@ final class SquareService: NSObject {
     /// guarantees the UI reflects reality as soon as we're active again.
     func handleAppDidBackground() {
         log.info("scenePhase -> background (didInitializeSDK=\(Self.didInitializeSDK, privacy: .public))")
+        // iOS suspends the app; looking after a dropped reader resumes when
+        // the app is active again and the reader state is re-derived.
+        stopReaderRecovery()
         guard Self.didInitializeSDK, let observer = readerObserver else { return }
         MobilePaymentsSDK.shared.readerManager.remove(observer)
         readerObserver = nil
@@ -538,6 +661,23 @@ final class SquareService: NSObject {
     func setReaderReady(_ ready: Bool, name: String = "") {
         connectionState = ready ? .ready : .disconnected
         connectedReaderName = ready ? name : ""
+    }
+
+    /// Restarts every paired reader that can be restarted from the app — the
+    /// same as switching it off and on, without touching it. It then
+    /// reconnects by itself, as it does after being switched on. Never during
+    /// a card payment.
+    func restartReaders() {
+        guard Self.didInitializeSDK, chargeContinuation == nil else { return }
+        let manager = MobilePaymentsSDK.shared.readerManager
+        let readers = manager.readers.filter { $0.model != .tapToPay && $0.isRebootable }
+        guard !readers.isEmpty else { return }
+        ActivityLog.shared.info(.reader, "Card reader restart requested", [
+            "readers": readers.map(\.name).joined(separator: ", "),
+        ])
+        for reader in readers {
+            manager.rebootReader(reader)
+        }
     }
 
     /// Forgets every paired physical reader (the SDK has no

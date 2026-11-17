@@ -5,15 +5,29 @@ import Observation
 /// The booth link: phones talking directly to each other, with no router and
 /// no internet (MultipeerConnectivity: peer-to-peer WiFi and Bluetooth).
 ///
-/// The main phone advertises; tills find it and connect. A till asks the main
-/// phone for each ticket number and sends it every change, keeping each one
-/// saved until the main phone answers "got it". The main phone saves the
-/// change on its own upload list, applies it, and sends every till the
-/// ticket's new state. See docs/offline-event-plan.md, step 4.
+/// Nothing connects until staff ask for it on the Booth screen. A phone
+/// starts out working on its own. `host()` makes it the main phone, which
+/// advertises; another phone lists the main phones nearby and `join(_:)`s the
+/// one staff tap. `leave()` undoes either. A till comes back to the main
+/// phone it chose after the app closes or the link drops, and to no other.
+///
+/// A till asks the main phone for each ticket number and sends it every
+/// change, keeping each one saved until the main phone answers "got it". The
+/// main phone saves the change on its own upload list, applies it, and sends
+/// every till the ticket's new state. See docs/offline-event-plan.md, step 4.
 @MainActor
 @Observable
 final class BoothSync: NSObject {
     static let shared = BoothSync()
+
+    /// What this phone is doing at the booth. The saved choice lives in
+    /// `TillSettings`; this copy is what makes screens redraw when it changes.
+    private(set) var role: BoothRole
+    /// Till: the main phone this phone chose, connected or not.
+    private(set) var joinedBooth: NearbyBooth?
+    /// The main phones found nearby while the Booth screen is open on a phone
+    /// working on its own, by name.
+    private(set) var nearbyBooths: [NearbyBooth] = []
 
     /// Main: the tills connected now, by name.
     private(set) var connectedTills: [String] = []
@@ -26,6 +40,9 @@ final class BoothSync: NSObject {
 
     private static let serviceType = "moontea-booth"
     private static let roleKey = "role"
+    /// What a main phone advertises so a till can tell it from another main
+    /// phone with the same name, and find it again after it is renamed.
+    private static let idKey = "id"
     private static let numberTimeoutSeconds: UInt64 = 5
     /// How often a till that hasn't reached the main phone starts looking
     /// afresh. A main phone that stops and restarts advertising under the same
@@ -48,12 +65,86 @@ final class BoothSync: NSObject {
     @ObservationIgnored private var received: ReceivedChanges
     @ObservationIgnored private var runningRole: BoothRole?
     @ObservationIgnored private var searchTask: Task<Void, Never>?
+    /// The main phones the browser reports now, behind `nearbyBooths`.
+    @ObservationIgnored private var foundBooths: [MCPeerID: NearbyBooth] = [:]
+    @ObservationIgnored private var isBoothScreenOpen = false
 
     private override init() {
         peerID = Self.loadPeerID()
         sendList = Self.load(TillSendList.self, key: Self.sendListKey) ?? TillSendList()
         received = Self.load(ReceivedChanges.self, key: Self.receivedKey) ?? ReceivedChanges(day: Self.today())
+        role = TillSettings.role
+        joinedBooth = TillSettings.joinedBooth
         super.init()
+    }
+
+    // MARK: - Choosing what this phone does
+
+    /// Makes this the main phone: other phones can connect to it, and it
+    /// numbers, prints and uploads for all of them.
+    func host() {
+        setRole(.main, joining: nil)
+    }
+
+    /// Connects to the main phone staff picked. From then on this phone gets
+    /// its numbers from it and sends it every change, and comes back to it by
+    /// itself after the app was closed or the link dropped, until `leave()`.
+    func join(_ booth: NearbyBooth) {
+        setRole(.till, joining: booth)
+    }
+
+    /// Stops being the main phone, or disconnects from it: this phone works
+    /// on its own again, with its own internet. Changes the main phone hadn't
+    /// confirmed go on this phone's upload list (`takeOverUnsentChanges`).
+    func leave() {
+        setRole(.standalone, joining: nil)
+    }
+
+    private func setRole(_ newRole: BoothRole, joining booth: NearbyBooth?) {
+        // The chosen main phone first: a till without one reads as standalone.
+        TillSettings.joinedBooth = booth
+        TillSettings.role = newRole
+        TicketStore.shared.start()
+        start()
+        ActivityLog.shared.info(.sync, "Booth role changed", ["role": newRole.rawValue, "mainPhone": booth?.name ?? ""])
+    }
+
+    // MARK: - Main phones nearby
+
+    /// The Booth screen is open: a phone working on its own lists the main
+    /// phones nearby, so staff can pick one to connect to.
+    func startLookingForBooths() {
+        isBoothScreenOpen = true
+        if runningRole == .standalone, browser == nil { startBrowsing() }
+    }
+
+    /// The Booth screen closed: a phone working on its own stops looking. A
+    /// till keeps its browser, which is how it finds its main phone.
+    func stopLookingForBooths() {
+        isBoothScreenOpen = false
+        guard runningRole != .till else { return }
+        browser?.delegate = nil
+        browser?.stopBrowsingForPeers()
+        browser = nil
+        forgetFoundBooths()
+    }
+
+    private func startBrowsing() {
+        let browser = MCNearbyServiceBrowser(peer: peerID, serviceType: Self.serviceType)
+        browser.delegate = self
+        browser.startBrowsingForPeers()
+        self.browser = browser
+    }
+
+    private func forgetFoundBooths() {
+        foundBooths = [:]
+        if !nearbyBooths.isEmpty { nearbyBooths = [] }
+    }
+
+    private func refreshNearbyBooths() {
+        // Two reports of one main phone (it restarted) show once.
+        let booths = Set(foundBooths.values).sorted { ($0.name, $0.id) < ($1.name, $1.id) }
+        if booths != nearbyBooths { nearbyBooths = booths }
     }
 
     // MARK: - Starting and stopping
@@ -65,6 +156,9 @@ final class BoothSync: NSObject {
         let role = TillSettings.role
         stop()
         runningRole = role
+        if self.role != role { self.role = role }
+        let chosen = role == .till ? TillSettings.joinedBooth : nil
+        if joinedBooth != chosen { joinedBooth = chosen }
         TicketStore.shared.onTicketChanged = nil
         TicketStore.shared.onHistoryReplaced = nil
         if role != .till { takeOverUnsentChanges() }
@@ -82,10 +176,17 @@ final class BoothSync: NSObject {
                 ReceiptPrinter.printIfNew(orderNumber: number)
             }
             TicketStore.shared.onHistoryReplaced = { Self.printMissedTickets() }
+            // Nothing is linked, but the Booth screen may be listing the
+            // main phones nearby.
+            if isBoothScreenOpen { startBrowsing() }
             return
         case .main:
             let session = makeSession()
-            let advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: [Self.roleKey: BoothRole.main.rawValue], serviceType: Self.serviceType)
+            let advertiser = MCNearbyServiceAdvertiser(
+                peer: peerID,
+                discoveryInfo: [Self.roleKey: BoothRole.main.rawValue, Self.idKey: ActivityLog.shared.deviceIdentifier],
+                serviceType: Self.serviceType
+            )
             advertiser.delegate = self
             advertiser.startAdvertisingPeer()
             self.session = session
@@ -101,10 +202,7 @@ final class BoothSync: NSObject {
             }
         case .till:
             session = makeSession()
-            let browser = MCNearbyServiceBrowser(peer: peerID, serviceType: Self.serviceType)
-            browser.delegate = self
-            browser.startBrowsingForPeers()
-            self.browser = browser
+            startBrowsing()
             keepLookingForMain()
         }
         ActivityLog.shared.info(.sync, "Booth link started", ["role": role.rawValue])
@@ -144,6 +242,7 @@ final class BoothSync: NSObject {
         mainPhoneName = nil
         tillNames = [:]
         connectedTills = []
+        forgetFoundBooths()
         failNumberWaiters()
     }
 
@@ -194,6 +293,12 @@ final class BoothSync: NSObject {
     private func connectedToMain(_ peer: MCPeerID) {
         mainPeer = peer
         mainPhoneName = peer.displayName
+        // Follow a rename, so "Looking for …" names the phone as it is now.
+        if let joined = joinedBooth, joined.name != peer.displayName {
+            let renamed = NearbyBooth(id: joined.id, name: peer.displayName)
+            TillSettings.joinedBooth = renamed
+            joinedBooth = renamed
+        }
         send(.hello(tillName: TillSettings.name), to: [peer])
         // Anything not confirmed before the link dropped, oldest first. The
         // main phone skips what it already has.
@@ -329,11 +434,23 @@ final class BoothSync: NSObject {
         }
     }
 
+    /// A main phone is in range. A till invites it only if it is the one
+    /// staff chose; a phone working on its own just lists it.
     fileprivate func found(_ peer: MCPeerID, info: [String: String]?) {
-        guard runningRole == .till, invitedMain == nil, let browser, let session,
-              info?[Self.roleKey] == BoothRole.main.rawValue else { return }
-        invitedMain = peer
-        browser.invitePeer(peer, to: session, withContext: nil, timeout: 10)
+        guard info?[Self.roleKey] == BoothRole.main.rawValue else { return }
+        // A main phone on an older build advertises no id: its name stands in.
+        let booth = NearbyBooth(id: info?[Self.idKey] ?? peer.displayName, name: peer.displayName)
+        switch runningRole {
+        case .till:
+            guard invitedMain == nil, let browser, let session, booth.id == joinedBooth?.id else { return }
+            invitedMain = peer
+            browser.invitePeer(peer, to: session, withContext: nil, timeout: 10)
+        case .standalone:
+            foundBooths[peer] = booth
+            refreshNearbyBooths()
+        case .main, nil:
+            break
+        }
     }
 
     /// The browser reports a peer only once, so after a failed invitation or a
@@ -347,6 +464,7 @@ final class BoothSync: NSObject {
     /// The main phone went away before the invitation was answered: forget it,
     /// so a main phone found next (or this one coming back) gets invited.
     fileprivate func lost(_ peer: MCPeerID) {
+        if foundBooths.removeValue(forKey: peer) != nil { refreshNearbyBooths() }
         guard runningRole == .till, peer == invitedMain, mainPeer == nil else { return }
         invitedMain = nil
         lookForMainAgain()
