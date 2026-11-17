@@ -32,10 +32,11 @@ could be charged with no order saved.
   it received it** ("got it"), then the main phone owns the upload.
 - Uploads are safe from any phone: row ids and order_uuid make a duplicate
   upload a no-op, so any phone that does have signal may also upload.
-- If the main phone is unreachable, other tills show "Main phone not connected"
-  and wait. **No automatic takeover** (numbers must stay in order). An optional
-  manual "Make this the main phone" button may continue from the highest number
-  any phone has seen.
+- If the main phone is unreachable, other tills show "Not connected to
+  <main phone>" and wait. **No automatic takeover** (numbers must stay in
+  order). Staff decide what happens next (2026-11-17): keep waiting, tap
+  "Work on my own" to go back to the phone's own internet, or make another
+  phone the main phone, which continues from the highest number it has seen.
 - Optional, steadier: the main phone turns on **Personal Hotspot** and the
   others join it — same app, local traffic works even when cell signal is bad.
   A travel router may be added later; the app should work the same on it.
@@ -132,15 +133,21 @@ Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
 
 ## Step 4: what was built
 
-- **Booth screen** (home → Booth): each phone is **Standalone** (default,
-  works as before), **Main phone** or **Till**. Becoming main asks to confirm;
-  switching a till to main is the manual takeover.
+- **Booth screen** (home → Booth, or tap the status line on the Orders
+  screen). A phone works on its own by default, as before. From there staff
+  either **connect to a main phone** picked from the ones listed nearby, or
+  **make this the main phone** (asks to confirm; on a former till this is the
+  manual takeover). Each state shows the one button that undoes it:
+  Disconnect, or Stop being the main phone. Nothing connects by itself. See
+  "Changes after event feedback (2026-11-17)".
 - **One ticket list per phone** (`TicketStore`), shared by every screen and
   loaded at app launch. Standalone/main read Supabase; a till reads only the
   main phone. Every change goes through `TicketStore.submit`.
 - **Booth link** (`BoothSync`, MultipeerConnectivity, service
-  `moontea-booth`, encrypted): the main phone advertises, tills find it and
-  connect on their own. Messages (`BoothMessage`): till → main `hello`,
+  `moontea-booth`, encrypted): the main phone advertises its name and id; a
+  till connects only to the main phone staff picked, and comes back to that
+  one by itself after the app closes or the link drops. Messages
+  (`BoothMessage`): till → main `hello`,
   `numberRequest`, `change`; main → till `number`, `received` ("got it"),
   `snapshot` (whole day, on connect), `ticket` (one ticket's new rows).
 - A till keeps each change on a saved send list until the main phone answers
@@ -190,8 +197,9 @@ Code from steps 1–2 is on branch `claude/stoic-cray-osbp27`:
     old main phone) refuses to number by itself rather than restart at #1.
 - A till that becomes main/standalone moves its unconfirmed changes onto its
   own upload list. The link stops in the background and restarts on return.
-- Status line on the Orders screen: main shows its connected tills; a till
-  shows "Connected to main phone" or a red "Main phone not connected".
+- Status line on the Orders screen: main shows its connected phones; a till
+  shows "Connected to main phone" or a red "Not connected to <main phone>"
+  with a "Work on my own" button. Tapping the line opens the Booth screen.
 - Printing: see step 5.
 
 **Tested 2026-10-16:** two simulators (main + till) connected on their own; a
@@ -242,6 +250,37 @@ take another till for the main phone.
   day's paid and cancelled tickets, filter All / Paid / Cancelled, paid total,
   and the till name.
 
+## Changes after event feedback (2026-11-17)
+
+The booth link was tried once at an event (2026-10-30): a phone set to Till
+never found a main phone (none had been set yet), could not send orders
+meanwhile, and was switched back within a minute. Every phone has run on its
+own since. The link now works the way staff expect a connection to work:
+
+- **No roles to pick.** The Booth screen says what the phone is doing and
+  offers what it can do next, in plain words. `BoothRole` (standalone / main /
+  till) is still what the code runs on; staff never see the names.
+- **Connecting is a choice.** A phone working on its own lists the main
+  phones nearby while the Booth screen is open; staff tap **Connect** on one
+  (`BoothSync.join`). It is saved by the main phone's id (`NearbyBooth`), so a
+  renamed main phone is still found and a second main phone nearby is never
+  joined by accident. A phone saved as Till by an older build has no chosen
+  main phone and works on its own until someone connects it.
+- **Disconnecting is one tap** (`BoothSync.leave`): on the Booth screen, or
+  "Work on my own" on the red status line when the main phone is away. The
+  phone goes back to its own internet for numbers and uploads; changes the
+  main phone hadn't confirmed upload from this phone. The main phone has
+  **Stop being the main phone**, which warns when phones are connected.
+- **Still by itself:** a till that chose a main phone comes back to it after
+  the app closes or the link drops, until staff disconnect.
+- **Known limit:** a phone working on its own next to a main phone that has
+  no signal takes its numbers from the database, which hasn't seen the main
+  phone's unsent tickets, so both can give out the same number. The
+  disconnect confirmation says so.
+- The phone's name can be set on the Booth screen as well as on History.
+
+Not built or tested on a phone yet.
+
 ## Before the next step
 
 1. ~~Apply both migrations~~ — done 2026-10-14. **Deploy the web change** with
@@ -253,11 +292,13 @@ take another till for the main phone.
 3. Test step 3: send → Pending on the stations; pay by each method (receipt
    prints, Paid on every phone); cancel; change method; mark unpaid → edit →
    pay; restore a cancelled ticket; check the payment history on another phone.
-4. Test step 4 on phones: set the owner's iPhone to Main phone and another to
-   Till (Booth screen); with the till in airplane mode (WiFi and Bluetooth
-   back on), send, edit, pay and cancel tickets on both; check both screens
-   match and the main phone uploads everything; walk the till out of range
-   and back (changes resend); force-quit the main phone mid-order.
+4. Test step 4 on phones: on the owner's iPhone open Booth and make it the
+   main phone; on another open Booth and tap Connect on it; with the till in
+   airplane mode (WiFi and Bluetooth back on), send, edit, pay and cancel
+   tickets on both; check both screens match and the main phone uploads
+   everything; walk the till out of range and back (changes resend);
+   force-quit the main phone mid-order; then Disconnect on the till and check
+   it sends orders with its own internet.
 5. Test step 5: a ticket sent on the main phone, on a till and on the website
    each prints exactly once on the main phone's Epson, with no "Paid" line;
    paying prints nothing; a till's reprint prints on the main phone.
