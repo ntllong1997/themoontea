@@ -1,8 +1,10 @@
+import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 /// The payment page for one pending ticket. Staff tap the method the customer
-/// used; there is no default. Card charges on this phone's reader; the other
-/// three are taken elsewhere and only confirmed here.
+/// used; there is no default. Card charges on this phone's reader; the others
+/// are taken elsewhere and only confirmed here. Cash App first shows a QR code
+/// the customer scans to open Cash App with the amount filled in.
 struct PaymentSheet: View {
     @Bindable var vm: OrderViewModel
     let orderNumber: Int
@@ -11,6 +13,7 @@ struct PaymentSheet: View {
     @Environment(AppRouter.self) private var router
     @State private var square = SquareService.shared
     @State private var confirming: PaymentChoice?
+    @State private var isShowingCashAppCode = false
     @State private var isCharging = false
     @State private var chargeError = ""
 
@@ -39,6 +42,8 @@ struct PaymentSheet: View {
                     amountDue
                     if let ticket, ticket.status != .pending {
                         notPendingNotice(ticket)
+                    } else if isShowingCashAppCode {
+                        cashAppCode
                     } else {
                         choices
                         if !chargeError.isEmpty { errorText }
@@ -107,6 +112,8 @@ struct PaymentSheet: View {
                 square.presentReaderSettings()
             } else if isReaderChoice {
                 Task { await chargeOnReader() }
+            } else if choice == .cashApp {
+                isShowingCashAppCode = true
             } else {
                 confirming = choice
             }
@@ -135,6 +142,60 @@ struct PaymentSheet: View {
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
+    }
+
+    /// The Cash App step: a QR code for this ticket's amount, then confirm.
+    /// Showing the code is the "are you sure" step, so there is no second ask.
+    private var cashAppCode: some View {
+        let url = CashAppStore.shared.payURL(amount: total)
+        return VStack(spacing: 14) {
+            Text("Scan to pay with Cash App")
+                .font(.system(size: 16, weight: .semibold))
+            if let code = Self.qrCode(url) {
+                Image(uiImage: code)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 230, height: 230)
+                    .padding(12)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Theme.cardBorder, lineWidth: 0.5)
+                    )
+                    .accessibilityLabel("Cash App QR code for $\(total.fmt2)")
+            }
+            Text("\(CashAppStore.displayTag(CashAppStore.shared.activeURL)) · $\(total.fmt2)")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.green)
+            Text("The amount is filled in for the customer. Only confirm once you see the payment.")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.mutedText)
+                .multilineTextAlignment(.center)
+            Button {
+                confirm(.cashApp)
+            } label: {
+                Text("Paid by Cash App")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.black)
+            Button("Not yet") { isShowingCashAppCode = false }
+                .font(.system(size: 15, weight: .semibold))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private static func qrCode(_ text: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)),
+              let image = CIContext().createCGImage(output, from: output.extent) else { return nil }
+        return UIImage(cgImage: image)
     }
 
     private func notPendingNotice(_ ticket: OrderGroup) -> some View {
