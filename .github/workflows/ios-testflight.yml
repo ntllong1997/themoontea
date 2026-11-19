@@ -1,0 +1,236 @@
+# Builds the MoonTea iOS app (the Xcode project in MoonTea/) on a Mac in GitHub.
+#
+#   build       Runs on every pull request that touches MoonTea/. Compiles the app
+#               without signing, so a PR that doesn't build shows a red X before merge.
+#               Uploads nothing.
+#
+#   testflight  Runs only when you press "Run workflow" on the Actions tab.
+#               Archives the app, signs it, gives it a new build number and uploads
+#               it to TestFlight. Nothing is ever uploaded automatically.
+#
+# Setup (secrets to add, where to get them): docs/testflight.md
+
+name: iOS app
+
+on:
+  pull_request:
+    paths:
+      - "MoonTea/**"
+      - ".github/workflows/ios-testflight.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number people see, e.g. 1.1. Leave blank to keep the one set in Xcode."
+        required: false
+        default: ""
+      build_number:
+        description: "Build number override. Leave blank to use this run's number (always goes up)."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash # also turns on "fail if any piped command fails"
+
+env:
+  PROJECT: MoonTea/MoonTea.xcodeproj
+  SCHEME: MoonTea
+  SECRETS_FILE: MoonTea/MoonTea/Config/Secrets.swift
+  # Where the Xcode project expects the Epson printer SDK. The SDK isn't in this
+  # (public) repo, so both jobs download it from the EPSON_SDK_ZIP_URL secret.
+  EPSON_SDK_DIR: MoonTea/MoonTea/ePOS_SDK_iOS_v2.37.0
+
+jobs:
+  build:
+    name: Build check (no signing, no upload)
+    if: github.event_name == 'pull_request'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Get the Epson printer SDK
+        env:
+          EPSON_SDK_ZIP_URL: ${{ secrets.EPSON_SDK_ZIP_URL }}
+        run: |
+          if [ -d "$EPSON_SDK_DIR/libepos2.xcframework" ]; then
+            echo "Epson SDK already in the repo, skipping download."; exit 0
+          fi
+          if [ -z "$EPSON_SDK_ZIP_URL" ]; then
+            echo "::error::The EPSON_SDK_ZIP_URL secret is missing. See docs/testflight.md."; exit 1
+          fi
+          curl -fsSL --retry 3 "$EPSON_SDK_ZIP_URL" -o "$RUNNER_TEMP/epson.zip"
+          unzip -tq "$RUNNER_TEMP/epson.zip" >/dev/null \
+            || { echo "::error::EPSON_SDK_ZIP_URL did not download a zip file. It must be a direct download link."; exit 1; }
+          unzip -q "$RUNNER_TEMP/epson.zip" -d "$RUNNER_TEMP/epson"
+          found=$(find "$RUNNER_TEMP/epson" -type d -name libepos2.xcframework -not -path '*/__MACOSX/*' | head -n 1)
+          [ -n "$found" ] || { echo "::error::No libepos2.xcframework inside the Epson zip."; exit 1; }
+          mkdir -p "$EPSON_SDK_DIR"
+          mv "$found" "$EPSON_SDK_DIR/"
+
+      # PRs compile against the placeholder values in Secrets.swift.example,
+      # so no real keys are needed (or exposed) for the build check.
+      - name: Use placeholder app secrets
+        run: cp MoonTea/MoonTea/Config/Secrets.swift.example "$SECRETS_FILE"
+
+      - name: Build
+        run: |
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO
+
+  testflight:
+    name: Upload to TestFlight
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    timeout-minutes: 60
+    concurrency:
+      group: testflight
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Check that every secret is set
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          APP_SECRETS_SWIFT: ${{ secrets.APP_SECRETS_SWIFT }}
+          EPSON_SDK_ZIP_URL: ${{ secrets.EPSON_SDK_ZIP_URL }}
+        run: |
+          missing=0
+          for name in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 APP_SECRETS_SWIFT EPSON_SDK_ZIP_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::The $name secret is missing. See docs/testflight.md."; missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Get the Epson printer SDK
+        env:
+          EPSON_SDK_ZIP_URL: ${{ secrets.EPSON_SDK_ZIP_URL }}
+        run: |
+          if [ -d "$EPSON_SDK_DIR/libepos2.xcframework" ]; then
+            echo "Epson SDK already in the repo, skipping download."; exit 0
+          fi
+          curl -fsSL --retry 3 "$EPSON_SDK_ZIP_URL" -o "$RUNNER_TEMP/epson.zip"
+          unzip -tq "$RUNNER_TEMP/epson.zip" >/dev/null \
+            || { echo "::error::EPSON_SDK_ZIP_URL did not download a zip file. It must be a direct download link."; exit 1; }
+          unzip -q "$RUNNER_TEMP/epson.zip" -d "$RUNNER_TEMP/epson"
+          found=$(find "$RUNNER_TEMP/epson" -type d -name libepos2.xcframework -not -path '*/__MACOSX/*' | head -n 1)
+          [ -n "$found" ] || { echo "::error::No libepos2.xcframework inside the Epson zip."; exit 1; }
+          mkdir -p "$EPSON_SDK_DIR"
+          mv "$found" "$EPSON_SDK_DIR/"
+
+      # Secrets.swift is git-ignored. The APP_SECRETS_SWIFT secret holds the
+      # whole file, copied from the Mac where the app is built today.
+      - name: Write Secrets.swift
+        env:
+          APP_SECRETS_SWIFT: ${{ secrets.APP_SECRETS_SWIFT }}
+        run: printf '%s\n' "$APP_SECRETS_SWIFT" > "$SECRETS_FILE"
+
+      # The App Store Connect API key lets Xcode sign in to Apple without a
+      # password: it creates or downloads the signing certificate and profile
+      # itself ("cloud signing"), and uploads the build.
+      - name: Save the App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          key_dir="$RUNNER_TEMP/asc"
+          mkdir -p "$key_dir"
+          printf '%s\n' "$ASC_KEY_P8" > "$key_dir/AuthKey_$ASC_KEY_ID.p8"
+          chmod 600 "$key_dir/AuthKey_$ASC_KEY_ID.p8"
+          echo "ASC_KEY_PATH=$key_dir/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
+
+      - name: Pick the version and build number
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUILD: ${{ inputs.build_number }}
+        run: |
+          build="${INPUT_BUILD:-$GITHUB_RUN_NUMBER}"
+          [[ "$build" =~ ^[0-9]+$ ]] || { echo "::error::Build number must be digits only."; exit 1; }
+          echo "BUILD_NUMBER=$build" >> "$GITHUB_ENV"
+          if [ -n "$INPUT_VERSION" ]; then
+            [[ "$INPUT_VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "::error::Version must look like 1.1 or 1.1.2."; exit 1; }
+            echo "VERSION_SETTING=MARKETING_VERSION=$INPUT_VERSION" >> "$GITHUB_ENV"
+          fi
+
+      - name: Archive (build and sign)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcodebuild archive \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/MoonTea.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            ${VERSION_SETTING:+"$VERSION_SETTING"}
+
+      - name: Sign for the App Store and upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          archive="$RUNNER_TEMP/MoonTea.xcarchive"
+          # Sign with the same Apple team the archive was built for.
+          team=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:Team" "$archive/Info.plist" 2>/dev/null || true)
+          team_line=""
+          [ -n "$team" ] && team_line="<key>teamID</key><string>$team</string>"
+          # destination=upload: xcodebuild sends the signed build straight to
+          # App Store Connect instead of leaving an .ipa on disk.
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>automatic</string>
+            $team_line
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "$archive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+          version=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$archive/Info.plist")
+          {
+            echo "### Uploaded MoonTea $version (build $BUILD_NUMBER) to TestFlight"
+            echo "It appears in App Store Connect → TestFlight once Apple finishes processing it."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the API key and app secrets from the runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc" "$SECRETS_FILE"

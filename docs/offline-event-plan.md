@@ -307,7 +307,7 @@ Still needs signal until step 4: getting the ticket number (retried 3 times).
 
 ## TestFlight
 
-Not set up yet. Needs the paid Apple Developer Program, an app record for
-bundle id `ntl.MoonTea` in App Store Connect, then Product → Archive →
-Distribute → App Store Connect from Xcode on a Mac. Optional: add
+Built and uploaded from GitHub Actions: see [testflight.md](testflight.md).
+Needs the paid Apple Developer Program and an app record for bundle id
+`ntl.MoonTea` in App Store Connect. Optional: add
 `ITSAppUsesNonExemptEncryption = NO` to `Info.plist` (the app only uses HTTPS).
