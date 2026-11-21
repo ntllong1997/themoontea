@@ -2,6 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>ntl.MoonTea.square-pos-callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>moontea</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>square-commerce-v1</string>
+	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>The Moon Tea uses Bluetooth to communicate with the Square card reader for contactless payments.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

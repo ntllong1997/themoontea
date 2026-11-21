@@ -4,7 +4,9 @@ import SwiftUI
 /// The payment page for one pending ticket. Staff tap the method the customer
 /// used; there is no default. Card charges on this phone's reader; the others
 /// are taken elsewhere and only confirmed here. Cash App first shows a QR code
-/// the customer scans to open Cash App with the amount filled in.
+/// the customer scans to open Cash App with the amount and note filled in.
+/// Square app opens Square POS with the amount filled in; when Square switches
+/// back with a successful charge the ticket is marked paid by itself.
 struct PaymentSheet: View {
     @Bindable var vm: OrderViewModel
     let orderNumber: Int
@@ -12,10 +14,16 @@ struct PaymentSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppRouter.self) private var router
     @State private var square = SquareService.shared
+    @State private var squareLink = SquarePOSLink.shared
     @State private var confirming: PaymentChoice?
     @State private var isShowingCashAppCode = false
+    @State private var isWaitingForSquareApp = false
+    @State private var isShowingZelleCode = false
     @State private var isCharging = false
     @State private var chargeError = ""
+    /// The error came from the Square app hand-off, so the reader's settings
+    /// link would point staff the wrong way.
+    @State private var isSquareAppError = false
 
     private var ticket: OrderGroup? { vm.ticket(orderNumber) }
     private var total: Double { ticket?.total(taxRate: AppConstants.taxRate) ?? 0 }
@@ -46,8 +54,19 @@ struct PaymentSheet: View {
                     amountDue
                     if let ticket, ticket.status != .pending {
                         notPendingNotice(ticket)
+                        // e.g. a card charged after another phone settled it.
+                        if !chargeError.isEmpty { errorText }
+                    } else if isWaitingForSquareApp {
+                        squareAppHandoff
                     } else if isShowingCashAppCode {
                         cashAppCode
+                    } else if isShowingZelleCode {
+                        ZellePaymentView(
+                            total: total,
+                            orderNumber: orderNumber,
+                            onPaid: { confirm(.zelle) },
+                            onBack: { isShowingZelleCode = false }
+                        )
                     } else {
                         choices
                         if !chargeError.isEmpty { errorText }
@@ -64,6 +83,10 @@ struct PaymentSheet: View {
             }
         }
         .interactiveDismissDisabled(isCharging)
+        .onChange(of: squareLink.lastOutcome) { _, outcome in
+            guard let outcome, outcome.orderNumber == orderNumber else { return }
+            finishSquareApp(outcome.result)
+        }
         .confirmationDialog(
             confirmTitle,
             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
@@ -73,9 +96,7 @@ struct PaymentSheet: View {
             Button("Paid by \(choice.title)") { confirm(choice) }
             Button("Not yet", role: .cancel) {}
         } message: { choice in
-            Text(choice == .squareApp
-                 ? "Charge $\(total.fmt2) in the Square app first, then confirm here."
-                 : "Only confirm once you have the money.")
+            Text("Only confirm once you have the money.")
         }
     }
 
@@ -116,8 +137,12 @@ struct PaymentSheet: View {
                 square.presentReaderSettings()
             } else if isReaderChoice {
                 Task { await chargeOnReader() }
+            } else if choice == .squareApp {
+                Task { await openSquareApp() }
             } else if choice == .cashApp {
                 isShowingCashAppCode = true
+            } else if choice == .zelle {
+                isShowingZelleCode = true
             } else {
                 confirming = choice
             }
@@ -151,7 +176,7 @@ struct PaymentSheet: View {
     /// The Cash App step: a QR code for this ticket's amount, then confirm.
     /// Showing the code is the "are you sure" step, so there is no second ask.
     private var cashAppCode: some View {
-        let url = CashAppStore.shared.payURL(amount: total)
+        let url = CashAppStore.shared.payURL(amount: total, note: paymentNote)
         return VStack(spacing: 14) {
             Text("Scan to pay with Cash App")
                 .font(.system(size: 16, weight: .semibold))
@@ -173,7 +198,7 @@ struct PaymentSheet: View {
             Text("\(CashAppStore.displayTag(CashAppStore.shared.activeURL)) · $\(total.fmt2)")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.green)
-            Text("The amount is filled in for the customer. Only confirm once you see the payment.")
+            Text("The amount and ticket number are filled in for the customer. Only confirm once you see the payment.")
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.mutedText)
                 .multilineTextAlignment(.center)
@@ -193,7 +218,43 @@ struct PaymentSheet: View {
         .frame(maxWidth: .infinity)
     }
 
-    private static func qrCode(_ text: String) -> UIImage? {
+    /// Waiting on Square POS. A successful charge confirms the ticket by
+    /// itself; the manual button covers Square not switching back.
+    private var squareAppHandoff: some View {
+        VStack(spacing: 14) {
+            Image(systemName: PaymentChoice.squareApp.icon).font(.system(size: 30))
+            Text("Finish the charge in Square")
+                .font(.system(size: 16, weight: .semibold))
+            Text("$\(total.fmt2) · \(paymentNote)")
+                .font(.system(size: 15, weight: .medium))
+            Text("This ticket is marked paid when Square switches back. If it doesn't, confirm only once Square shows the payment.")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.mutedText)
+                .multilineTextAlignment(.center)
+            if !chargeError.isEmpty { errorText }
+            Button {
+                Task { await openSquareApp() }
+            } label: {
+                Text("Open Square again")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.black)
+            Button("Paid by Square app") { confirm(.squareApp) }
+                .font(.system(size: 15, weight: .semibold))
+            Button("Not yet") {
+                isWaitingForSquareApp = false
+                chargeError = ""
+            }
+            .font(.system(size: 15, weight: .semibold))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Also draws the Zelle code (ZellePaymentView).
+    static func qrCode(_ text: String) -> UIImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(text.utf8)
         filter.correctionLevel = "M"
@@ -220,7 +281,7 @@ struct PaymentSheet: View {
                 .font(.system(size: 13))
                 .foregroundStyle(.red)
                 .multilineTextAlignment(.center)
-            if !readerReady {
+            if !readerReady && !isSquareAppError {
                 Button("Reader settings") {
                     dismiss()
                     router.push(.reader)
@@ -244,9 +305,42 @@ struct PaymentSheet: View {
         }
     }
 
+    /// What the customer's Cash App payment and the Square sale are noted with.
+    private var paymentNote: String { SquarePOSRequest.note(orderNumber: orderNumber) }
+
+    private func openSquareApp() async {
+        showSquareAppError("")
+        if let problem = await squareLink.open(orderNumber: orderNumber, amountCents: Int((total * 100).rounded())) {
+            showSquareAppError(problem)
+            return
+        }
+        isWaitingForSquareApp = true
+    }
+
+    /// `SquarePOSLink` has already recorded the payment; this only closes the
+    /// sheet or says what went wrong.
+    private func finishSquareApp(_ result: SquarePOSLink.Result) {
+        switch result {
+        case .recorded:
+            dismiss()
+        case .alreadySettled(let state):
+            // Another phone settled the ticket while Square was open.
+            showSquareAppError("Square charged the card, but this ticket was already \(state). Check the ticket and refund in Square Dashboard if needed.")
+        case .failed(let message):
+            isWaitingForSquareApp = false
+            showSquareAppError(message)
+        }
+    }
+
+    private func showSquareAppError(_ message: String) {
+        chargeError = message
+        isSquareAppError = true
+    }
+
     private func chargeOnReader() async {
         isCharging = true
         chargeError = ""
+        isSquareAppError = false
         let result = await square.charge(amountCents: Int((total * 100).rounded()))
         isCharging = false
         switch result {
