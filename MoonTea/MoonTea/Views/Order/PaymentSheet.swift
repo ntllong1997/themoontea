@@ -18,6 +18,7 @@ struct PaymentSheet: View {
     @State private var confirming: PaymentChoice?
     @State private var isShowingCashAppCode = false
     @State private var isWaitingForSquareApp = false
+    @State private var isShowingZelleCode = false
     @State private var isCharging = false
     @State private var chargeError = ""
     /// The error came from the Square app hand-off, so the reader's settings
@@ -59,6 +60,13 @@ struct PaymentSheet: View {
                         squareAppHandoff
                     } else if isShowingCashAppCode {
                         cashAppCode
+                    } else if isShowingZelleCode {
+                        ZellePaymentView(
+                            total: total,
+                            orderNumber: orderNumber,
+                            onPaid: { confirm(.zelle) },
+                            onBack: { isShowingZelleCode = false }
+                        )
                     } else {
                         choices
                         if !chargeError.isEmpty { errorText }
@@ -133,6 +141,8 @@ struct PaymentSheet: View {
                 Task { await openSquareApp() }
             } else if choice == .cashApp {
                 isShowingCashAppCode = true
+            } else if choice == .zelle {
+                isShowingZelleCode = true
             } else {
                 confirming = choice
             }
@@ -243,7 +253,8 @@ struct PaymentSheet: View {
         .frame(maxWidth: .infinity)
     }
 
-    private static func qrCode(_ text: String) -> UIImage? {
+    /// Also draws the Zelle code (ZellePaymentView).
+    static func qrCode(_ text: String) -> UIImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(text.utf8)
         filter.correctionLevel = "M"

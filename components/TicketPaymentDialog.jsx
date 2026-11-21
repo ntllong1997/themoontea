@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import Dialog from '@/components/admin/Dialog';
+import ZelleCode from '@/components/ZelleCode';
 import { getActiveCashApp } from '@/lib/printer';
 import {
     PAY_CHOICES,
@@ -105,6 +106,9 @@ export default function TicketPaymentDialog({ ticket, onClose, onChange }) {
                 >
                     {confirming.action === 'pay' && confirming.method === 'CashApp' && (
                         <CashAppCode total={total} orderNumber={orderNumber} />
+                    )}
+                    {confirming.action === 'pay' && confirming.method === 'Zelle' && (
+                        <ZelleCode total={total} orderNumber={orderNumber} />
                     )}
                 </ConfirmStep>
             )}
