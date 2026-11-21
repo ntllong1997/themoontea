@@ -71,10 +71,7 @@ struct ZellePaymentView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Set up the shop's Zelle once on this phone")
                 .font(.system(size: 16, weight: .semibold))
-            Text("Copy both exactly as your bank's own Zelle QR code shows them (Zelle → My QR code). Some banks, like Bank of America, reject the code if the name differs.")
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.mutedText)
-            TextField("Name as Zelle shows it (e.g. THANH)", text: $nameInput)
+            TextField("Name on Zelle (e.g. The Moon Tea)", text: $nameInput)
                 .textFieldStyle(.roundedBorder)
                 .textInputAutocapitalization(.words)
             TextField("Zelle email or US phone", text: $recipientInput)

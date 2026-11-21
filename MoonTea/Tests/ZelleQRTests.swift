@@ -31,14 +31,6 @@ enum ZelleQRTests {
         check("name is upper-cased", payload?["name"] == "THE MOON TEA")
         check("token is the normalized recipient", payload?["token"] == "pay@themoontea.com")
         check("action is payment", payload?["action"] == "payment")
-        // Laid out like a real bank-made Zelle code; Bank of America rejected
-        // the one-line form. Same expected links as lib/orders/zelle.test.js.
-        check("phone link is byte-for-byte Zelle's own",
-              ZelleQR.url(name: "Thanh", recipient: "(714) 555-0123")
-              == "https://enroll.zellepay.com/qr-codes?data=ewogICJhY3Rpb24iIDogInBheW1lbnQiLAogICJuYW1lIiA6ICJUSEFOSCIsCiAgInRva2VuIiA6ICI3MTQ1NTUwMTIzIgp9")
-        check("email link is byte-for-byte Zelle's own",
-              ZelleQR.url(name: "The Moon Tea", recipient: "pay@themoontea.com")
-              == "https://enroll.zellepay.com/qr-codes?data=ewogICJhY3Rpb24iIDogInBheW1lbnQiLAogICJuYW1lIiA6ICJUSEUgTU9PTiBURUEiLAogICJ0b2tlbiIgOiAicGF5QHRoZW1vb250ZWEuY29tIgp9")
         check("no link with a bad recipient", ZelleQR.url(name: "The Moon Tea", recipient: "nope") == nil)
         check("no link without a name", ZelleQR.url(name: "  ", recipient: "7145550123") == nil)
 

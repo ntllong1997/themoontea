@@ -66,10 +66,7 @@ function ZelleSetup({ initial, onSaved }) {
     return (
         <div className='space-y-2 text-left'>
             <p className='text-sm font-semibold'>Set up the shop&apos;s Zelle once on this device</p>
-            <p className='text-xs text-gray-500'>
-                Copy both exactly as your bank&apos;s own Zelle QR code shows them (Zelle → My QR code). Some banks, like Bank of America, reject the code if the name differs.
-            </p>
-            <input className={inputClass} placeholder='Name as Zelle shows it (e.g. THANH)' value={name} onChange={(e) => setName(e.target.value)} />
+            <input className={inputClass} placeholder='Name on Zelle (e.g. The Moon Tea)' value={name} onChange={(e) => setName(e.target.value)} />
             <input
                 className={inputClass}
                 placeholder='Zelle email or US phone'

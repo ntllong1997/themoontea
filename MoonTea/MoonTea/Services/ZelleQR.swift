@@ -27,12 +27,8 @@ nonisolated enum ZelleQR {
         let cleanName = name.trimmingCharacters(in: .whitespaces).uppercased()
         guard !cleanName.isEmpty, let token = recipient(raw) else { return nil }
         let payload = ["name": cleanName, "token": token, "action": "payment"]
-        // Pretty-printed with sorted keys is byte-for-byte what bank apps
-        // put in their own Zelle codes; Bank of America rejected a compact one.
-        guard let json = try? JSONSerialization.data(
-            withJSONObject: payload,
-            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        ) else { return nil }
+        guard let json = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .withoutEscapingSlashes])
+        else { return nil }
         return prefix + json.base64EncodedString()
     }
 }
