@@ -36,19 +36,13 @@ final class CashAppStore {
         active.isEmpty ? AppConstants.defaultCashAppURL : active
     }
 
-    /// The active tag's link with the amount (and, when given, the note)
-    /// filled in, e.g. `https://cash.app/$themoontea/12.50?note=Moon%20Tea%20ticket%20%2312`.
-    /// Scanned, it opens Cash App on the customer's phone ready to send
-    /// exactly that much. Cash App does not document `note`; where it's
-    /// ignored the customer still lands on the right amount. Same link as the
-    /// website's `cashAppPayUrl`.
-    func payURL(amount: Double, note: String = "") -> String {
-        let url = "\(activeURL)/\(String(format: "%.2f", amount))"
-        let cleanNote = note.trimmingCharacters(in: .whitespaces)
-        guard !cleanNote.isEmpty,
-              let encoded = cleanNote.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
-        else { return url }
-        return "\(url)?note=\(encoded)"
+    /// The active tag's link with the amount filled in, e.g.
+    /// `https://cash.app/$themoontea/12.50`. Scanned, it opens Cash App on the
+    /// customer's phone ready to send exactly that much. Nothing else is
+    /// added: Cash App has no note parameter, and a `?note=` stopped the link
+    /// opening. Same link as the website's `cashAppPayUrl`.
+    func payURL(amount: Double) -> String {
+        "\(activeURL)/\(String(format: "%.2f", amount))"
     }
 
     func addTag(_ raw: String) {

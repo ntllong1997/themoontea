@@ -4,7 +4,7 @@ import SwiftUI
 /// The payment page for one pending ticket. Staff tap the method the customer
 /// used; there is no default. Card charges on this phone's reader; the others
 /// are taken elsewhere and only confirmed here. Cash App first shows a QR code
-/// the customer scans to open Cash App with the amount and note filled in.
+/// the customer scans to open Cash App with the amount filled in.
 /// Square app opens Square POS with the amount filled in; when Square switches
 /// back with a successful charge the ticket is marked paid by itself.
 struct PaymentSheet: View {
@@ -176,7 +176,7 @@ struct PaymentSheet: View {
     /// The Cash App step: a QR code for this ticket's amount, then confirm.
     /// Showing the code is the "are you sure" step, so there is no second ask.
     private var cashAppCode: some View {
-        let url = CashAppStore.shared.payURL(amount: total, note: paymentNote)
+        let url = CashAppStore.shared.payURL(amount: total)
         return VStack(spacing: 14) {
             Text("Scan to pay with Cash App")
                 .font(.system(size: 16, weight: .semibold))
@@ -198,7 +198,7 @@ struct PaymentSheet: View {
             Text("\(CashAppStore.displayTag(CashAppStore.shared.activeURL)) · $\(total.fmt2)")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.green)
-            Text("The amount and ticket number are filled in for the customer. Only confirm once you see the payment.")
+            Text("The amount is filled in. Ask them to type “ticket #\(orderNumber)” as the note. Only confirm once you see the payment.")
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.mutedText)
                 .multilineTextAlignment(.center)
