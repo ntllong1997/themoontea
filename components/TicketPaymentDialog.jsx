@@ -15,7 +15,6 @@ import {
     PAY_CHOICES,
     PAYMENT_METHOD_KEYS,
     canChangePayment,
-    cashAppNote,
     cashAppPayUrl,
     cashtagOf,
     isChargedOnReader,
@@ -182,13 +181,13 @@ export default function TicketPaymentDialog({ ticket, onClose, onChange }) {
     );
 }
 
-/** The QR a customer scans to open Cash App with this ticket's amount and note filled in. */
+/** The QR a customer scans to open Cash App with this ticket's amount filled in. */
 function CashAppCode({ total, orderNumber }) {
     const cashtagUrl = getActiveCashApp();
     return (
         <div className='flex flex-col items-center gap-2'>
             <QRCodeSVG
-                value={cashAppPayUrl(cashtagUrl, total, cashAppNote(orderNumber))}
+                value={cashAppPayUrl(cashtagUrl, total)}
                 size={208}
                 marginSize={2}
                 level='M'
@@ -198,6 +197,7 @@ function CashAppCode({ total, orderNumber }) {
             <p className='text-sm font-semibold text-green-700'>
                 {cashtagOf(cashtagUrl)} · ${total.toFixed(2)}
             </p>
+            <p className='text-xs text-gray-500'>Note for the customer to type: &quot;ticket #{orderNumber}&quot;</p>
         </div>
     );
 }
