@@ -14,6 +14,7 @@ import {
     PAY_CHOICES,
     PAYMENT_METHOD_KEYS,
     canChangePayment,
+    cashAppNote,
     cashAppPayUrl,
     cashtagOf,
     isChargedOnReader,
@@ -102,7 +103,9 @@ export default function TicketPaymentDialog({ ticket, onClose, onChange }) {
                     onConfirm={save}
                     onBack={() => setConfirming(null)}
                 >
-                    {confirming.action === 'pay' && confirming.method === 'CashApp' && <CashAppCode total={total} />}
+                    {confirming.action === 'pay' && confirming.method === 'CashApp' && (
+                        <CashAppCode total={total} orderNumber={orderNumber} />
+                    )}
                 </ConfirmStep>
             )}
 
@@ -175,13 +178,13 @@ export default function TicketPaymentDialog({ ticket, onClose, onChange }) {
     );
 }
 
-/** The QR a customer scans to open Cash App with this ticket's amount filled in. */
-function CashAppCode({ total }) {
+/** The QR a customer scans to open Cash App with this ticket's amount and note filled in. */
+function CashAppCode({ total, orderNumber }) {
     const cashtagUrl = getActiveCashApp();
     return (
         <div className='flex flex-col items-center gap-2'>
             <QRCodeSVG
-                value={cashAppPayUrl(cashtagUrl, total)}
+                value={cashAppPayUrl(cashtagUrl, total, cashAppNote(orderNumber))}
                 size={208}
                 marginSize={2}
                 level='M'

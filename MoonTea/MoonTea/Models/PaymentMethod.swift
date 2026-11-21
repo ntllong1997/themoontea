@@ -31,8 +31,9 @@ nonisolated enum PaymentMethod: String, CaseIterable, Codable, Identifiable, Sen
 }
 
 /// The buttons on the payment page. Two of them are cards: one charged here on
-/// the reader, one charged by staff in the Square app and only confirmed here.
-/// Cash App shows the customer a QR code for the amount before it's confirmed.
+/// the reader, one handed to the Square POS app with the amount filled in and
+/// recorded when Square switches back. Cash App shows the customer a QR code
+/// for the amount and ticket note before it's confirmed.
 enum PaymentChoice: CaseIterable, Identifiable {
     case cardReader, squareApp, cash, cashApp, zelle
 

@@ -13,6 +13,8 @@ struct MoonTeaApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                // Square POS switches back here after a hand-off.
+                .onOpenURL { SquarePOSLink.shared.handle($0) }
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
